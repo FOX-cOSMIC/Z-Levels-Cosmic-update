@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+.artifacts/
+ZLevels/1.7/Assemblies/
+*.user
+*.suo
