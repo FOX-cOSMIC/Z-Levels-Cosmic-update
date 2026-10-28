@@ -123,7 +123,21 @@ ERROR [Verse] Pausing, reason: Fail in TryMakePreToilReservations, pawn: Summers
 
 It was seen once. It has not appeared in any other run folder, and it has not been reproduced. The cause is not known. It could be a queued job whose reservations are on another level, or an ordinary vanilla reservation failure.
 
-**Save and reload.** Each validation run saves and reloads once. Before the save, the harness waits until the colonist is on the surface. Run 134128 saved with the colonist downstairs, and its reload check failed. After the reload, the checks confirm three levels, the colonist on the surface, and a trip down the stairs and back up (`reload stairs down` and `reload stairs return`, run 135603). Hauling and power are not repeated after the reload.
+**Save and reload.** Each validation run saves and reloads once. Since run 144444 the harness no longer climbs the colonist up first. It saves with the colonist on the lower level, reloads, and checks the same level and cell. Run 134128 failed its reload check when it saved with the colonist downstairs, but that check expected the surface. It did not prove a lost level. Hauling, power and the wood are not rechecked after the reload. Run 135603 saved with the colonist on the surface.
+
+## Runs after 135603: save below and unforced haul
+
+| Run | Result |
+|---|---|
+| 144444 | PASS, all scenarios. The colonist waited below for 1800 ticks, was saved there, and reloaded on the lower level at the same cell. Run before the unforced haul stage was added. |
+| 144826 | FAIL at stage 1. The colonist lay down to rest on the way (`JobGiver_GetRest`), and the stairs stage timed out after four minutes. Same stall as run 134553. The harness now holds rest, food and joy at full at the start and before the unforced haul. |
+| 145345 | FAIL at stage 20, the unforced cross-level haul. The save below and reload checks PASS. Within four minutes the wood did not reach the stockpile, and the timeout shows the colonist's job as `Wait`. |
+
+**Save below (requirement: colonists may stay below).** The check passes. It covers one save after a short wait, so a long stay is untested. The mod was not changed for this. The earlier failure was the harness expecting the surface.
+
+**Unforced cross-level haul (requirement: colonists fetch resources on another level by themselves). Not met.** Seven logs lie on the lower level, a stockpile is on the surface, and no job is forced. The only automatic hook is the postfix on `WorkGiver_Haul.PotentialWorkThingsGlobal` (`HarmonyPatches/JobPatches.cs:941`). It adds lower-level haulables to the candidates. In run 145345 nothing turned them into a job. Instead, `JobDriver_HaulThingToDest` started and ended at once 124 times in the four-minute window (`Test -1` and `Test 0`, `Jobs/JobDriver_HaulThingToDest.cs:31-40`). The cause is not known. The forced haul in stage 4 shows that `BuildJobListFor` can move a colonist across levels when a job is assigned by hand. It does not show that colonists choose such jobs.
+
+**Smooth transitions (requirement: transitions feel smooth to colonists).** Not tested. The current transition walks the colonist to the stairs and then teleports it on arrival. What counts as smooth is not defined yet.
 
 ## Review
 

@@ -29,6 +29,11 @@ namespace ZLevelsValidation
         private int lastUnpoweredTick;
         private int stageTick;
         private IntVec3 powerCell;
+        private bool belowAtSave;
+        private IntVec3 savedPosition;
+        private Thing unforcedWood;
+        private Zone_Stockpile unforcedZone;
+        private bool wentDownForWood;
 
         public RuntimeValidation(Game game) { }
 
@@ -44,6 +49,8 @@ namespace ZLevelsValidation
             Scribe_References.Look(ref surface, "validationSurface");
             Scribe_References.Look(ref lower, "validationLower");
             Scribe_References.Look(ref upper, "validationUpper");
+            Scribe_Values.Look(ref belowAtSave, "validationBelowAtSave");
+            Scribe_Values.Look<IntVec3>(ref savedPosition, "validationSavedPosition", IntVec3.Invalid);
         }
 
         public override void GameComponentUpdate()
@@ -62,6 +69,7 @@ namespace ZLevelsValidation
                     case 0:
                         surface = Find.CurrentMap;
                         pawn = surface.mapPawns.FreeColonistsSpawned.First();
+                        RestNeeds(pawn);
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(surface) == 0, "surface registered");
                         Record("fresh colony", "PASS");
                         var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
@@ -215,26 +223,48 @@ namespace ZLevelsValidation
                         if (Find.TickManager.TicksGame - stageTick < 600) return;
                         Require(!lamp.PowerOn, "lower-floor lamp unpowered after generator removal");
                         Record("cross-level power loss without source", "PASS");
-                        if (pawn.Map != surface)
-                        {
-                            // Colony work can take the colonist down a level; the save must hold them on the surface.
-                            var climbUp = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
-                            Next(16);
-                            climbUp.GiveJob(pawn, climbUp);
-                            break;
-                        }
-                        SaveAndReload();
+                        var downToLower = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
+                        Next(17);
+                        downToLower.GiveJob(pawn, downToLower);
                         break;
-                    case 16:
-                        if (pawn.Map != surface) return;
+                    case 17:
+                        if (pawn.Map != lower) return;
+                        Record("colonist takes the stairs down before the save", "PASS");
+                        Next(18);
+                        break;
+                    case 18:
+                        // The save must hold a colonist who stays below; there is no climb back up first.
+                        if (Find.TickManager.TicksGame - stageTick < 1800) return;
+                        Require(pawn.Map == lower, "colonist stayed below before the save");
+                        belowAtSave = true;
+                        savedPosition = pawn.Position;
+                        Record("colonist below before save", "PASS");
                         SaveAndReload();
                         break;
                     case 5:
                         if (!reloaded) return;
                         Require(surface != null && lower != null && upper != null && pawn != null, "saved references resolved");
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels survive reload");
-                        Require(pawn.Map == surface, "pawn survives reload on surface");
-                        Record("reload three-level colony", "PASS");
+                        Require(belowAtSave && pawn.Map == lower, "colonist below survives reload");
+                        Require(pawn.Position == savedPosition, "colonist keeps the saved cell");
+                        Record("reload with colonist below", "PASS");
+                        var climbAfterReload = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
+                        Next(15);
+                        climbAfterReload.GiveJob(pawn, climbAfterReload);
+                        break;
+                    case 15:
+                        if (pawn.Map != surface) return;
+                        Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels tracked after reload stairs");
+                        Record("reload stairs up", "PASS");
+                        StartUnforcedHaul();
+                        Next(20);
+                        break;
+                    case 20:
+                        // Nothing assigns this job. The colonist has to find the wood on the lower level by itself.
+                        if (pawn.Map == lower) wentDownForWood = true;
+                        if (WoodInZone(surface, unforcedZone) < 7) return;
+                        Require(wentDownForWood, "colonist went down to the wood");
+                        Record("unforced cross-level haul", "PASS");
                         var reloadedDown = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
                         Next(14);
                         reloadedDown.GiveJob(pawn, reloadedDown);
@@ -243,14 +273,6 @@ namespace ZLevelsValidation
                         if (pawn.Map == surface) return;
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(pawn.Map) == -1, "stairs after reload lead to lower level");
                         Record("reload stairs down", "PASS");
-                        var reloadedUp = pawn.Map.listerThings.AllThings.OfType<Building_StairsUp>().First();
-                        Next(15);
-                        reloadedUp.GiveJob(pawn, reloadedUp);
-                        break;
-                    case 15:
-                        if (pawn.Map != surface) return;
-                        Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels tracked after reload stairs");
-                        Record("reload stairs return", "PASS");
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -304,6 +326,43 @@ namespace ZLevelsValidation
         {
             foreach (var thing in cell.GetThingList(map).ToList())
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
+        }
+
+        // A colonist who lies down to rest on the way stalls the stairs stages: run 144826 timed out at stage 1.
+        private static void RestNeeds(Pawn colonist)
+        {
+            colonist.needs.rest.CurLevel = colonist.needs.rest.MaxLevel;
+            colonist.needs.food.CurLevel = colonist.needs.food.MaxLevel;
+            if (colonist.needs.joy != null) colonist.needs.joy.CurLevel = colonist.needs.joy.MaxLevel;
+        }
+
+        private void StartUnforcedHaul()
+        {
+            RestNeeds(pawn);
+            Current.Game.GetComponent<ZLevelsManager>().ResetJobTrackerFor(pawn);
+            var woodCell = lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position + new IntVec3(1, 0, 0);
+            ClearCell(lower, woodCell);
+            lower.terrainGrid.SetTerrain(woodCell, TerrainDefOf.Concrete);
+            var logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+            logs.stackCount = 7;
+            unforcedWood = GenSpawn.Spawn(logs, woodCell, lower);
+            unforcedWood.SetForbidden(false);
+            var zoneCell = pawn.Position + new IntVec3(0, 0, -3);
+            ClearCell(surface, zoneCell);
+            surface.terrainGrid.SetTerrain(zoneCell, TerrainDefOf.Concrete);
+            unforcedZone = new Zone_Stockpile(StorageSettingsPreset.DefaultStockpile, surface.zoneManager);
+            surface.zoneManager.RegisterZone(unforcedZone);
+            unforcedZone.AddCell(zoneCell);
+        }
+
+        private static int WoodInZone(Map map, Zone zone)
+        {
+            int count = 0;
+            foreach (Thing thing in map.listerThings.ThingsOfDef(ThingDefOf.WoodLog))
+            {
+                if (thing.Spawned && zone.ContainsCell(thing.Position)) count += thing.stackCount;
+            }
+            return count;
         }
 
         private void SaveAndReload()
