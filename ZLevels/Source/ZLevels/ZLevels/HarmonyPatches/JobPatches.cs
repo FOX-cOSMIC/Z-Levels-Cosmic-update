@@ -11,7 +11,6 @@ using RimWorld;
 using RimWorld.Planet;
 using RimWorld.QuestGen;
 using UnityEngine;
-using UnityEngine.Assertions.Must;
 using Verse;
 using Verse.AI;
 using Verse.AI.Group;
@@ -421,7 +420,7 @@ namespace ZLevels
                     allowCorpse = firstHediffOfDef != null && firstHediffOfDef.Severity > 0.4f;
                 }
                 bool desperate = pawn.needs.food.CurCategory == HungerCategory.Starving;
-                if (!FoodUtility.TryFindBestFoodSourceFor_NewTemp(pawn, pawn, desperate, out var foodSource, out var foodDef, canRefillDispenser: true, canUseInventory: true, canUsePackAnimalInventory: true, allowForbidden: false, allowCorpse, allowSociallyImproper: false, pawn.IsWildMan(), forceScanWholeMap))
+                if (!FoodUtility.TryFindBestFoodSourceFor(pawn, pawn, desperate, out var foodSource, out var foodDef, canRefillDispenser: true, canUseInventory: true, canUsePackAnimalInventory: true, allowForbidden: false, allowCorpse, allowSociallyImproper: false, pawn.IsWildMan(), forceScanWholeMap))
                 {
                     return null;
                 }
@@ -443,7 +442,7 @@ namespace ZLevels
                     if (building != null)
                     {
                         ISlotGroupParent hopperSgp = building as ISlotGroupParent;
-                        Job job2 = WorkGiver_CookFillHopper.HopperFillFoodJob(pawn, hopperSgp);
+                        Job job2 = WorkGiver_CookFillHopper.HopperFillFoodJob(pawn, hopperSgp, forced: false);
                         if (job2 != null)
                         {
                             return job2;
@@ -455,7 +454,7 @@ namespace ZLevels
                         return null;
                     }
                 }
-                float nutrition = FoodUtility.GetNutrition(foodSource, foodDef);
+                float nutrition = FoodUtility.GetNutrition(pawn, foodSource, foodDef);
                 Pawn pawn3 = (foodSource.ParentHolder as Pawn_InventoryTracker)?.pawn;
                 if (pawn3 != null && pawn3 != pawn)
                 {
@@ -887,7 +886,7 @@ namespace ZLevels
         {
             private static Map oldMap;
             private static IntVec3 oldPosition;
-            private static void Prefix(Pawn pawn, ThingDefCountClass need, IConstructible c, int resTotalAvailable,
+            private static void Prefix(Pawn pawn, ThingDef stuff, IConstructible c, int resNeeded, int resTotalAvailable,
                 bool canRemoveExistingFloorUnderNearbyNeeders, ref int neededTotal, ref Job jobToMakeNeederAvailable, out bool __state)
             {
                 if (c is Thing thing && thing.Map != pawn.Map)
@@ -902,7 +901,7 @@ namespace ZLevels
                     __state = false;
                 }
             }
-            private static void Postfix(Pawn pawn, ThingDefCountClass need, IConstructible c, int resTotalAvailable,
+            private static void Postfix(Pawn pawn, ThingDef stuff, IConstructible c, int resNeeded, int resTotalAvailable,
                 bool canRemoveExistingFloorUnderNearbyNeeders, ref int neededTotal, ref Job jobToMakeNeederAvailable, bool __state)
             {
                 if (__state && pawn.Map != oldMap)
@@ -912,7 +911,7 @@ namespace ZLevels
             }
         }
 
-        [HarmonyPatch(typeof(GenConstruct), "CanConstruct", new Type[] { typeof(Thing), typeof(Pawn), typeof(bool), typeof(bool)})]
+        [HarmonyPatch(typeof(GenConstruct), "CanConstruct", new Type[] { typeof(Thing), typeof(Pawn), typeof(bool), typeof(bool), typeof(JobDef)})]
         public static class CanConstructPatch
         {
             private static Map oldMap;
@@ -1099,7 +1098,7 @@ namespace ZLevels
                 if (___pawn.RaceProps.Humanlike)
                 {
                     var ZTracker = ZUtils.ZTracker;
-                    if (ZTracker.jobTracker != null && ZTracker.jobTracker.ContainsKey(___pawn) && ZTracker.jobTracker[___pawn].activeJobs?.Count > 0)
+                    if (ZTracker.jobTracker != null && ZTracker.jobTracker.ContainsKey(___pawn) && !ZTracker.jobTracker[___pawn].startingQueuedJob && ZTracker.jobTracker[___pawn].activeJobs?.Count > 0)
                     {
                         TryDropCarriedThingPatch.blockTryDrop = true;
                         startNewJob = false;
@@ -1122,7 +1121,7 @@ namespace ZLevels
                 if (___pawn.RaceProps.Humanlike)
                 {
                     var ZTracker = ZUtils.ZTracker;
-                    if (___pawn.CurJob == null && ZTracker.jobTracker != null && ZTracker.jobTracker.ContainsKey(___pawn)
+                    if (___pawn.CurJob == null && ZTracker.jobTracker != null && ZTracker.jobTracker.ContainsKey(___pawn) && !ZTracker.jobTracker[___pawn].startingQueuedJob
                         && ZTracker.jobTracker[___pawn].activeJobs?.Count > 0)
                     {
                         TryDropCarriedThingPatch.blockTryDrop = false;
@@ -1233,13 +1232,12 @@ namespace ZLevels
                 {
                     Bill bill = giver.BillStack[i];
                     if ((bill.recipe.requiredGiverWorkType != null && bill.recipe.requiredGiverWorkType
-                        != scanner.def.workType) || (Find.TickManager.TicksGame < bill.lastIngredientSearchFailTicks
-                        + WorkGiver_DoBill.ReCheckFailedBillTicksRange.RandomInRange
+                        != scanner.def.workType) || (Find.TickManager.TicksGame <= bill.nextTickToSearchForIngredients
                         && FloatMenuMakerMap.makingFor != pawn))
                     {
                         continue;
                     }
-                    bill.lastIngredientSearchFailTicks = 0;
+                    bill.nextTickToSearchForIngredients = 0;
                     if (!bill.ShouldDoNow() || !bill.PawnAllowedToStartAnew(pawn))
                     {
                         continue;
@@ -1295,7 +1293,7 @@ namespace ZLevels
                             }
                             workBench.mapIndexOrState = (sbyte)Find.Maps.IndexOf(map);
                             pawn.mapIndexOrState = (sbyte)Find.Maps.IndexOf(map);
-                            flag = WorkGiver_DoBill.TryFindBestBillIngredients(bill, pawn, (Thing)giver, chosenIngThings);
+                            flag = WorkGiver_DoBill.TryFindBestBillIngredients(bill, pawn, (Thing)giver, chosenIngThings, null);
                             ZLogger.Message("Found ingredients: " + flag + " in " + ZTracker.GetMapInfo(map) + " for " + bill);
                             if (flag) break;
                         }
@@ -1313,7 +1311,7 @@ namespace ZLevels
                     {
                         if (FloatMenuMakerMap.makingFor != pawn)
                         {
-                            bill.lastIngredientSearchFailTicks = Find.TickManager.TicksGame;
+                            bill.nextTickToSearchForIngredients = Find.TickManager.TicksGame + WorkGiver_DoBill.ReCheckFailedBillTicksRange.RandomInRange;
                         }
                         else
                         {
@@ -1401,7 +1399,7 @@ namespace ZLevels
                 ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                 if (scanner.def.workType != WorkTypeDefOf.Hauling)
                 {
-                    Job job3 = scanner.NoCostFrameMakeJobFor(pawn, blueprint);
+                    Job job3 = scanner.NoCostFrameMakeJobFor(blueprint);
                     if (job3 != null)
                     {
                         return job3;

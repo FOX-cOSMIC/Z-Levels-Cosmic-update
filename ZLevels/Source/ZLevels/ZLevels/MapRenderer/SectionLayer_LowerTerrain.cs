@@ -19,12 +19,12 @@ namespace ZLevels
 
         public SectionLayer_LowerTerrain(Section section) : base(section)
         {
-            this.relevantChangeTypes = MapMeshFlag.Terrain;
+            this.relevantChangeTypes = MapMeshFlagDefOf.Terrain;
         }
 
         public virtual Material GetMaterialFor(TerrainDef terrain)
         {
-            return terrain.DrawMatSingle;
+            return terrain.graphic.MatSingle;
         }
 
         public bool AllowRenderingFor(TerrainDef terrain)
@@ -163,7 +163,10 @@ namespace ZLevels
                 }
                 base.FinalizeMesh(MeshParts.All);
             }
-            catch { };
+            catch (Exception exception)
+            {
+                Log.Error($"Exception drawing lower terrain on {Map}: {exception}");
+            }
 
         }
 
@@ -172,4 +175,3 @@ namespace ZLevels
         private static readonly Color32 ColorClear = new Color32(byte.MaxValue, byte.MaxValue, byte.MaxValue, 0);
     }
 }
-

@@ -38,6 +38,7 @@ namespace ZLevels
 		}
 
 		public bool searchingJobsNow = false;
+		public bool startingQueuedJob;
 		public Map oldMap;
 		public Job mainJob;
 		public bool forceGoToDestMap;
@@ -53,4 +54,3 @@ namespace ZLevels
 		private List<Map> mapValues;
 	}
 }
-

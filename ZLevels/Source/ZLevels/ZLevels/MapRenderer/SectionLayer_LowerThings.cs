@@ -11,12 +11,16 @@ namespace ZLevels
 	{
 		public SectionLayer_LowerThings(Section section) : base(section)
 		{
-			this.relevantChangeTypes = MapMeshFlag.Things;
+			this.relevantChangeTypes = (ulong)MapMeshFlagDefOf.Things | (ulong)MapMeshFlagDefOf.Terrain | (ulong)MapMeshFlagDefOf.FogOfWar | (ulong)MapMeshFlagDefOf.Snow;
 			this.requireAddToMapMesh = true;
 		}
 	
 		public override void DrawLayer()
 		{
+			if (!DebugViewSettings.drawThingsPrinted)
+			{
+				return;
+			}
 			int count = subMeshes.Count;
 			for (int i = 0; i < count; i++)
 			{
@@ -32,9 +36,9 @@ namespace ZLevels
 		{
 			var ZTracker = ZUtils.ZTracker;
 			int curLevel = ZTracker.GetZIndexFor(base.Map);
+			base.ClearSubMeshes(MeshParts.All);
 			if (curLevel > 0) 
 			{
-				base.ClearSubMeshes(MeshParts.All);
 				foreach (var map in ZTracker.GetAllMaps(base.Map.Tile)
 					.OrderByDescending(x => ZTracker.GetZIndexFor(x)))
 				{
@@ -53,14 +57,11 @@ namespace ZLevels
 								for (int i = 0; i < count; i++)
 								{
 									Thing thing = list[i];
-									if //((thing.def.seeThroughFog || 
-									   //	!map.fogGrid.fogGrid[CellIndicesUtility.CellToIndex
-									   //	(thing.Position, map.Size.x)]) && 
-										
-										(thing.def.drawerType != DrawerType.None && (thing.def.drawerType != DrawerType.RealtimeOnly || !this.requireAddToMapMesh)
-										&& (thing.def.hideAtSnowDepth >= 1f 
-										|| map.snowGrid.GetDepth(thing.Position)
-										<= thing.def.hideAtSnowDepth) && thing.Position.x == intVec.x
+										if (thing.def.drawerType != DrawerType.None && (thing.def.drawerType != DrawerType.RealtimeOnly || !this.requireAddToMapMesh)
+										&& (thing.def.seeThroughFog || !map.fogGrid.IsFogged(thing.Position))
+										&& (thing.def.hideAtSnowOrSandDepth >= 1f
+										|| Math.Max(map.snowGrid.GetDepth(thing.Position), thing.Position.GetSandDepth(map))
+										<= thing.def.hideAtSnowOrSandDepth) && thing.Position.x == intVec.x
 										&& thing.Position.z == intVec.z)
 									{
 										this.TakePrintFrom(thing, curLevel, baseLevel);
@@ -328,6 +329,17 @@ namespace ZLevels
 					drawSize.x *= 1f - (((float)(curLevel) - (float)baseLevel) / 5f);
 					drawSize.y *= 1f - (((float)(curLevel) - (float)baseLevel) / 5f);
 					var newGraphic = t.Graphic.GetCopy(drawSize, t.Graphic.Shader);
+					if (t.Graphic is Graphic_Cluster)
+					{
+						var data = new GraphicData();
+						if (t.Graphic.data != null)
+						{
+							data.CopyFrom(t.Graphic.data);
+						}
+						data.drawSize = drawSize;
+						newGraphic = GraphicDatabase.Get(t.Graphic.GetType(), t.Graphic.path, t.Graphic.Shader,
+							drawSize, t.Graphic.color, t.Graphic.colorTwo, data, data.shaderParameters, t.Graphic.maskPath);
+					}
 					if (t is Blight blight)
                     {
 						Print(blight, this, newGraphic);
@@ -351,11 +363,10 @@ namespace ZLevels
 			}
 			catch (Exception ex)
 			{
-	
+				Log.Error($"Exception printing lower-level thing {t}: {ex}");
 			}
 			DrawPos_Patch.ChangeDrawPos = false;
 		}
 		protected bool requireAddToMapMesh;
 	}
 }
-

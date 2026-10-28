@@ -10,6 +10,7 @@ namespace ZLevels
     public class CompPowerZTransmitter : CompPowerPlant
     {
         PowerNet curPowerNet; 
+        bool registered;
         public override float DesiredPowerOutput
         {
             get
@@ -39,21 +40,39 @@ namespace ZLevels
         public override void CompTick()
         {
             base.CompTick();
-            if (this?.PowerNet != null)
+            var networks = ZUtils.ZTracker?.connectedPowerNets;
+            if (networks == null)
             {
-                if (this.PowerOn)
-                {
-                    if (curPowerNet != this.PowerNet)
-                    {
-                        curPowerNet = this.PowerNet;
-                        ZUtils.ZTracker.connectedPowerNets.RegisterTransmitter(this);
-                    }
-                }
-                else
-                {
-                    ZUtils.ZTracker.connectedPowerNets.DeregisterTransmitter(this);
-                }
+                return;
             }
+            if (registered && (curPowerNet != PowerNet || !PowerOn))
+            {
+                networks.DeregisterTransmitter(this);
+                registered = false;
+            }
+            curPowerNet = PowerNet;
+            if (!registered && PowerNet != null && PowerOn)
+            {
+                networks.RegisterTransmitter(this);
+                registered = true;
+            }
+        }
+
+        public override void UpdateDesiredPowerOutput()
+        {
+            base.UpdateDesiredPowerOutput();
+            if (PowerNet == null)
+            {
+                PowerOutput = 0f;
+            }
+        }
+
+        public override void PostDeSpawn(Map map, DestroyMode mode = DestroyMode.Vanish)
+        {
+            ZUtils.ZTracker?.connectedPowerNets?.DeregisterTransmitter(this);
+            registered = false;
+            curPowerNet = null;
+            base.PostDeSpawn(map, mode);
         }
         public override IEnumerable<Gizmo> CompGetGizmosExtra()
         {
@@ -64,4 +83,3 @@ namespace ZLevels
         }
     }
 }
-

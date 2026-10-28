@@ -69,7 +69,7 @@ namespace ZLevels
             var ZTracker = ZUtils.ZTracker;
             if (ZTracker.ZLevelsTracker == null)
             {
-                ZTracker.ZLevelsTracker = new Dictionary<int, ZLevelData>();
+                ZTracker.ZLevelsTracker = new Dictionary<PlanetTile, ZLevelData>();
             }
 
             if (!ZTracker.ZLevelsTracker.ContainsKey(this.map.Tile) && ZTracker.TryRegisterMap(this.map, 0))
@@ -127,4 +127,3 @@ namespace ZLevels
 
     }
 }
-

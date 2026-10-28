@@ -17,9 +17,9 @@ namespace ZLevels
             base.ExposeData();
             Scribe_Values.Look<int>(ref this.ticksToExplode, "ticksToExplode", 0, false);
         }
-        public override void Draw()
+        public override void DrawAt(Vector3 drawLoc, bool flip = false)
         {
-            base.Draw();
+            base.DrawAt(drawLoc, flip);
             if (this.ticksToExplode > 0 && base.Spawned)
             {
                 base.Map.overlayDrawer.DrawOverlay(this, OverlayTypes.BurningWick);
@@ -76,14 +76,14 @@ namespace ZLevels
                 {
                     IntVec3 randomCell = this.OccupiedRect().RandomCell;
                     float radius = Rand.Range(0.5f, 1f) * 3f;
-                    GenExplosion.DoExplosion(randomCell, base.Map, radius, DamageDefOf.Flame, null, -1, -1f, null, null, null, null, null, 0f, 1, false, null, 0f, 1, 0f, false, null, null);
+                    GenExplosion.DoExplosion(randomCell, Map, radius, DamageDefOf.Flame, instigator: null);
                 }
             }
         }
         public override void PostApplyDamage(DamageInfo dinfo, float totalDamageDealt)
         {
             base.PostApplyDamage(dinfo, totalDamageDealt);
-            if (!base.Destroyed && this.ticksToExplode == 0 && dinfo.Def == DamageDefOf.Flame && Rand.Value < 0.05f && base.GetComp<CompPowerBattery>().StoredEnergy > 500f)
+            if (!base.Destroyed && this.ticksToExplode == 0 && dinfo.Def == DamageDefOf.Flame && Rand.Value < 0.05f && base.GetComp<CompPowerBattery>()?.StoredEnergy > 500f)
             {
                 this.ticksToExplode = Rand.Range(70, 150);
                 this.StartWickSustainer();

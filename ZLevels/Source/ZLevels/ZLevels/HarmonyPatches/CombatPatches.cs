@@ -4,7 +4,6 @@ using System.Configuration;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.Remoting.Messaging;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
@@ -48,10 +47,8 @@ namespace ZLevels
         public static bool recursiveTrap = false;
     
         public static bool multiMapSearch = false;
-        public static bool Prefix(ref IAttackTarget __result, List<IAttackTarget> ___tmpTargets, List<Pair<IAttackTarget, float>> ___availableShootingTargets,
-                List<float> ___tmpTargetScores, List<bool> ___tmpCanShootAtTarget, List<IntVec3> ___tempDestList, List<IntVec3> ___tempSourceList,
-                IAttackTargetSearcher searcher, TargetScanFlags flags, Predicate<Thing> validator = null, float minDist = 0f, float maxDist = 9999f, IntVec3 locus = default(IntVec3), 
-                float maxTravelRadiusFromLocus = float.MaxValue, bool canBashDoors = false, bool canTakeTargetsCloserThanEffectiveMinRange = true, bool canBashFences = false)
+        public static bool Prefix(ref IAttackTarget __result, IAttackTargetSearcher searcher, TargetScanFlags flags, Predicate<Thing> validator = null, float minDist = 0f, float maxDist = 9999f, IntVec3 locus = default(IntVec3),
+                float maxTravelRadiusFromLocus = float.MaxValue, bool canBashDoors = false, bool canTakeTargetsCloserThanEffectiveMinRange = true, bool canBashFences = false, bool onlyRanged = false)
         {
             bool result = true;
             if (!recursiveTrap && multiMapSearch)
@@ -72,7 +69,7 @@ namespace ZLevels
                             CanBeSeenOverFast_Patch.caster = searcher.Thing;
                         }
                         var target = AttackTargetFinder.BestAttackTarget(searcher, flags, validator, minDist,
-                                maxDist, locus, maxTravelRadiusFromLocus, canBashDoors, canTakeTargetsCloserThanEffectiveMinRange, canBashFences);
+                                maxDist, locus, maxTravelRadiusFromLocus, canBashDoors, canTakeTargetsCloserThanEffectiveMinRange, canBashFences, onlyRanged);
                         //ZLogger.Message(searcher.Thing + " - 1: " + ZUtils.ZTracker.GetMapInfo(searcher.Thing.Map) + " - result: " + target);
                         if (target != null)
                         {
@@ -141,7 +138,7 @@ namespace ZLevels
         public static Map targetOldMap;
     
         public static bool teleportBack;
-        public static void Prefix(Verb_LaunchProjectile __instance, List<IntVec3> ___tempLeanShootSources, List<IntVec3> ___tempDestList, LocalTargetInfo ___currentTarget, ref bool __result)
+        public static void Prefix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
         {
             //ZLogger.Message("__instance.caster: " + __instance.caster);
             //ZLogger.Message("__instance.caster.Map: " + __instance.caster.Map);
@@ -172,7 +169,7 @@ namespace ZLevels
             }
         }
         
-        public static void Postfix(Verb_LaunchProjectile __instance, List<IntVec3> ___tempLeanShootSources, List<IntVec3> ___tempDestList, LocalTargetInfo ___currentTarget, ref bool __result)
+        public static void Postfix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
         {
             if (teleportBack)
             {
@@ -407,7 +404,7 @@ namespace ZLevels
                     if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
                     {
                         ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, __result);
+                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
                         ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
                         ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
                         __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
@@ -454,7 +451,7 @@ namespace ZLevels
                     if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
                     {
                         ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, __result);
+                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
                         ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
                         ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
                         __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
@@ -512,7 +509,7 @@ namespace ZLevels
                             activeJobs = new List<Job>()
                         };
                         ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, __result);
+                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
                         ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
                         ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
                         __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];

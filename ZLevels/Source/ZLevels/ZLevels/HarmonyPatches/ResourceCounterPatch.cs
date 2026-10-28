@@ -43,7 +43,7 @@ namespace ZLevels
                                     foreach (Thing outerThing in allGroupsListForReading[i].HeldThings)
                                     {
                                         Thing innerIfMinified = outerThing.GetInnerIfMinified();
-                                        if (innerIfMinified.def.CountAsResource && !innerIfMinified.IsNotFresh())
+                                        if (innerIfMinified.def.CountAsResource && map1.resourceCounter.ShouldCount(innerIfMinified))
                                         {
                                             ThingDef def = innerIfMinified.def;
                                             if (countedAllAmounts.ContainsKey(def))
@@ -87,44 +87,47 @@ namespace ZLevels
         {
             public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
             {
-                FieldInfo godmode = AccessTools.Field(typeof(DebugSettings), "godMode");
-                foreach (CodeInstruction i in instructions)
+                MethodInfo thingsOfDef = AccessTools.Method(typeof(ListerThings), nameof(ListerThings.ThingsOfDef), new[] { typeof(ThingDef) });
+                MethodInfo acrossLevels = AccessTools.Method(typeof(ProcessInput_Patch), nameof(ThingsOfDefAcrossLevels));
+                int replacements = 0;
+                foreach (CodeInstruction instruction in instructions)
                 {
-                    yield return i;
-                    if (CodeInstructionExtensions.LoadsField(i, godmode, false))
+                    if (instruction.Calls(thingsOfDef))
                     {
-                        yield return new CodeInstruction(OpCodes.Ldarg_1, null);
-                        yield return new CodeInstruction(OpCodes.Ldarg_0, null);
-                        yield return new CodeInstruction(OpCodes.Ldloc_S, 4);
-                        yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(
-                            typeof(ProcessInput_Patch), "IfInResourceCounter", null));
+                        var loadDesignator = new CodeInstruction(OpCodes.Ldarg_0);
+                        loadDesignator.labels.AddRange(instruction.labels);
+                        loadDesignator.blocks.AddRange(instruction.blocks);
+                        yield return loadDesignator;
+                        yield return new CodeInstruction(OpCodes.Call, acrossLevels);
+                        replacements++;
+                    }
+                    else
+                    {
+                        yield return instruction;
                     }
                 }
-                IEnumerator<CodeInstruction> enumerator = null;
+                if (replacements != 1)
+                {
+                    throw new InvalidOperationException("Z-Levels expected one material availability query in Designator_Build.ProcessInput, found " + replacements);
+                }
             }
 
-            public static bool IfInResourceCounter(bool __result, Event ev, Designator_Build instance, ThingDef thingDef2)
+            public static List<Thing> ThingsOfDefAcrossLevels(ListerThings lister, ThingDef stuff, Designator_Build designator)
             {
-                if (DebugSettings.godMode)
+                List<Thing> localThings = lister.ThingsOfDef(stuff);
+                var tracker = ZUtils.ZTracker;
+                if (localThings.Count > 0 || tracker == null || !tracker.ZLevelsTracker.ContainsKey(designator.Map.Tile))
                 {
-                    return true;
+                    return localThings;
                 }
-                BuildableDef entDef = instance.entDef;
-                ThingDef thingDef = entDef as ThingDef;
-                if (thingDef2.IsStuff && thingDef2.stuffProps.CanMake(thingDef))
+                foreach (Map map in tracker.GetAllMaps(designator.Map.Tile))
                 {
-                    var ZTracker = ZUtils.ZTracker;
-                    foreach (var map in ZTracker.GetAllMaps(instance.Map.Tile))
-                    {
-                        if (map.listerThings.ThingsOfDef(thingDef2).Count > 0)
-                        {
-                            return true;
-                        }
-                    }
+                    if (map == designator.Map) continue;
+                    List<Thing> things = map.listerThings.ThingsOfDef(stuff);
+                    if (things.Count > 0) return things;
                 }
-                return false;
+                return localThings;
             }
         }
     }
 }
-

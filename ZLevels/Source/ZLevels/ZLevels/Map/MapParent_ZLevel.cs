@@ -53,7 +53,7 @@ namespace ZLevels
             }
         }
 
-        public override void Abandon()
+        public override void Abandon(bool wasGravshipLaunch = false)
         {
             this.shouldBeDeleted = true;
             this.CheckRemoveMapNow();
@@ -72,4 +72,3 @@ namespace ZLevels
         }
     }
 }
-

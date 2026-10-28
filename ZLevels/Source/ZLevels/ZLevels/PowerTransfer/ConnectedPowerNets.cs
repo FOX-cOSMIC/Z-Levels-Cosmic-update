@@ -16,7 +16,7 @@ namespace ZLevels
     {
         private static void Postfix()
         {
-            ZUtils.ZTracker.connectedPowerNets.Tick();
+            ZUtils.ZTracker?.connectedPowerNets?.Tick();
         }
     }
 
@@ -25,7 +25,7 @@ namespace ZLevels
     {
         private static bool Prefix(PowerNet __instance, ref float __result)
         {
-            if (ZUtils.ZTracker.connectedPowerNets.connectedPowerNetsDict.TryGetValue(__instance, out ConnectedPowerNet connectedPowerNet))
+            if (ZUtils.ZTracker?.connectedPowerNets != null && ZUtils.ZTracker.connectedPowerNets.connectedPowerNetsDict.TryGetValue(__instance, out ConnectedPowerNet connectedPowerNet))
             {
                 __result = connectedPowerNet.TotalStoredEnergy;
                 return false;
@@ -43,7 +43,10 @@ namespace ZLevels
 
         public void AddTransmitter(CompPowerZTransmitter transmitter)
         {
-            connectedTransmitters.Add(transmitter);
+            if (!connectedTransmitters.Contains(transmitter))
+            {
+                connectedTransmitters.Add(transmitter);
+            }
         }
 
         public void RemoveTransmitter(CompPowerZTransmitter transmitter)
@@ -53,6 +56,11 @@ namespace ZLevels
 
         public void Tick()
         {
+            connectedTransmitters.RemoveAll(transmitter => !transmitter.parent.Spawned || transmitter.PowerNet == null || !transmitter.PowerOn);
+            foreach (var transmitter in connectedTransmitters)
+            {
+                transmitter.powerOutputInt = 0f;
+            }
             var totalEnergy = TotalEnergy;
             var powerNets = new Dictionary<PowerNet, List<CompPowerZTransmitter>>();
             foreach (var transmitter in connectedTransmitters)
@@ -86,14 +94,14 @@ namespace ZLevels
             float num = 0f;
             for (int i = 0; i < powerNet.batteryComps.Count; i++)
             {
-                num += powerNet.batteryComps[i].StoredEnergy;
+                num += powerNet.batteryComps[i].StunnedByEMP ? 0f : powerNet.batteryComps[i].StoredEnergy;
             }
             return num;
         }
 
         private List<CompPowerZTransmitter> connectedTransmitters;
         public List<CompPowerZTransmitter> ConnectedTransmitters => connectedTransmitters;
-        public HashSet<PowerNet> ConnectedPowerNets => ConnectedTransmitters.Select(x => x.PowerNet).ToHashSet();
+        public HashSet<PowerNet> ConnectedPowerNets => ConnectedTransmitters.Where(x => x.parent.Spawned && x.PowerNet != null).Select(x => x.PowerNet).ToHashSet();
         public float TotalEnergy => ConnectedPowerNets.Sum(x => x.CurrentEnergyGainRate() / CompPower.WattsToWattDaysPerTick);
         public float TotalStoredEnergy => ConnectedPowerNets.Sum(x => CurrentStoredEnergy(x));
     }
@@ -169,9 +177,14 @@ namespace ZLevels
         public void DeregisterTransmitter(CompPowerZTransmitter comp)
         {
             Log.Message("Deregistering: " + comp);
+            comp.powerOutputInt = 0f;
             foreach (var powerNet in powerNets)
             {
                 powerNet.Value.RemoveTransmitter(comp);
+            }
+            foreach (var network in connectedPowerNetsDict.Where(entry => !entry.Value.ConnectedPowerNets.Contains(entry.Key)).Select(entry => entry.Key).ToList())
+            {
+                connectedPowerNetsDict.Remove(network);
             }
         }
         public void Tick()
@@ -186,4 +199,3 @@ namespace ZLevels
         public Dictionary<PowerNet, ConnectedPowerNet> connectedPowerNetsDict = new Dictionary<PowerNet, ConnectedPowerNet>();
     }
 }
-

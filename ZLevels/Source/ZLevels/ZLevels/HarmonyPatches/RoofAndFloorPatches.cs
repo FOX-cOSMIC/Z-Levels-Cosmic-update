@@ -47,55 +47,26 @@ namespace ZLevels
         [HarmonyPatch(typeof(TerrainGrid), "RemoveTopLayer")]
         public static class DestroyedTerrain
         {
-            public static bool Prefix(TerrainGrid __instance, IntVec3 c, bool doLeavings, Map ___map, ref TerrainDef[] ___underGrid)
+            public static void Postfix(TerrainGrid __instance, IntVec3 c, Map ___map)
             {
-                try
+                var tracker = ZUtils.ZTracker;
+                if (tracker.GetZIndexFor(___map) <= 0) return;
+                if (__instance.TerrainAt(c) == TerrainDefOf.Sand)
                 {
-                    var ZTracker = ZUtils.ZTracker;
-                    if (ZTracker.GetZIndexFor(___map) > 0)
+                    __instance.SetTerrain(c, ZLevelsDefOf.ZL_OutsideTerrain);
+                }
+                if (__instance.TerrainAt(c) != ZLevelsDefOf.ZL_OutsideTerrain) return;
+                Map lowerMap = tracker.GetLowerLevel(___map.Tile, ___map);
+                if (lowerMap == null) return;
+                var things = c.GetThingList(___map).ToList();
+                if (things.Any(thing => thing is Blueprint || thing is Frame)) return;
+                for (int index = things.Count - 1; index >= 0; index--)
+                {
+                    if (things[index].Spawned && things[index].IsAllowedToSpawnBelow())
                     {
-                        int num = ___map.cellIndices.CellToIndex(c);
-                        if (doLeavings)
-                        {
-                            GenLeaving.DoLeavingsFor(__instance.topGrid[num], c, ___map);
-                        }
-                        if (___underGrid[num] != null)
-                        {
-                            __instance.topGrid[num] = ___underGrid[num];
-                            ___underGrid[num] = null;
-                            __instance.DoTerrainChangedEffects(c);
-                        }
-                        if (c.GetTerrain(___map) == TerrainDefOf.Sand)
-                        {
-                            __instance.SetTerrain(c, ZLevelsDefOf.ZL_OutsideTerrain);
-                        }
-
-                        Map lowerMap = ZTracker.GetLowerLevel(___map.Tile, ___map);
-                        bool firstTime = false;
-                        if (lowerMap == null)
-                        {
-                            return false;
-                        }
-
-                        var thingList = c.GetThingList(___map);
-                        if (thingList.Where(x => x is Blueprint || x is Frame).Count() == 0)
-                        {
-                            for (int i = thingList.Count - 1; i >= 0; i--)
-                            {
-                                if (thingList[i].IsAllowedToSpawnBelow())
-                                {
-                                    ZTracker.TeleportThing(thingList[i], c, lowerMap, firstTime, 10);
-                                }
-                            }
-                        }
-                        return false;
+                        tracker.TeleportThing(things[index], c, lowerMap, false, 10);
                     }
                 }
-                catch (Exception ex)
-                {
-                    Log.Error("[Z-Levels] DestroyedTerrain patch produced an error. That should not happen and will break things. Send a Hugslib log to the Z-Levels developers. Error message: " + ex);
-                }
-                return true;
             }
         }
 
@@ -209,4 +180,3 @@ namespace ZLevels
         }
     }
 }
-

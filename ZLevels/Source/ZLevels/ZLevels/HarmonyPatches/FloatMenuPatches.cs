@@ -243,6 +243,7 @@ namespace ZLevels
                 while (true)
                 {
                     map = ZUtils.ZTracker.GetLowerLevel(map.Tile, map);
+                    if (map == null) break;
                     if (map != null)
                     {
                         if (map.terrainGrid?.TerrainAt(c) == ZLevelsDefOf.ZL_OutsideTerrain)
@@ -270,7 +271,7 @@ namespace ZLevels
                 IntVec3 c = IntVec3.FromVector3(clickPos);
                 List<Thing> list = new List<Thing>();
                 clickedPawns.Clear();
-                List<Pawn> allPawnsSpawned = map.mapPawns.AllPawnsSpawned;
+                IReadOnlyList<Pawn> allPawnsSpawned = map.mapPawns.AllPawnsSpawned;
                 for (int i = 0; i < allPawnsSpawned.Count; i++)
                 {
                     Pawn pawn = allPawnsSpawned[i];
@@ -304,7 +305,7 @@ namespace ZLevels
                 list2.Sort(CompareThingsByDrawAltitude);
                 list.AddRange(list2);
                 clickedPawns.Clear();
-                List<Pawn> allPawnsSpawned2 = map.mapPawns.AllPawnsSpawned;
+                IReadOnlyList<Pawn> allPawnsSpawned2 = map.mapPawns.AllPawnsSpawned;
                 for (int l = 0; l < allPawnsSpawned2.Count; l++)
                 {
                     Pawn pawn2 = allPawnsSpawned2[l];
@@ -356,21 +357,67 @@ namespace ZLevels
             }
         }
 
-        [HarmonyPatch(typeof(FloatMenuMap), "StillValid", new Type[] { typeof(FloatMenuOption), typeof(List<FloatMenuOption>), typeof(Pawn) })]
+        private static bool HasLinkedLevels(FloatMenuContext context, Pawn target)
+        {
+            Pawn pawn = context.FirstSelectedPawn;
+            return !context.IsMultiselect && pawn != null && pawn.Map != null && target.Map != null
+                && pawn.Map.Tile == target.Map.Tile && ZUtils.ZTracker != null
+                && ZUtils.ZTracker.ZLevelsTracker.TryGetValue(pawn.Map.Tile, out var levels) && levels.ZLevels.Count > 1;
+        }
+
+        [HarmonyPatch(typeof(FloatMenuOptionProvider_RescuePawn), "GetSingleOptionFor", new Type[] { typeof(Pawn), typeof(FloatMenuContext) })]
+        internal static class RescueOption_Patch
+        {
+            private static void Postfix(Pawn clickedPawn, FloatMenuContext context, ref FloatMenuOption __result)
+            {
+                if (__result == null || !HasLinkedLevels(context, clickedPawn)) return;
+                string noBed = "CannotRescue".Translate() + ": " + (clickedPawn.RaceProps.Animal ? "NoAnimalBed" : "NoNonPrisonerBed").Translate().CapitalizeFirst();
+                if (!__result.Disabled || __result.Label == noBed)
+                {
+                    __result = AddHumanlikeOrders_Patch.AddRescueOption(context.FirstSelectedPawn, clickedPawn);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(FloatMenuOptionProvider_CapturePawn), "GetSingleOptionFor", new Type[] { typeof(Pawn), typeof(FloatMenuContext) })]
+        internal static class CaptureOption_Patch
+        {
+            private static void Postfix(Pawn clickedPawn, FloatMenuContext context, ref FloatMenuOption __result)
+            {
+                if (__result != null && HasLinkedLevels(context, clickedPawn))
+                {
+                    __result = AddHumanlikeOrders_Patch.AddCaptureOption(context.FirstSelectedPawn, clickedPawn);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(FloatMenuOptionProvider_Arrest), "GetSingleOptionFor", new Type[] { typeof(Pawn), typeof(FloatMenuContext) })]
+        internal static class ArrestOption_Patch
+        {
+            private static void Postfix(Pawn clickedPawn, FloatMenuContext context, ref FloatMenuOption __result)
+            {
+                if (__result != null && !__result.Disabled && HasLinkedLevels(context, clickedPawn))
+                {
+                    __result = AddHumanlikeOrders_Patch.AddArrestOption(context.FirstSelectedPawn, clickedPawn);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(FloatMenuMap), "StillValid", new Type[] { typeof(FloatMenuOption), typeof(List<FloatMenuOption>) })]
         internal static class Patch_StillValid
         {
-            private static bool Prefix(ref bool __result, FloatMenuMap __instance, FloatMenuOption opt, List<FloatMenuOption> curOpts, Pawn forPawn)
+            private static bool Prefix(ref bool __result, FloatMenuOption opt, List<FloatMenuOption> curOpts)
             {
-                if (opt.revalidateClickTarget?.Map != Find.CurrentMap)
+                if (opt.revalidateClickTarget?.Map != null && opt.revalidateClickTarget.Map != Find.CurrentMap)
                 {
-                    __result = StillValid(__instance, opt, curOpts, forPawn);
+                    __result = StillValid(opt, curOpts);
                     ZLogger.Message("Result: " + __result);
                     return false;
                 }
                 return true;
             }
 
-            private static bool StillValid(FloatMenuMap __instance, FloatMenuOption opt, List<FloatMenuOption> curOpts, Pawn forPawn)
+            private static bool StillValid(FloatMenuOption opt, List<FloatMenuOption> curOpts)
             {
                 if (opt.revalidateClickTarget == null)
                 {
@@ -394,7 +441,7 @@ namespace ZLevels
 
                     if (!FloatMenuMap.cachedChoices.TryGetValue(key, out List<FloatMenuOption> value))
                     {
-                        List<FloatMenuOption> list = FloatMenuMakerMap.ChoicesAtFor(key, forPawn);
+                        List<FloatMenuOption> list = FloatMenuMakerMap.GetOptions(Find.Selector.SelectedPawns.ToList(), key, out _);
                         FloatMenuMap.cachedChoices.Add(key, list);
                         value = list;
                     }
@@ -410,45 +457,15 @@ namespace ZLevels
             }
         }
 
-        [HarmonyPatch(typeof(FloatMenuMakerMap), "AddHumanlikeOrders")]
+        [HarmonyPatch(typeof(FloatMenuMakerMap), "GetOptions")]
         public class AddHumanlikeOrders_Patch
         {
-            public static void Postfix(Vector3 clickPos, Pawn pawn, ref List<FloatMenuOption> opts)
+            public static void Postfix(Vector3 clickPos, FloatMenuContext context, ref List<FloatMenuOption> __result)
             {
-                Pawn pawn2 = GridsUtility.GetThingList(IntVec3.FromVector3(clickPos), pawn.Map)
-                    .FirstOrDefault((Thing x) => x is Pawn) as Pawn;
+                if (context == null || context.IsMultiselect || context.FirstSelectedPawn == null || !context.FirstSelectedPawn.RaceProps.Humanlike) return;
+                Pawn pawn = context.FirstSelectedPawn;
+                List<FloatMenuOption> opts = __result;
                 var ZTracker = ZUtils.ZTracker;
-
-                if (pawn2 != null && ZTracker.ZLevelsTracker[pawn.Map.Tile].ZLevels.Count > 1)
-                {
-                    TaggedString toCheck = "Rescue".Translate(pawn2.LabelCap, pawn2);
-                    FloatMenuOption floatMenuOption = opts.FirstOrDefault((FloatMenuOption x) => x.Label.Contains
-                        (toCheck));
-                    if (floatMenuOption != null)
-                    {
-                        opts.Remove(floatMenuOption);
-                        opts.Add(AddHumanlikeOrders_Patch.AddRescueOption(pawn, pawn2));
-                    }
-
-                    TaggedString toCheck2 = "Capture".Translate(pawn2.LabelCap, pawn2);
-                    FloatMenuOption floatMenuOption2 = opts.FirstOrDefault((FloatMenuOption x) => x.Label.Contains
-                        (toCheck2));
-                    if (floatMenuOption2 != null)
-                    {
-                        opts.Remove(floatMenuOption2);
-                        opts.Add(AddHumanlikeOrders_Patch.AddCaptureOption(pawn, pawn2));
-                    }
-
-                    TaggedString toCheck3 = "TryToArrest".Translate(pawn2.LabelCap, pawn2,
-                        pawn2.GetAcceptArrestChance(pawn).ToStringPercent());
-                    FloatMenuOption floatMenuOption3 = opts.FirstOrDefault((FloatMenuOption x) => x.Label.Contains
-                        (toCheck3));
-                    if (floatMenuOption3 != null && (pawn.Drafted || pawn2.IsWildMan()))
-                    {
-                        opts.Remove(floatMenuOption3);
-                        opts.Add(AddHumanlikeOrders_Patch.AddArrestOption(pawn, pawn2));
-                    }
-                }
 
                 var map = Find.CurrentMap;
                 var curMapIndex = ZUtils.ZTracker.GetZIndexFor(map);
@@ -459,6 +476,7 @@ namespace ZLevels
                 while (true)
                 {
                     map = ZUtils.ZTracker.GetLowerLevel(map.Tile, map);
+                    if (map == null) break;
                     if (map != null)
                     {
                         if (map.terrainGrid?.TerrainAt(c) == ZLevelsDefOf.ZL_OutsideTerrain)
@@ -523,6 +541,34 @@ namespace ZLevels
                     }
                 }
             }
+            private static Building_Bed FindBedAcrossLevels(Pawn pawn, Pawn victim, GuestStatus? guestStatus)
+            {
+                Map pawnMap = pawn.Map;
+                Map victimMap = victim.Map;
+                IntVec3 pawnPosition = pawn.Position;
+                IntVec3 victimPosition = victim.Position;
+                Map previousLookedIntoMap = ZUtils.currentLookedIntoMap;
+                bool selected = Find.Selector.SelectedObjects.Contains(pawn);
+                try
+                {
+                    // The generator moves pawn and victim onto each candidate map before it yields that map.
+                    foreach (Map map in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, pawnMap, pawnPosition, victim, victimMap, victimPosition))
+                    {
+                        Building_Bed bed = RestUtility.FindBedFor(victim, pawn, checkSocialProperness: false, guestStatus: guestStatus)
+                            ?? RestUtility.FindBedFor(victim, pawn, checkSocialProperness: false, ignoreOtherReservations: true, guestStatus: guestStatus);
+                        if (bed != null) return bed;
+                    }
+                    return null;
+                }
+                finally
+                {
+                    ZUtils.TeleportThing(pawn, pawnMap, pawnPosition);
+                    ZUtils.TeleportThing(victim, victimMap, victimPosition);
+                    ZUtils.currentLookedIntoMap = previousLookedIntoMap;
+                    if (selected) Find.Selector.Select(pawn);
+                }
+            }
+
             public static FloatMenuOption AddArrestOption(Pawn pawn, Pawn victim)
             {
                 if (!pawn.CanReach(victim, PathEndMode.OnCell, Danger.Deadly))
@@ -536,31 +582,7 @@ namespace ZLevels
                     Action action = delegate
                     {
                         var ZTracker = ZUtils.ZTracker;
-                        var oldMap = pawn.Map;
-                        var oldPosition1 = pawn.Position;
-                        var oldPosition2 = victim.Position;
-                        bool select = false;
-                        if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
-
-                        Building building_Bed3 = null;
-                        foreach (var otherMap in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap,
-                            oldPosition1, victim, oldMap, oldPosition2))
-                        {
-                            building_Bed3 = RestUtility.FindBedFor(pTarg2, pawn, guestStatus: GuestStatus.Prisoner,
-                                checkSocialProperness: false);
-                            if (building_Bed3 == null)
-                            {
-                                building_Bed3 = RestUtility.FindBedFor(pTarg2, pawn, guestStatus: GuestStatus.Prisoner,
-                                    checkSocialProperness: false, ignoreOtherReservations: true);
-                            }
-
-                            if (building_Bed3 != null) break;
-                        }
-
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition1);
-                        ZUtils.TeleportThing(victim, oldMap, oldPosition2);
-
-                        if (select) Find.Selector.Select(pawn);
+                        Building_Bed building_Bed3 = FindBedAcrossLevels(pawn, victim, GuestStatus.Prisoner);
 
                         if (building_Bed3 == null)
                         {
@@ -598,28 +620,7 @@ namespace ZLevels
                     (victim.LabelCap, victim), delegate ()
                     {
                         var ZTracker = ZUtils.ZTracker;
-                        var oldMap = pawn.Map;
-                        var oldPosition1 = pawn.Position;
-                        var oldPosition2 = victim.Position;
-                        bool select = Find.Selector.SelectedObjects.Contains(pawn);
-
-                        Building building_Bed = null;
-                        foreach (var otherMap in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap, oldPosition1,
-                            victim, oldMap, oldPosition2))
-                        {
-                            building_Bed = RestUtility.FindBedFor(victim, pawn, true, false);
-                            if (building_Bed == null)
-                            {
-                                building_Bed = RestUtility.FindBedFor(victim, pawn, true, false);
-                            }
-
-                            if (building_Bed != null) break;
-                        }
-
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition1);
-                        ZUtils.TeleportThing(victim, oldMap, oldPosition2);
-
-                        if (select) Find.Selector.Select(pawn);
+                        Building_Bed building_Bed = FindBedAcrossLevels(pawn, victim, GuestStatus.Prisoner);
 
                         if (building_Bed == null)
                         {
@@ -652,32 +653,7 @@ namespace ZLevels
                     (victim.LabelCap, victim), delegate ()
                     {
                         var ZTracker = ZUtils.ZTracker;
-                        var oldMap = pawn.Map;
-                        var oldPosition1 = pawn.Position;
-                        var oldPosition2 = victim.Position;
-                        bool select = false;
-                        if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
-                        Building building_Bed = null;
-
-                        foreach (var otherMap in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap, oldPosition1,
-                            victim, oldMap, oldPosition2))
-                        {
-                            ZLogger.Message("Searching rest job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
-                                            + " for " + ZTracker.GetMapInfo(oldMap));
-                            building_Bed = RestUtility.FindBedFor(victim, pawn,
-                                checkSocialProperness: false);
-                            if (building_Bed == null)
-                            {
-                                building_Bed = RestUtility.FindBedFor(victim, pawn,
-                                    checkSocialProperness: false, ignoreOtherReservations: true);
-                            }
-
-                            if (building_Bed != null) break;
-                        }
-
-                        if (select) Find.Selector.Select(pawn);
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition1);
-                        ZUtils.TeleportThing(victim, oldMap, oldPosition2);
+                        Building_Bed building_Bed = FindBedAcrossLevels(pawn, victim, null);
 
                         if (building_Bed == null)
                         {
@@ -703,11 +679,18 @@ namespace ZLevels
         }
 
 
-        [HarmonyPatch(typeof(FloatMenuMakerMap), "AddJobGiverWorkOrders")]
+        [HarmonyPatch(typeof(FloatMenuMakerMap), "GetOptions")]
         internal static class FloatMenuMakerMap_AddJobGiverWorkOrders_Patch
         {
-            private static bool Prefix(Vector3 clickPos, Pawn pawn, ref List<FloatMenuOption> opts, bool drafted, ref FloatMenuOption[] ___equivalenceGroupTempStorage)
+            private static void Postfix(Vector3 clickPos, FloatMenuContext context, ref List<FloatMenuOption> __result)
             {
+                if (context == null || context.IsMultiselect || context.FirstSelectedPawn == null || !context.FirstSelectedPawn.RaceProps.Humanlike) return;
+                AddWorkOrders(clickPos, context.FirstSelectedPawn, __result, context.FirstSelectedPawn.Drafted);
+            }
+
+            private static bool AddWorkOrders(Vector3 clickPos, Pawn pawn, List<FloatMenuOption> opts, bool drafted)
+            {
+                var equivalenceGroupTempStorage = new FloatMenuOption[DefDatabase<WorkGiverEquivalenceGroupDef>.DefCount];
                 var inactiveOptions = new List<FloatMenuOption>();
                 foreach (var option in opts)
                 {
@@ -730,6 +713,7 @@ namespace ZLevels
                     if (!ZTracker.jobTracker.TryGetValue(pawn, out var jobTracker))
                     {
                         jobTracker = new JobTracker();
+                        ZTracker.jobTracker[pawn] = jobTracker;
                     }
                     foreach (Thing item in GenUI.ThingsUnderMouse(clickPos, 1f, targetingParameters))
                     {
@@ -833,7 +817,7 @@ namespace ZLevels
                                                         {
                                                             continue;
                                                         }
-                                                        text = (item.Position.InAllowedArea(pawn) ? ((string)"CannotPrioritizeForbidden".Translate(item.Label, item)) : ((string)("CannotPrioritizeForbiddenOutsideAllowedArea".Translate() + ": " + pawn.playerSettings.EffectiveAreaRestriction.Label)));
+                                                        text = (item.Position.InAllowedArea(pawn) ? ((string)"CannotPrioritizeForbidden".Translate(item.Label, item)) : ((string)("CannotPrioritizeForbiddenOutsideAllowedArea".Translate() + ": " + pawn.playerSettings.EffectiveAreaRestrictionInPawnCurrentMap.Label)));
                                                     }
                                                 }
                                                 else
@@ -843,7 +827,7 @@ namespace ZLevels
                                                     {
                                                         text = "CannotPrioritizeWorkGiverDisabled".Translate(workGiver_Scanner.def.label);
                                                     }
-                                                    else if (pawn.jobs.curJob != null && pawn.jobs.curJob.JobIsSameAs(job))
+                                                    else if (pawn.jobs.curJob != null && pawn.jobs.curJob.JobIsSameAs(pawn, job))
                                                     {
                                                         text = "CannotGenericAlreadyAm".Translate(workGiver_Scanner.PostProcessedGerund(job), item.LabelShort, item);
                                                     }
@@ -857,7 +841,7 @@ namespace ZLevels
                                                     }
                                                     else if (item.IsForbidden(pawn))
                                                     {
-                                                        text = (item.Position.InAllowedArea(pawn) ? ((string)"CannotPrioritizeForbidden".Translate(item.Label, item)) : ((string)("CannotPrioritizeForbiddenOutsideAllowedArea".Translate() + ": " + pawn.playerSettings.EffectiveAreaRestriction.Label)));
+                                                        text = (item.Position.InAllowedArea(pawn) ? ((string)"CannotPrioritizeForbidden".Translate(item.Label, item)) : ((string)("CannotPrioritizeForbiddenOutsideAllowedArea".Translate() + ": " + pawn.playerSettings.EffectiveAreaRestrictionInPawnCurrentMap.Label)));
                                                     }
                                                     else if (!pawn.CanReach(item, workGiver_Scanner.PathEndMode, Danger.Deadly))
                                                     {
@@ -909,14 +893,16 @@ namespace ZLevels
                                                 menuOption.autoTakeablePriority = workGiver2.autoTakeablePriorityDrafted;
                                             }
 
+                                            // Vanilla already listed its work options. An enabled cross-level option replaces only a disabled vanilla option with the same label.
+                                            opts.RemoveAll(option => option.Disabled && !menuOption.Disabled && option.Label == menuOption.Label);
                                             if (!opts.Any(op => op.Label == menuOption.Label))
                                             {
                                                 if (workGiver2.equivalenceGroup != null)
                                                 {
-                                                    if (___equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index] == null
-                                                        || (___equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index].Disabled && !menuOption.Disabled))
+                                                    if (equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index] == null
+                                                        || (equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index].Disabled && !menuOption.Disabled))
                                                     {
-                                                        ___equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index] = menuOption;
+                                                        equivalenceGroupTempStorage[workGiver2.equivalenceGroup.index] = menuOption;
                                                         flag = true;
                                                     }
                                                 }
@@ -937,12 +923,12 @@ namespace ZLevels
 
                         if (flag)
                         {
-                            for (int j = 0; j < ___equivalenceGroupTempStorage.Length; j++)
+                            for (int j = 0; j < equivalenceGroupTempStorage.Length; j++)
                             {
-                                if (___equivalenceGroupTempStorage[j] != null)
+                                if (equivalenceGroupTempStorage[j] != null)
                                 {
-                                    opts.Add(___equivalenceGroupTempStorage[j]);
-                                    ___equivalenceGroupTempStorage[j] = null;
+                                    opts.Add(equivalenceGroupTempStorage[j]);
+                                    equivalenceGroupTempStorage[j] = null;
                                 }
                             }
                         }

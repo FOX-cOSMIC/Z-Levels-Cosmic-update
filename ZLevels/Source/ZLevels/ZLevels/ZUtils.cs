@@ -67,7 +67,7 @@ namespace ZLevels
                         Map lowerMap = zTracker.GetLowerLevel(otherMap.Tile, otherMap);
                         if (lowerMap != null)
                         {
-                            stairs = zTracker.stairsUp[lowerMap]; // fetching stairs from lower map, in this case from map below than other map
+                            stairs = zTracker.GetStairsUpFor(lowerMap); // fetching stairs from lower map, in this case from map below than other map
                         }
                         else
                         {
@@ -79,7 +79,7 @@ namespace ZLevels
                         Map upperMap = zTracker.GetUpperLevel(otherMap.Tile, otherMap);
                         if (upperMap != null)
                         {
-                            stairs = zTracker.stairsDown[upperMap]; // fetching stairs from upper map, in this case from map upper than other map
+                            stairs = zTracker.GetStairsDownFor(upperMap); // fetching stairs from upper map, in this case from map upper than other map
                         }
                         else
                         {
@@ -187,7 +187,7 @@ namespace ZLevels
                     Map lowerMap = ZTracker.GetLowerLevel(otherMap.Tile, otherMap);
                     if (lowerMap != null)
                     {
-                        stairs = ZTracker.stairsUp[lowerMap];
+                        stairs = ZTracker.GetStairsUpFor(lowerMap);
                     }
                     else
                     {
@@ -199,7 +199,7 @@ namespace ZLevels
                     Map upperMap = ZTracker.GetUpperLevel(otherMap.Tile, otherMap);
                     if (upperMap != null)
                     {
-                        stairs = ZTracker.stairsDown[upperMap];
+                        stairs = ZTracker.GetStairsDownFor(upperMap);
                     }
                     else
                     {
@@ -256,7 +256,7 @@ namespace ZLevels
                         Map lowerMap = ZTracker.GetLowerLevel(otherMap.Tile, otherMap);
                         if (lowerMap != null)
                         {
-                            stairs = ZTracker.stairsUp[lowerMap];
+                            stairs = ZTracker.GetStairsUpFor(lowerMap);
                         }
                     }
                     else if (oldMapZIndex < newMapZIndex)
@@ -264,7 +264,7 @@ namespace ZLevels
                         Map upperMap = ZTracker.GetUpperLevel(otherMap.Tile, otherMap);
                         if (upperMap != null)
                         {
-                            stairs = ZTracker.stairsDown[upperMap];
+                            stairs = ZTracker.GetStairsDownFor(upperMap);
                         }
                     }
                 }
@@ -273,7 +273,7 @@ namespace ZLevels
                     Map lowerMap = ZTracker.GetLowerLevel(otherMap.Tile, otherMap);
                     if (lowerMap != null)
                     {
-                        stairs = ZTracker.stairsUp[lowerMap];
+                        stairs = ZTracker.GetStairsUpFor(lowerMap);
                     }
                 }
                 else if (otherMapZIndex < oldMapZIndex)
@@ -281,7 +281,7 @@ namespace ZLevels
                     Map upperMap = ZTracker.GetUpperLevel(otherMap.Tile, otherMap);
                     if (upperMap != null)
                     {
-                        stairs = ZTracker.stairsDown[upperMap];
+                        stairs = ZTracker.GetStairsDownFor(upperMap);
                     }
                 }
 

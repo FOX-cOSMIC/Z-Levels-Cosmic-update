@@ -185,7 +185,7 @@ namespace ZLevels
         {
             try
             {
-                if (pawn.playerSettings != null && pawn.playerSettings.AreaRestriction != null)
+                if (pawn.playerSettings != null && pawn.playerSettings.AreaRestrictionInPawnCurrentMap != null)
                 {
                     if (this.activeAreas == null) this.activeAreas = new Dictionary<Pawn, ActiveArea>();
                     if (this.activeAreas.ContainsKey(pawn))
@@ -194,12 +194,12 @@ namespace ZLevels
                         {
                             this.activeAreas[pawn].activeAreas = new Dictionary<Map, Area>()
                             {
-                                {pawn.Map, pawn.playerSettings.AreaRestriction}
+                                {pawn.Map, pawn.playerSettings.AreaRestrictionInPawnCurrentMap}
                             };
                         }
                         else
                         {
-                            this.activeAreas[pawn].activeAreas[pawn.Map] = pawn.playerSettings.AreaRestriction;
+                            this.activeAreas[pawn].activeAreas[pawn.Map] = pawn.playerSettings.AreaRestrictionInPawnCurrentMap;
                         }
                     }
                     else
@@ -208,7 +208,7 @@ namespace ZLevels
                         {
                             activeAreas = new Dictionary<Map, Area>()
                     {
-                        {pawn.Map, pawn.playerSettings.AreaRestriction}
+                        {pawn.Map, pawn.playerSettings.AreaRestrictionInPawnCurrentMap}
                     }
                         };
                     }
@@ -229,12 +229,12 @@ namespace ZLevels
                 if (this.activeAreas.ContainsKey(pawn) && this.activeAreas[pawn].activeAreas != null && this.activeAreas[pawn].activeAreas.ContainsKey(pawn.Map))
                 {
                     if (pawn.playerSettings == null) pawn.playerSettings = new Pawn_PlayerSettings(pawn);
-                    pawn.playerSettings.AreaRestriction = this.activeAreas[pawn].activeAreas[pawn.Map];
+                    pawn.playerSettings.AreaRestrictionInPawnCurrentMap = this.activeAreas[pawn].activeAreas[pawn.Map];
                 }
                 else
                 {
                     if (pawn.playerSettings == null) pawn.playerSettings = new Pawn_PlayerSettings(pawn);
-                    pawn.playerSettings.AreaRestriction = null;
+                    pawn.playerSettings.AreaRestrictionInPawnCurrentMap = null;
                 }
             }
             catch (Exception ex)
@@ -243,7 +243,7 @@ namespace ZLevels
             }
         }
 
-        public Map GetUpperLevel(int tile, Map map)
+        public Map GetUpperLevel(PlanetTile tile, Map map)
         {
             if (this.ZLevelsTracker != null && this.ZLevelsTracker.TryGetValue(tile, out ZLevelData zlevelData))
             {
@@ -255,7 +255,7 @@ namespace ZLevels
             }
             return null;
         }
-        public Map GetLowerLevel(int tile, Map map)
+        public Map GetLowerLevel(PlanetTile tile, Map map)
         {
             if (this.ZLevelsTracker != null && this.ZLevelsTracker.TryGetValue(tile, out ZLevelData zlevelData))
             {
@@ -268,7 +268,7 @@ namespace ZLevels
             return null;
         }
 
-        public List<Map> GetAllMaps(int tile)
+        public List<Map> GetAllMaps(PlanetTile tile)
         {
             List<Map> maps = new List<Map>();
             bool deleteTile = false;
@@ -383,7 +383,7 @@ namespace ZLevels
             }
         }
 
-        public Map GetMapByIndex(int tile, int index)
+        public Map GetMapByIndex(PlanetTile tile, int index)
         {
             return this.ZLevelsTracker[tile].ZLevels[index];
         }
@@ -403,7 +403,7 @@ namespace ZLevels
                 }
                 allMapsInClosestOrder.Clear();
             }
-            if (this.ZLevelsTracker == null) this.ZLevelsTracker = new Dictionary<int, ZLevelData>();
+            if (this.ZLevelsTracker == null) this.ZLevelsTracker = new Dictionary<PlanetTile, ZLevelData>();
             if (this.mapIndex == null)
             {
                 this.mapIndex = new Dictionary<Map, int>();
@@ -1231,16 +1231,24 @@ namespace ZLevels
                     else if (job.TryMakePreToilReservations(pawn, ZLogger.DebugEnabled))
                     {
                         ZLogger.Message(pawn + " taking job " + job + " in " + this.GetMapInfo(pawn.Map));
-                        if (forced)
-                        {
-                            pawn.jobs.TryTakeOrderedJob(job);
-                        }
-                        else
-                        {
-                            pawn.jobs.jobQueue.EnqueueLast(job);
-                        }
-                        ZLogger.Message(pawn + " taking " + job + " from TryTakeFirstJob");
                         pawnJobTracker.activeJobs.RemoveAt(0);
+                        pawnJobTracker.startingQueuedJob = true;
+                        try
+                        {
+                            if (forced)
+                            {
+                                pawn.jobs.TryTakeOrderedJob(job);
+                            }
+                            else
+                            {
+                                pawn.jobs.jobQueue.EnqueueLast(job);
+                            }
+                            ZLogger.Message(pawn + " taking " + job + " from TryTakeFirstJob");
+                        }
+                        finally
+                        {
+                            pawnJobTracker.startingQueuedJob = false;
+                        }
                     }
                     else
                     {
@@ -1257,7 +1265,7 @@ namespace ZLevels
             return true;
         }
 
-        public void ZLevelsFixer(int tile)
+        public void ZLevelsFixer(PlanetTile tile)
         {
             try
             {
@@ -1334,10 +1342,10 @@ namespace ZLevels
                                 if (infestator != null)
                                 {
                                     infestatorsPlace = infestator.Position;
-                                    var tunnel = map.pathFinder.FindPath
+                                    var tunnel = map.pathFinder.FindPathNow
                                         (naturalHole.Position, infestator, TraverseParms.For
                                         (TraverseMode.PassAllDestroyableThings, Danger.Deadly),
-                                        PathEndMode.OnCell);
+                                        peMode: PathEndMode.OnCell);
                                     if (tunnel?.NodesReversed != null && tunnel.NodesReversed.Count > 0)
                                     {
                                         foreach (var tile in tunnel.NodesReversed)
@@ -1674,9 +1682,9 @@ namespace ZLevels
 
             foreach (var intVec in newMap.AllCells)
             {
-                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlag.Terrain);
-                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlag.Things);
-                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlag.FogOfWar);
+                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlagDefOf.Terrain);
+                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlagDefOf.Things);
+                newMap.mapDrawer.MapMeshDirty(intVec, MapMeshFlagDefOf.FogOfWar);
             }
             return newMap;
         }
@@ -1789,7 +1797,7 @@ namespace ZLevels
             catch { };
         }
 
-        private void ReCheckStairs(int tile)
+        private void ReCheckStairs(PlanetTile tile)
         {
             foreach (var map in this.GetAllMaps(tile))
             {
@@ -1858,7 +1866,7 @@ namespace ZLevels
                             stairsUp.RemoveAt(i);
                         }
                         Map upperMap = this.GetUpperLevel(tile, map);
-                        if (upperMap != null && (!this.stairsDown?[upperMap]?.Any(x => x.Position == stairsUp[i].Position) ?? false))
+                        if (upperMap != null && !this.GetStairsDownFor(upperMap).Any(x => x.Position == stairsUp[i].Position))
                         {
                             ZLogger.Message(this.stairsUp[map][i] + " - has no stairs below, removing it");
                             stairsUp.RemoveAt(i);
@@ -1915,10 +1923,17 @@ namespace ZLevels
                 LookMode.Deep, ref this.JobTrackerKeys, ref this.JobTrackerValues);
             Scribe_Collections.Look<Map, int>(ref this.mapIndex, "mapIndex", LookMode.Reference,
                 LookMode.Value, ref this.mapKeys, ref this.mapValues);
-            Scribe_Collections.Look<int, ZLevelData>(ref this.ZLevelsTracker, "ZLevelsTracker",
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                this.serializedZLevelsTracker = this.ZLevelsTracker?.ToDictionary(entry => entry.Key.ToString(), entry => entry.Value);
+            }
+            Scribe_Collections.Look<string, ZLevelData>(ref this.serializedZLevelsTracker, "ZLevelsTracker",
                 LookMode.Value, LookMode.Deep, ref this.Z_LevelsKeys, ref this.ZLevelsTrackerValues);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
+                this.ZLevelsTracker = this.serializedZLevelsTracker?.ToDictionary(entry => PlanetTile.FromString(entry.Key), entry => entry.Value)
+                    ?? new Dictionary<PlanetTile, ZLevelData>();
+                this.serializedZLevelsTracker = null;
                 PreInit();
                 try
                 {
@@ -1927,7 +1942,7 @@ namespace ZLevels
                     {
                         if (this.ZLevelsTracker == null)
                         {
-                            this.ZLevelsTracker = new Dictionary<int, ZLevelData>();
+                            this.ZLevelsTracker = new Dictionary<PlanetTile, ZLevelData>();
                             foreach (var d in this.mapIndex)
                             {
                                 if (d.Key != null)
@@ -1967,12 +1982,25 @@ namespace ZLevels
         private List<Pawn> JobTrackerKeys = new List<Pawn>();
         private List<JobTracker> JobTrackerValues = new List<JobTracker>();
 
-        public Dictionary<int, ZLevelData> ZLevelsTracker = new Dictionary<int, ZLevelData>();
-        private List<int> Z_LevelsKeys = new List<int>();
+        public Dictionary<PlanetTile, ZLevelData> ZLevelsTracker = new Dictionary<PlanetTile, ZLevelData>();
+        private Dictionary<string, ZLevelData> serializedZLevelsTracker;
+        private List<string> Z_LevelsKeys = new List<string>();
         private List<ZLevelData> ZLevelsTrackerValues = new List<ZLevelData>();
 
         public Dictionary<Map, List<Building_Stairs>> stairsUp = new Dictionary<Map, List<Building_Stairs>>();
         public Dictionary<Map, List<Building_Stairs>> stairsDown = new Dictionary<Map, List<Building_Stairs>>();
+
+        // Building_StairsUp/Down.SpawnSetup replace these dictionaries, and ReCheckStairs refills them on the next game tick.
+        // Until then a map can be missing, so readers use these helpers rather than the indexer.
+        public List<Building_Stairs> GetStairsUpFor(Map map)
+        {
+            return stairsUp.TryGetValue(map, out var stairs) ? stairs : new List<Building_Stairs>();
+        }
+
+        public List<Building_Stairs> GetStairsDownFor(Map map)
+        {
+            return stairsDown.TryGetValue(map, out var stairs) ? stairs : new List<Building_Stairs>();
+        }
 
         public HashSet<Building_Stairs> totalStairsDown = new HashSet<Building_Stairs>();
         public HashSet<Building_Stairs> totalStairsUp = new HashSet<Building_Stairs>();

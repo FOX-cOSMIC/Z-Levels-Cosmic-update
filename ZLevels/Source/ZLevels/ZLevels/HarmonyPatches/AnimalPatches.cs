@@ -22,8 +22,7 @@ namespace ZLevels
         public class AnimalPatch2
         {
             [HarmonyPrefix]
-            private static bool SpawnAnimalPrefix(WildAnimalSpawner __instance, ref IntVec3 loc, 
-                ref bool __result, Map ___map)
+            private static bool SpawnAnimalPrefix(WildAnimalSpawner __instance, ref IntVec3 loc, ref bool __result, Map ___map)
             {
                 if (ZLevelsMod.settings.allowZLevelsInfestation)
                 {
@@ -139,4 +138,3 @@ namespace ZLevels
         }
     }
 }
-

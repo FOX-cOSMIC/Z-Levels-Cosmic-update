@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -14,16 +15,24 @@ namespace ZLevels
     {
         static JobLogging()
         {
+            var patchedMethods = new HashSet<MethodBase>();
             foreach (var type in typeof(JobDriver).AllSubclassesNonAbstract())
             {
-                var method = AccessTools.Method(type, "TryMakePreToilReservations");
+                var method = AccessTools.Method(type, "TryMakePreToilReservations", new[] { typeof(bool) });
                 if (method != null)
+                {
+                    method = AccessTools.DeclaredMethod(method.DeclaringType, method.Name, new[] { typeof(bool) });
+                }
+                if (method != null && !method.IsStatic && !method.IsAbstract && patchedMethods.Add(method))
                 {
                     try
                     {
                         ZLevelsMod.harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(JobLogging), nameof(TryMakePreToilReservationsLog))));
                     }
-                    catch { };
+                    catch (Exception exception)
+                    {
+                        Log.Error("Z-Levels could not attach job reservation logging to " + type.FullName + ": " + exception);
+                    }
                 }
             }
         }
@@ -112,4 +121,3 @@ namespace ZLevels
         }
     }            
 }
-

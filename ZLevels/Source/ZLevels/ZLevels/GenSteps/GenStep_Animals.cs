@@ -43,7 +43,7 @@ namespace ZLevels
 						{
 							loc = RCellFinder.RandomAnimalSpawnCell_MapGen(map);
 						}
-						if (!map.wildAnimalSpawner.SpawnRandomWildAnimalAt(loc))
+						if (!map.wildAnimalSpawner.SpawnRandomWildAnimalAt(loc, canFlyIn: false))
 						{
 							ZLogger.Message("Spawning in loc: " + loc);
 							return;
@@ -58,4 +58,3 @@ namespace ZLevels
 		}
 	}
 }
-

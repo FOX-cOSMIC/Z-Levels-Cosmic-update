@@ -78,7 +78,7 @@ namespace ZLevels
                     var destMapZIndex = ZTracker.GetZIndexFor(dest);
                     if (pawnMapZIndex > destMapZIndex)
                     {
-                        var stairs = ZTracker.stairsDown[pawn.Map];
+                        var stairs = ZTracker.GetStairsDownFor(pawn.Map);
                         if (stairs?.Any() ?? false)
                         {
                             pawn.CurJob.targetC = new LocalTargetInfo(stairs.MinBy(x => pawn.Position.DistanceTo(x.Position)));
@@ -90,7 +90,7 @@ namespace ZLevels
                     }
                     else if (pawnMapZIndex < destMapZIndex)
                     {
-                        var stairs = ZTracker.stairsUp[pawn.Map];
+                        var stairs = ZTracker.GetStairsUpFor(pawn.Map);
                         if (stairs?.Any() ?? false)
                         {
                             pawn.CurJob.targetC = new LocalTargetInfo(stairs.MinBy(y => pawn.Position.DistanceTo(y.Position)));

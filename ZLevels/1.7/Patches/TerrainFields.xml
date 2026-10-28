@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationReplace">
+    <xpath>Defs/TerrainDef[defName="ZL_OutsideTerrain" or defName="ZL_OutsideTerrainTwo" or defName="ZL_RoofTerrain"]/holdSnow</xpath>
+    <value>
+      <holdSnowOrSand>false</holdSnowOrSand>
+    </value>
+  </Operation>
+</Patch>

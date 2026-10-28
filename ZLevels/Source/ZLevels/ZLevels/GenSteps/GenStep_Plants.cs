@@ -11,7 +11,7 @@ namespace ZLevels
 		public override void Generate(Map map, GenStepParams parms)
 		{
 			map.regionAndRoomUpdater.Enabled = false;
-			float currentPlantDensity = map.wildPlantSpawner.CurrentPlantDensity;
+			float currentPlantDensity = map.wildPlantSpawner.CurrentPlantDensityFactor;
 			float currentWholeMapNumDesiredPlants = map.wildPlantSpawner.CurrentWholeMapNumDesiredPlants;
 			foreach (IntVec3 item in map.cellsInRandomOrder.GetAll())
 			{
@@ -21,4 +21,3 @@ namespace ZLevels
 		}
 	}
 }
-

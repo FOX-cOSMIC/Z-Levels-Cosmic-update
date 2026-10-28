@@ -69,7 +69,7 @@ namespace ZLevels
                                         }
                                         var parent = map.Parent as MapParent_ZLevel;
                                         var ZTracker = ZUtils.ZTracker;
-                                        parent.Abandon();
+                                        parent.Abandon(false);
                                         ZTracker.ZLevelsTracker[map.Tile].ZLevels.Remove(comp.Z_LevelIndex);
 
                                         foreach (var map2 in Find.Maps)
@@ -105,7 +105,7 @@ namespace ZLevels
 
                                         var parent = map.Parent as MapParent_ZLevel;
                                         var ZTracker = ZUtils.ZTracker;
-                                        parent.Abandon();
+                                        parent.Abandon(false);
                                         ZTracker.ZLevelsTracker[map.Tile].ZLevels.Remove(comp.Z_LevelIndex);
 
                                         foreach (var map2 in Find.Maps)

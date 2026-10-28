@@ -90,6 +90,10 @@ namespace ZLevels
 			{
 				fertility[allCell2] = input3.GetValue(allCell2);
 			}
+			foreach (TileMutatorWorker worker in UndergroundWaterMutators.RiverAndCoastWorkers(map))
+			{
+				worker.GeneratePostElevationFertility(map);
+			}
 		}
 	}
 }

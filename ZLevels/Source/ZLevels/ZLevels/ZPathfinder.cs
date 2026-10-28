@@ -29,10 +29,10 @@ namespace ZLevels.Properties
 
         public class DijkstraGraph
         {
-            private int _tile;
+            private PlanetTile _tile;
             HashSet<Node> nodes = new HashSet<Node>();
 
-            public DijkstraGraph(int tile)
+            public DijkstraGraph(PlanetTile tile)
             {
                 _tile = tile;
                 Build();
@@ -56,14 +56,14 @@ namespace ZLevels.Properties
                 List<Map> maps = ZUtils.ZTracker.GetAllMaps(_tile);
                 foreach (Map map in maps)
                 {
-                    foreach (Building_Stairs stairs in ZUtils.ZTracker.stairsUp[map])
+                    foreach (Building_Stairs stairs in ZUtils.ZTracker.GetStairsUpFor(map))
                     {
                         Node node = new Node(stairs);
 
                         nodes.Add(new Node(stairs));
                     }
 
-                    foreach (Building_Stairs stairs in ZUtils.ZTracker.stairsDown[map])
+                    foreach (Building_Stairs stairs in ZUtils.ZTracker.GetStairsDownFor(map))
                     {
                         nodes.Add(new Node(stairs));
                     }
@@ -77,7 +77,7 @@ namespace ZLevels.Properties
                         float cost = Single.PositiveInfinity;
                         if (node.Map == neighborNode.Map)
                         {
-                            PawnPath p = node.Map.pathFinder.FindPath(node.Location, neighborNode.Location, StairParms);
+                            PawnPath p = node.Map.pathFinder.FindPathNow(node.Location, neighborNode.Location, StairParms);
                             cost = p.TotalCost;
                             p.ReleaseToPool();
                             p = null;
@@ -164,7 +164,7 @@ namespace ZLevels.Properties
                     foreach (Node neighbor in nodes)
                     {
                         if (neighbor == node || neighbor?.Map != node?.Map) continue;
-                        PawnPath p = node.Map?.pathFinder.FindPath(node.Location, neighbor.Location, StairParms);
+                        PawnPath p = node.Map?.pathFinder.FindPathNow(node.Location, neighbor.Location, StairParms);
                         if (p == null) continue;
                         float cost = p.TotalCost;
                         p.ReleaseToPool();
@@ -414,7 +414,7 @@ namespace ZLevels.Properties
         }
 
 
-        private Dictionary<int, DijkstraGraph> stairGraphs;
+        private Dictionary<PlanetTile, DijkstraGraph> stairGraphs;
 
         private static Lazy<ZPathfinder> _instance = new Lazy<ZPathfinder>();
         public static ZPathfinder Instance => _instance.Value;
@@ -430,12 +430,12 @@ namespace ZLevels.Properties
 
         public ZPathfinder()
         {
-            stairGraphs = new Dictionary<int, DijkstraGraph>();
+            stairGraphs = new Dictionary<PlanetTile, DijkstraGraph>();
         }
 
 
 
-        internal DijkstraGraph getDijkstraGraphForTile(int tile)
+        internal DijkstraGraph getDijkstraGraphForTile(PlanetTile tile)
         {
             if (!HasDijkstraForTile(tile)) //Already initialized
             {
@@ -445,13 +445,13 @@ namespace ZLevels.Properties
             return stairGraphs[tile];
         }
 
-        internal bool HasDijkstraForTile(int tile)
+        internal bool HasDijkstraForTile(PlanetTile tile)
         {
             return stairGraphs.ContainsKey(tile);
         }
 
 
-        internal void SetOrCreateDijkstraGraph(int tile)
+        internal void SetOrCreateDijkstraGraph(PlanetTile tile)
         {
             DijkstraGraph dg = new DijkstraGraph(tile);
             if (!HasDijkstraForTile(tile)) //Already initialized
@@ -486,14 +486,15 @@ namespace ZLevels.Properties
         public Building_Stairs GetClosestStair(IntVec3 source, bool goingUp, Map sourceMap, out PawnPath path)
         {
             path = null;
-            List<Building_Stairs> targetList = goingUp ? ZUtils.ZTracker.stairsUp[sourceMap] :
-                ZUtils.ZTracker.stairsDown[sourceMap];
+            List<Building_Stairs> targetList = goingUp ? ZUtils.ZTracker.GetStairsUpFor(sourceMap) :
+                ZUtils.ZTracker.GetStairsDownFor(sourceMap);
+            if (targetList.Count == 0) return null;
             var pathFinder = sourceMap.pathFinder;
             Dictionary<Building_Stairs, PawnPath> costs = new Dictionary<Building_Stairs, PawnPath>(targetList.Count - 1);
             foreach (var stairs in targetList)
             {
                 if (stairs.Position == source) continue;
-                path = pathFinder.FindPath(source, new LocalTargetInfo(stairs), StairParms);
+                path = pathFinder.FindPathNow(source, new LocalTargetInfo(stairs), StairParms);
                 costs.Add(stairs, path);
             }
 
@@ -522,8 +523,8 @@ namespace ZLevels.Properties
             }
 
             List<Building_Stairs> targetStairses = new List<Building_Stairs>(sink is Building_StairsUp
-                ? ZUtils.ZTracker.stairsUp[sink.Map]
-                : ZUtils.ZTracker.stairsDown[sink.Map]);
+                ? ZUtils.ZTracker.GetStairsUpFor(sink.Map)
+                : ZUtils.ZTracker.GetStairsDownFor(sink.Map));
 
             foreach (Building_Stairs next in targetStairses)
             {
@@ -564,7 +565,7 @@ namespace ZLevels.Properties
             //Most will be lists of one.  The idea will be if a path to an up stairway cannot be found,
             //then we'll need to find a path to that stairway somewhere else (later).  So add all the paths,  
             //Then come back and look at the no-paths and figure all those out.
-            PawnPath path = map.pathFinder.FindPath(startStairs.Position, ti, StairParms);
+            PawnPath path = map.pathFinder.FindPathNow(startStairs.Position, ti, StairParms);
 
             //ZLogger.Message(
             //    $"Joining stairs- number of paths in stairPaths = {StairPaths.Count}, " +
