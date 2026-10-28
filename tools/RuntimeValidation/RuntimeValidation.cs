@@ -221,6 +221,22 @@ namespace ZLevelsValidation
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels survive reload");
                         Require(pawn.Map == surface, "pawn survives reload on surface");
                         Record("reload three-level colony", "PASS");
+                        var reloadedDown = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
+                        Next(14);
+                        reloadedDown.GiveJob(pawn, reloadedDown);
+                        break;
+                    case 14:
+                        if (pawn.Map == surface) return;
+                        Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(pawn.Map) == -1, "stairs after reload lead to lower level");
+                        Record("reload stairs down", "PASS");
+                        var reloadedUp = pawn.Map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+                        Next(15);
+                        reloadedUp.GiveJob(pawn, reloadedUp);
+                        break;
+                    case 15:
+                        if (pawn.Map != surface) return;
+                        Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels tracked after reload stairs");
+                        Record("reload stairs return", "PASS");
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
