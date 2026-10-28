@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Z-Levels isolated runtime validation</name>
+  <author>Local development</author>
+  <packageId>local.zlevels.validation</packageId>
+  <supportedVersions><li>1.7</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>ZLevels1.1</packageId><displayName>Z-Levels Beta</displayName><downloadUrl>https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update</downloadUrl></li>
+  </modDependencies>
+  <loadAfter><li>ZLevels1.1</li></loadAfter>
+  <description>Development-only integration runner. Activate only with isolated savedata and -zlevelsvalidation.</description>
+</ModMetaData>

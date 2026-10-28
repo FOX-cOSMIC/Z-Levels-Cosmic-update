@@ -1,6 +1,8 @@
 **/bin/
 **/obj/
 .artifacts/
-ZLevels/1.7/Assemblies/
+ZLevels/1.7/Assemblies/*.pdb
+ZLevels/1.7/Assemblies/*.deps.json
+tools/RuntimeValidation/Assemblies/
 *.user
 *.suo
