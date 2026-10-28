@@ -67,9 +67,10 @@ To remove the two junctions, run `cmd /c rmdir "<RimWorld>\Mods\ZLevels-Local17"
 ### Limitations
 
 - Validated on RimWorld Core with Harmony and Z-Levels, in a new colony. No DLC and no other mods were active.
-- Not tested: multiplayer (`ZLevels/Source/ZLevels/ZLevels/MultiplayerSupport.cs` is optional and unverified), existing saves, float-menu options that reach other levels, deliberate combat across levels, and hauling or power after a reload.
+- Not tested: multiplayer (`ZLevels/Source/ZLevels/ZLevels/MultiplayerSupport.cs` is optional and unverified), existing saves, float-menu options that reach other levels, deliberate combat across levels, hauling or power after a reload, and walking or digging beyond the lower stairs.
 - One run stopped on a refuel job error that was not explained. See the report.
-- The lower-level generator logs `RandomAnimalSpawnCell_MapGen failed` warnings in some runs. Whether they affect play is not checked. See the report.
+- Some lower levels log `RandomAnimalSpawnCell_MapGen failed` warnings from the vanilla game, once per spawn call. The mod then places each animal on a walkable cell. In the one caves run whose animals were checked, none could reach the lower stairs. See the report.
+- The lower stairs open into a pocket of one cell, walled in by natural rock. A colonist can use the stairs, but must dig out before walking anywhere else. Digging was not tested. See the report.
 - Underground rivers are random, so not every run has one.
 - Compiling is not playability. The validation report lists what was exercised in game.
 

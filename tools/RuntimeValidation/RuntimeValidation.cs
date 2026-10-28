@@ -74,6 +74,10 @@ namespace ZLevelsValidation
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(lower) == -1, "lower index");
                         Record("stairs down and underground generation", "PASS");
                         Record("water census", "surface: " + WaterCensus(surface) + " (mutators " + MutatorNames(surface) + "); lower: " + WaterCensus(lower) + " (mutators " + MutatorNames(lower) + "); same tile: " + (surface.Tile == lower.Tile));
+                        Record("lower animals at arrival", AnimalCensus(lower));
+                        Record("lower walkable reachability", WalkableReachability(lower));
+                        Record("lower stairs neighbourhood", StairsNeighbourhood(lower, pawn.Position));
+                        Record("lower stairs surroundings", StairsSurroundings(lower));
                         var upFromLower = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
                         Next(2);
                         upFromLower.GiveJob(pawn, upFromLower);
@@ -166,6 +170,7 @@ namespace ZLevelsValidation
                         break;
                     case 10:
                         if (DateTime.UtcNow < shotDue) return;
+                        Record("lower animals before screenshot", AnimalCensus(lower));
                         ScreenshotTaker.TakeNonSteamShot("zlevels-lower-level");
                         Record("lower level screenshot", "TAKEN");
                         CameraJumper.TryJump(powerCell, upper, CameraJumper.MovementMode.Cut);
@@ -210,10 +215,19 @@ namespace ZLevelsValidation
                         if (Find.TickManager.TicksGame - stageTick < 600) return;
                         Require(!lamp.PowerOn, "lower-floor lamp unpowered after generator removal");
                         Record("cross-level power loss without source", "PASS");
-                        Next(5);
-                        GameDataSaveLoader.SaveGame("ZLevelsValidation");
-                        Record("save three-level colony", "PASS");
-                        LongEventHandler.ExecuteWhenFinished(() => GameDataSaveLoader.LoadGame("ZLevelsValidation"));
+                        if (pawn.Map != surface)
+                        {
+                            // Colony work can take the colonist down a level; the save must hold them on the surface.
+                            var climbUp = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
+                            Next(16);
+                            climbUp.GiveJob(pawn, climbUp);
+                            break;
+                        }
+                        SaveAndReload();
+                        break;
+                    case 16:
+                        if (pawn.Map != surface) return;
+                        SaveAndReload();
                         break;
                     case 5:
                         if (!reloaded) return;
@@ -292,6 +306,14 @@ namespace ZLevelsValidation
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
         }
 
+        private void SaveAndReload()
+        {
+            Next(5);
+            GameDataSaveLoader.SaveGame("ZLevelsValidation");
+            Record("save three-level colony", "PASS");
+            LongEventHandler.ExecuteWhenFinished(() => GameDataSaveLoader.LoadGame("ZLevelsValidation"));
+        }
+
         private void Next(int nextStage)
         {
             stage = nextStage;
@@ -315,6 +337,71 @@ namespace ZLevelsValidation
                 if (terrain.IsRiver) river++;
             }
             return "water cells " + water + ", river cells " + river;
+        }
+
+        private static string AnimalCensus(Map map)
+        {
+            var mapParent = map.Parent as MapParent_ZLevel;
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            int animals = 0;
+            int inRock = 0;
+            int reachable = 0;
+            foreach (Pawn animal in map.mapPawns.AllPawnsSpawned)
+            {
+                if (!animal.RaceProps.Animal || animal.Faction != null) continue;
+                animals++;
+                if (!animal.Position.Walkable(map)) inRock++;
+                else if (map.reachability.CanReach(animal.Position, stairs, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors))) reachable++;
+            }
+            return "caves " + (mapParent != null && mapParent.hasCaves) + ", wild animals " + animals + ", on unwalkable cells " + inRock + ", walkable and reachable from the lower stairs " + reachable + ", walkable but cut off " + (animals - inRock - reachable);
+        }
+
+        private static string StairsSurroundings(Map map)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (IntVec3 cell in new[] { stairs.Position }.Concat(GenAdj.CellsAdjacent8Way(stairs)))
+            {
+                string things = string.Join("+", cell.GetThingList(map).Select(t => t.def.defName).ToArray());
+                RoofDef roof = map.roofGrid.RoofAt(cell);
+                parts.Add(cell.ToString() + " " + cell.GetTerrain(map).defName + " roof " + (roof == null ? "none" : roof.defName)
+                    + " things " + (things.Length == 0 ? "none" : things) + (cell.Walkable(map) ? " walkable" : " blocked"));
+            }
+            return string.Join(" | ", parts.ToArray());
+        }
+
+        private static string StairsNeighbourhood(Map map, IntVec3 arrival)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            Region stairsRegion = stairs.Position.GetRegion(map);
+            int walkableNeighbours = 0;
+            int inStairsRegion = 0;
+            foreach (IntVec3 cell in GenAdj.CellsAdjacent8Way(stairs))
+            {
+                if (!cell.Walkable(map)) continue;
+                walkableNeighbours++;
+                if (stairsRegion != null && cell.GetRegion(map) == stairsRegion) inStairsRegion++;
+            }
+            Region arrivalRegion = arrival.GetRegion(map);
+            return "stairs cell walkable " + stairs.Position.Walkable(map) + ", stairs region cells " + (stairsRegion == null ? "none" : stairsRegion.CellCount.ToString())
+                + "; adjacent walkable " + walkableNeighbours + " of 8, in stairs region " + inStairsRegion
+                + "; arrival cell walkable " + arrival.Walkable(map) + ", arrival region cells " + (arrivalRegion == null ? "none" : arrivalRegion.CellCount.ToString());
+        }
+
+        // The underground animal fallback ends on a walkable cell chosen from the whole map (AnimalPatches), so the
+        // share of walkable cells the lower stairs can reach is what decides whether those animals can reach the colony.
+        private static string WalkableReachability(Map map)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            int walkable = 0;
+            int reachable = 0;
+            foreach (IntVec3 cell in map.AllCells)
+            {
+                if (!cell.Walkable(map)) continue;
+                walkable++;
+                if (map.reachability.CanReach(cell, stairs, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors))) reachable++;
+            }
+            return "walkable cells " + walkable + ", reachable from the lower stairs " + reachable;
         }
 
         private static string MutatorNames(Map map)
