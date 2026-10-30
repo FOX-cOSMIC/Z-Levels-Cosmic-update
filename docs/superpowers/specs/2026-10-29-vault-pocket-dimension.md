@@ -27,18 +27,18 @@ Checked in the installed 1.7 `Assembly-CSharp.dll` and the decompiles in `.artif
 - `RimWorld.PocketMapExit : MapPortal` is the way back out, placed inside the pocket.
 - `RimWorld.MapPortalProperties` is the portal's def data: `pocketMapGenerator`, `exitDef`, `pocketMapSize` (default 100), and the entry letter.
 - Colonists enter with `JobGiver_EnterPortal` and `JobDriver_EnterPortal`.
-- Automatic hauling into a portal exists: `WorkGiver_HaulToPortal` and `JobDriver_HaulToPortal`, a `JobDriver_HaulToContainer`. Items go into the portal's container.
+- Automatic hauling into a portal exists: `WorkGiver_HaulToPortal` and `JobDriver_HaulToPortal`, a `JobDriver_HaulToContainer`. Items do not go into a container. `PortalContainerProxy.TryAdd` drops them on the other map, at the exit.
 - `Verse.PocketMapProperties` sets `destroyOnParentMapAbandoned` (default true), `preventPrisonerEscape` and `canBeCleaned`.
 - `StorytellerUtility.DefaultThreatPointsNow` maps a pocket map to its source map for threat points.
 
 ## Proposed design
 
 1. **Entrance.** A building def of class `MapPortal` in the Structure tab. Placeable on the surface only. The check that refuses other levels is part of v1. Only a subclass if the engine's class needs one.
-2. **Interior.** One pocket for all vault buildings. The first entrance creates it, and every later entrance uses it.
-3. **Entering.** Colonists use the engine's enter job. They leave through the pocket's exit.
+2. **Interior.** One pocket for all vault buildings. The first entrance creates it, and every later entrance uses it. Each entrance gets its own exit inside the pocket, because `PocketMapExit` links only to the portal that is being generated (`PocketMapUtility.currentlyGeneratingPortal`).
+3. **Entering.** Colonists use the engine's enter job. They leave through the exit of the entrance they used.
 4. **Building inside.** Construction on the pocket map is the normal game's construction. No level code runs.
-5. **Storage and automatic hauling.** The player puts items on the vault's load list (through its gizmo; to verify). Colonists haul them in with `WorkGiver_HaulToPortal`. Items sit in the vault's store, one container that every entrance uses. They are not on a map.
-6. **Wealth.** Items in the vault's store are on no map, so they should not count. This must be tested, not assumed.
+5. **Storage and automatic hauling.** The player opens the entrance's enter dialog (its gizmo) and puts items on the load list. Colonists haul them in with `WorkGiver_HaulToPortal`. Each item is dropped on the pocket map next to the exit (`PortalContainerProxy.TryAdd`). Storage is a stockpile zone inside the pocket.
+6. **Wealth.** Items on the pocket map are on a map the mod does not register, so its wealth patches skip them. Vanilla surface wealth should skip them too. This must be tested, not assumed.
 7. **Level registry.** The pocket is not passed to `ZLevelsManager.TryRegisterMap`. The stairs, level index and tile lists never see it.
 8. **Infestations.** No infestation starts on a pocket map. The infestation patch refuses pocket maps (`IsPocketMap`), and it refuses levels five and deeper (`ZUtils.InfestationAllowedAt`).
 
@@ -49,9 +49,9 @@ Each item is a runtime validation scenario, in a new colony with isolated saveda
 - a. The validator builds a vault entrance on the surface. A colonist does not build it.
 - b. A second entrance on the surface enters the same pocket as the first. The validator tries to place an entrance on a lower level, and the placement is refused.
 - c. A colonist enters the pocket, a construction job builds a wall inside, and the colonist exits.
-- d. Seven wood logs are put on the vault's load list. Colonists haul them in with no forced job. Record the counts on the source map before and after.
-- e. Record `WealthTotal` before and after the haul. Items held by the vault must not count.
-- f. Save and reload with a colonist inside the pocket and items held. The pocket exists, the colonist is on the pocket map at the saved cell, the wall is present, and the held items are present.
+- d. Seven wood logs are put on the vault's load list. Colonists haul them in with no forced job. Record the counts on the source map and on the pocket map before and after.
+- e. Record the surface's wealth before and after the haul. The seven logs must leave the total once they are on the pocket map.
+- f. Save and reload with a colonist inside the pocket and items on its floor. The pocket exists, the colonist is on the pocket map at the saved cell, the wall is present, and the items are present on the pocket map.
 - g. An infestation incident that targets the pocket map records no infestation and places no hole. Use the style of the depth guard, `RunInfestationGuard` in `tools/RuntimeValidation/RuntimeValidation.cs`.
 - h. Record the run folder and its `validation-results.txt`.
 
@@ -72,4 +72,5 @@ Each item is a runtime validation scenario, in a new colony with isolated saveda
 
 ## Open for the v1 plan
 
-- Which object holds the shared store. Recommended: one container that every entrance uses.
+- Whether the pocket starts with a stockpile zone, or the player places one. Recommended: the player places one.
+- Whether one vault entrance or several is the v1 scope. Acceptance b assumes several. Recommended: several, since each costs one exit.
