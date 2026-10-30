@@ -1,6 +1,6 @@
 # Vault: a pocket dimension (design)
 
-Status: decisions answered on 2026-10-29. No code written yet. One question is open (see "Open question for Lucas").
+Status: decisions answered on 2026-10-29 and 2026-10-30. No code written yet. The v1 plan is next.
 Date: 2026-10-29
 
 ## Decisions from Lucas
@@ -10,12 +10,12 @@ Date: 2026-10-29
 - All vault buildings share one pocket. Lucas chose this over one pocket per building.
 - Colonists can enter the vault and build inside it.
 - Automatic hauling into the vault stays. Lucas reversed an earlier "no automatic hauling".
-- The vault is a pocket dimension, outside the level stack. The number of levels is unlimited, so the vault does not count as one. This is an earlier decision. See the open question.
+- The vault is a pocket dimension, outside the level stack. The number of levels is unlimited, so the vault does not count as one. Lucas confirmed on 2026-10-30 that the vault is not a numbered level, and that only one vault level exists.
 - Power generators in the vault, and tubes (RimAtomics or similar) between levels, are not goals now. They are on `docs/roadmap.md`.
 
-## Open question for Lucas
+## Answered question
 
-- Is the vault a numbered level? Lucas called it "another level" on 2026-10-29. This spec keeps it outside the level stack, with no level index, no stairs, and its own pocket. Recommended: keep it outside. A numbered level would need stairs and a depth index, and the wealth and infestation rules would then apply to it.
+- Is the vault a numbered level? No. Lucas answered on 2026-10-30 that the vault is not a numbered level and that only one vault level exists. The vault stays outside the level stack, with no level index, no stairs, and its own pocket.
 
 ## What the game already provides
 

@@ -5,7 +5,7 @@ Updated 2026-10-29. Order matters: finish a stage before starting the next.
 ## Now
 
 - **Level differences (answered 2026-10-29).** See `docs/levels-and-events.md`.
-- **Vault v1, a pocket dimension.** Design in `docs/superpowers/specs/2026-10-29-vault-pocket-dimension.md`. Lucas decided on 2026-10-29 that items live inside the vault, the entrance goes on the surface only, and one pocket is shared. One question is open: is the vault a numbered level? Recommended: no.
+- **Vault v1, a pocket dimension.** Design in `docs/superpowers/specs/2026-10-29-vault-pocket-dimension.md`. Lucas decided on 2026-10-29 that items live inside the vault, the entrance goes on the surface only, and one pocket is shared. On 2026-10-30 Lucas confirmed the vault is not a numbered level, and only one vault level exists.
 - **Colonist autonomy (requirement 3).** Not met. Run `20261028-145345`, stage 20: a cross-level haul job starts and ends at once, 124 times. Cause unknown.
 
 ## Next
