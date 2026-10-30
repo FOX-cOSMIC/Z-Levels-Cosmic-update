@@ -155,6 +155,23 @@ The earlier failures came from the harness, not from the cross-level job. The st
 
 **Smooth transitions (requirement: transitions feel smooth to colonists).** Not tested. The current transition walks the colonist to the stairs and then teleports it on arrival. What counts as smooth is not defined yet.
 
+## Lower room and work hold (2026-10-30)
+
+Task 1 of `docs/superpowers/plans/2026-10-30-cross-level-work.md` opens a room of natural rock around the lower stairs. This is test only, and the mod keeps the stairs sealed as designed. Run 202151 measured 53 walkable cells on the lower level, and 29 of them are reachable from the stairs. Stage 1 now requires at least 25.
+
+The save-below stage now holds the colonist's work at zero during its wait. With the room open, a surface job can take the colonist up the stairs. Run 202009 failed "colonist stayed below before the save" that way. The work is restored before the unforced haul.
+
+| Run | Result |
+|---|---|
+| 202009 | FAIL at stage 18. The colonist left the lower level within five seconds. The work hold was added after this run. |
+| 202151 | PASS, all stages. |
+| 202312 | FAIL at stage 20. The colonist was idle on the surface, and the logs did not move. Same failure as run 194056. |
+| 202827 | Debug mode. All stages PASS. |
+| 203026 | Debug mode. All stages PASS. |
+| 203216 | PASS, all stages. |
+
+Among the default runs that reached stage 20, one of three failed. The cause is not known. The timeout message now reports whether the logs are forbidden for the colonist, whether the colonist can reserve them, and the colonist's Hauling priority.
+
 ## Review
 
 The code-review skill ran at medium effort. Its findings and decisions:

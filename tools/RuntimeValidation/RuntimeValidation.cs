@@ -97,6 +97,8 @@ namespace ZLevelsValidation
                         Record("stairs down and underground generation", "PASS");
                         Record("water census", "surface: " + WaterCensus(surface) + " (mutators " + MutatorNames(surface) + "); lower: " + WaterCensus(lower) + " (mutators " + MutatorNames(lower) + "); same tile: " + (surface.Tile == lower.Tile));
                         Record("lower animals at arrival", AnimalCensus(lower));
+                        OpenLowerRoom(lower);
+                        Require(CountReachableFromStairs(lower, out _) >= 25, "lower room is open");
                         Record("lower walkable reachability", WalkableReachability(lower));
                         Record("lower stairs neighbourhood", StairsNeighbourhood(lower, pawn.Position));
                         Record("lower stairs surroundings", StairsSurroundings(lower));
@@ -244,6 +246,7 @@ namespace ZLevelsValidation
                     case 17:
                         if (pawn.Map != lower) return;
                         Record("colonist takes the stairs down before the save", "PASS");
+                        HoldWork(pawn);
                         Next(18);
                         break;
                     case 18:
@@ -429,6 +432,26 @@ namespace ZLevelsValidation
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
         }
 
+        // Test only: a colonist with no work stays below during the save wait. With the lower room open, a surface job can take it
+        // up the stairs (run 20261030-202009 failed the save-below check that way).
+        private static void HoldWork(Pawn colonist)
+        {
+            foreach (WorkTypeDef work in DefDatabase<WorkTypeDef>.AllDefsListForReading)
+            {
+                if (colonist.WorkTypeIsDisabled(work)) continue;
+                colonist.workSettings.SetPriority(work, 0);
+            }
+        }
+
+        private static void RestoreWork(Pawn colonist)
+        {
+            foreach (WorkTypeDef work in DefDatabase<WorkTypeDef>.AllDefsListForReading)
+            {
+                if (colonist.WorkTypeIsDisabled(work)) continue;
+                colonist.workSettings.SetPriority(work, work.naturalPriority);
+            }
+        }
+
         // A colonist who lies down to rest on the way stalls the stairs stages: run 144826 timed out at stage 1.
         private static void RestNeeds(Pawn colonist)
         {
@@ -440,6 +463,7 @@ namespace ZLevelsValidation
         private void StartUnforcedHaul()
         {
             RestNeeds(pawn);
+            RestoreWork(pawn);
             Current.Game.GetComponent<ZLevelsManager>().ResetJobTrackerFor(pawn);
             var woodCell = lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position + new IntVec3(1, 0, 0);
             ClearCell(lower, woodCell);
@@ -489,9 +513,11 @@ namespace ZLevelsValidation
         private string DescribeWood()
         {
             if (unforcedWood == null) return "wood none";
+            string colonist = pawn == null ? "" : ", forbidden for colonist " + unforcedWood.IsForbidden(pawn)
+                + ", colonist can reserve wood " + pawn.CanReserve(unforcedWood) + ", hauling priority " + pawn.workSettings?.GetPriority(WorkTypeDefOf.Hauling);
             return "wood " + unforcedWood + " x" + unforcedWood.stackCount + " destroyed " + unforcedWood.Destroyed
                 + " at " + unforcedWood.PositionHeld + " on " + unforcedWood.MapHeld
-                + " in zone " + UnforcedWoodInZone();
+                + " in zone " + UnforcedWoodInZone() + colonist;
         }
 
         // Only the harness's seven logs count. Other wood can reach the zone by itself.
@@ -583,12 +609,25 @@ namespace ZLevelsValidation
                 + "; arrival cell walkable " + arrival.Walkable(map) + ", arrival region cells " + (arrivalRegion == null ? "none" : arrivalRegion.CellCount.ToString());
         }
 
-        // The underground animal fallback ends on a walkable cell chosen from the whole map (AnimalPatches), so the
-        // share of walkable cells the lower stairs can reach is what decides whether those animals can reach the colony.
-        private static string WalkableReachability(Map map)
+        // Test only: the mod keeps the lower stairs sealed, as designed. The harness cuts natural rock out of a room around the
+        // stairs so that a colonist can walk, mine and build there. The stairs and the roofs stay.
+        private static void OpenLowerRoom(Map map)
         {
             Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
-            int walkable = 0;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 3f, true))
+            {
+                if (!cell.InBounds(map) || cell == stairs.Position) continue;
+                foreach (Thing thing in cell.GetThingList(map).ToList())
+                {
+                    if (thing.def.mineable) thing.Destroy(DestroyMode.Vanish);
+                }
+            }
+        }
+
+        private static int CountReachableFromStairs(Map map, out int walkable)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            walkable = 0;
             int reachable = 0;
             foreach (IntVec3 cell in map.AllCells)
             {
@@ -596,6 +635,14 @@ namespace ZLevelsValidation
                 walkable++;
                 if (map.reachability.CanReach(cell, stairs, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors))) reachable++;
             }
+            return reachable;
+        }
+
+        // The underground animal fallback ends on a walkable cell chosen from the whole map (AnimalPatches), so the
+        // share of walkable cells the lower stairs can reach is what decides whether those animals can reach the colony.
+        private static string WalkableReachability(Map map)
+        {
+            int reachable = CountReachableFromStairs(map, out int walkable);
             return "walkable cells " + walkable + ", reachable from the lower stairs " + reachable;
         }
 
