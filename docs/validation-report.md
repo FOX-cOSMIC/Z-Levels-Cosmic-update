@@ -235,6 +235,15 @@ powershell -ExecutionPolicy Bypass -File tools\Invoke-RuntimeValidation.ps1 -Vis
 
 The last line should be `Runtime validation passed. Evidence: <run folder>`. The lower-level records are in `validation-results.txt`: `lower animals at arrival`, `lower walkable reachability`, and `lower stairs surroundings`. They report what the run found and do not count as PASS checks. Animal counts per run come from the `ZL_Underground` map in each run's `Saves/ZLevelsValidation.rws`.
 
+## Infestation depth guard and stale look-up fix
+
+- Infestations are blocked on level five and deeper, and on pocket maps. Run `20261030-215956` (`-InfestationGuard`) passes with no ERROR lines. The depth 4 control gets a hole, and depth 5 gets no record, no active infestation, and no hole.
+- The guard-off control, run `20261029-111044`, fails as expected: depth 5 gets a record and a hole.
+- Earlier guard runs failed on harness setup, not on the guard. The harness now forces caves below the surface and carves its own start and food cells. Run `20261029-111236` passed the scenario but logged 51 animal spawn errors, which `a6bb2e3` fixes.
+- A stale look-up entry could make the reachability prefix use a map that had left the game. The prefix teleported the colonist onto that map and threw a `NullReferenceException`, as run `20261030-212014` showed after a reload. Red with the defect: `20261030-215738`. The fix in `bd17ecb` passes in runs `20261030-215858` and `20261030-220111`. The regression check is `-StaleLookup` (`5144db9`).
+- The main chain passes with both fixes in run `20261030-220145`, with no ERROR lines.
+- The campfire failures in runs `20261030-212212` and `20261030-210423` are still open. Four later runs with the look-up diagnostics passed (`213427`, `213543`, `213704`, `213816`), and the cause is unknown.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`
