@@ -65,6 +65,12 @@ namespace ZLevels
                                 {
                                     loc = CellFinderLoose.RandomCellWith((IntVec3 sq) => sq.Walkable(___map), ___map);
                                 }
+                                if (!loc.IsValid)
+                                {
+                                    // The reassignment above can fail too. Spawning at an invalid cell logs an error.
+                                    __result = false;
+                                    return false;
+                                }
                                 for (int i = 0; i < randomInRange; i++)
                                 {
                                     IntVec3 loc2 = CellFinder.RandomClosewalkCellNear(loc, ___map, radius, null);
