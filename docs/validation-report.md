@@ -172,6 +172,17 @@ The save-below stage now holds the colonist's work at zero during its wait. With
 
 Among the default runs that reached stage 20, one of three failed. The cause is not known. The timeout message now reports whether the logs are forbidden for the colonist, whether the colonist can reserve them, and the colonist's Hauling priority.
 
+## Mining on the lower level (2026-10-30)
+
+After the unforced haul passes, the harness places a mining designation on a rock wall at the edge of the lower room. It turns mining off for the other colonists. The validation colonist goes down by itself, and the stage passes when the wall is gone. This stage replaces the forced "reload stairs down" check, because the colonist now uses the stairs by itself after the reload.
+
+| Run | Result |
+|---|---|
+| 203503 | Mining stage PASS. The run then timed out, because the harness no longer shut the game down. The shutdown is restored. |
+| 205033 | PASS, all stages. The game exits on its own again. |
+
+Building on the lower level is not tested yet.
+
 ## Review
 
 The code-review skill ran at medium effort. Its findings and decisions:

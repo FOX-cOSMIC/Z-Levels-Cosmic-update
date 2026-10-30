@@ -35,6 +35,8 @@ namespace ZLevelsValidation
         private Thing unforcedWood;
         private Zone_Stockpile unforcedZone;
         private bool wentDownForWood;
+        private Building minedWall;
+        private bool wentDownForWall;
 
         public RuntimeValidation(Game game) { }
 
@@ -284,14 +286,17 @@ namespace ZLevelsValidation
                         if (!UnforcedWoodInZone()) return;
                         Require(wentDownForWood, "colonist went down to the wood");
                         Record("unforced cross-level haul", "PASS");
-                        var reloadedDown = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
-                        Next(14);
-                        reloadedDown.GiveJob(pawn, reloadedDown);
+                        DesignateMining(lower);
+                        deadline = DateTime.UtcNow.AddMinutes(4);
+                        Next(21);
                         break;
-                    case 14:
-                        if (pawn.Map == surface) return;
-                        Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(pawn.Map) == -1, "stairs after reload lead to lower level");
-                        Record("reload stairs down", "PASS");
+                    case 21:
+                        // Nothing assigns this job. The colonist has to go down and mine the wall by itself.
+                        RestNeeds(pawn);
+                        if (pawn.Map == lower) wentDownForWall = true;
+                        if (minedWall == null || !minedWall.Destroyed) return;
+                        Require(wentDownForWall, "colonist went down to the wall");
+                        Record("mines below by itself", "PASS");
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -430,6 +435,38 @@ namespace ZLevelsValidation
         {
             foreach (var thing in cell.GetThingList(map).ToList())
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
+        }
+
+        // Test only: one natural-rock wall on the edge of the lower room gets a mining designation. Only the validation colonist may
+        // mine, so the job can only be its own.
+        private void DesignateMining(Map map)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 4.5f, false))
+            {
+                if (!cell.InBounds(map) || cell.DistanceTo(stairs.Position) < 3.5f) continue;
+                Building rock = cell.GetEdifice(map);
+                if (rock == null || !rock.def.mineable) continue;
+                bool openNeighbour = false;
+                foreach (IntVec3 near in GenRadial.RadialCellsAround(cell, 1.5f, false))
+                {
+                    if (near.InBounds(map) && near.Walkable(map) && near.DistanceTo(stairs.Position) <= 3.5f) openNeighbour = true;
+                }
+                if (!openNeighbour) continue;
+                minedWall = rock;
+                map.designationManager.AddDesignation(new Designation(rock, DesignationDefOf.Mine));
+                foreach (var colonistMap in new[] { surface, lower, upper })
+                {
+                    if (colonistMap == null) continue;
+                    foreach (var colonist in colonistMap.mapPawns.FreeColonistsSpawned)
+                    {
+                        if (colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Mining)) continue;
+                        colonist.workSettings.SetPriority(WorkTypeDefOf.Mining, 0);
+                    }
+                }
+                return;
+            }
+            throw new InvalidOperationException("No rock wall on the edge of the lower room to mine.");
         }
 
         // Test only: a colonist with no work stays below during the save wait. With the lower room open, a surface job can take it
