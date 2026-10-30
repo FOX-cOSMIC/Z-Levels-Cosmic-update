@@ -37,13 +37,19 @@ namespace ZLevels
     {
         private static Map oldMap;
         private static IntVec3 oldPosition;
+        // A map that has left the game can still sit in a look-up table. Its reachability is gone, so it must not be used.
+        private static bool IsLiveMap(Map map)
+        {
+            return map != null && map.reachability != null && Find.Maps.Contains(map);
+        }
+
         private static bool Prefix(ref bool __result, Reachability __instance, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams, out bool __state)
         {
             __state = false;
             var pawn = traverseParams.pawn;
             if (pawn != null && pawn.Map != null)
             {
-                if (dest.HasThing && dest.thingInt.Map != null)
+                if (dest.HasThing && IsLiveMap(dest.thingInt.Map))
                 {
                     if (dest.thingInt.Map != pawn.Map)
                     {
@@ -69,7 +75,7 @@ namespace ZLevels
                     }
                 }
                 else if (ZUtils.ZTracker.jobTracker.TryGetValue(pawn, out var jobTracker) && jobTracker.lookedAtLocalCellMap != null
-                    && jobTracker.lookedAtLocalCellMap.TryGetValue(dest.cellInt, out var mapDest) && mapDest != null)
+                    && jobTracker.lookedAtLocalCellMap.TryGetValue(dest.cellInt, out var mapDest) && IsLiveMap(mapDest))
                 {
                     if (mapDest != pawn.Map)
                     {
