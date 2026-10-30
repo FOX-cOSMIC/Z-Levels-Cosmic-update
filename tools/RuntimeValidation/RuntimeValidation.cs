@@ -73,6 +73,12 @@ namespace ZLevelsValidation
                         .GetField("settings", BindingFlags.Public | BindingFlags.Static).GetValue(null);
                     settings.GetType().GetField("DebugEnabled", BindingFlags.Public | BindingFlags.Instance).SetValue(settings, true);
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
+                {
+                    finished = true;
+                    RunStaleLookupCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsinfestation"))
                 {
                     finished = true;
@@ -362,6 +368,59 @@ namespace ZLevelsValidation
                 finished = true;
                 Record("infestation guard", "FAIL: " + exception);
                 Log.Error("Z-Levels infestation guard validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // A look-up table entry can name a map that has left the game. Run 20261030-212014 hit one after a reload: the
+        // reachability prefix teleported the colonist onto it and threw. Red before the fix, green after.
+        private void RunStaleLookupCheck()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var tracker = Current.Game.GetComponent<ZLevelsManager>();
+                var colonist = Find.CurrentMap.mapPawns.FreeColonistsSpawned.First();
+                Map home = colonist.Map;
+                IntVec3 homeCell = colonist.Position;
+                Map stale = CreateLevelBelow(tracker, home);
+                IntVec3 target = stale.Center;
+                Current.Game.DeinitAndRemoveMap(stale, false);
+                Require(!Find.Maps.Contains(stale), "the stale map is out of the game");
+                // The engine keeps the field after removal. Run 20261030-212014 had a look-up entry whose map had no reachability.
+                stale.reachability = null;
+                if (!tracker.jobTracker.TryGetValue(colonist, out JobTracker jobTracker))
+                {
+                    tracker.ResetJobTrackerFor(colonist);
+                    jobTracker = tracker.jobTracker[colonist];
+                }
+                if (jobTracker.lookedAtLocalCellMap == null) jobTracker.lookedAtLocalCellMap = new System.Collections.Generic.Dictionary<IntVec3, Map>();
+                // The LocalTargetInfo constructor postfix overwrites the look-up entry for its cell, so build the target first.
+                var dest = new LocalTargetInfo(target);
+                jobTracker.lookedAtLocalCellMap[target] = stale;
+                string outcome;
+                try
+                {
+                    home.reachability.CanReach(homeCell, dest, PathEndMode.OnCell, TraverseParms.For(colonist));
+                    outcome = "no exception";
+                }
+                catch (Exception exception)
+                {
+                    outcome = "exception " + exception.GetType().Name;
+                }
+                Record("stale look-up reachability", outcome + ", colonist on " + colonist.Map + " at " + colonist.Position);
+                Require(colonist.Map == home && colonist.Position == homeCell, "the colonist was moved onto the stale map");
+                Require(outcome == "no exception", "reachability check " + outcome);
+                jobTracker.lookedAtLocalCellMap.Remove(target);
+                finished = true;
+                Record("stale look-up map", "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("stale look-up map", "FAIL: " + exception);
+                Log.Error("Z-Levels stale look-up validation failed: " + exception);
                 Root.Shutdown();
             }
         }
