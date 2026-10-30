@@ -1105,7 +1105,7 @@ namespace ZLevels
                     }
                     try
                     {
-                        ZLogger.Message(___pawn + " ends " + __instance.curJob + " - " + startNewJob);
+                        ZLogger.Message(___pawn + " ends " + __instance.curJob + " - " + startNewJob + " - condition " + condition);
                     }
                     catch
                     {

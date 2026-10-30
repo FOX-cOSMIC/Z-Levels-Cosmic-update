@@ -28,6 +28,12 @@ namespace ZLevels
                 {
                     try
                     {
+                        if (!loc.IsValid)
+                        {
+                            // The generator found no spawn cell. Failing here stops its loop instead of spawning at an invalid cell.
+                            __result = false;
+                            return false;
+                        }
                         bool result = false;
                         var comp = ZUtils.GetMapComponentZLevel(___map);
                         var ZTracker = ZUtils.ZTracker;
@@ -90,6 +96,12 @@ namespace ZLevels
                     try
                     {
                         Map map = (Map)parms.target;
+                        if (map.IsPocketMap || !ZUtils.InfestationAllowedAt(ZUtils.ZTracker.GetZIndexFor(map)))
+                        {
+                            ZLogger.Message("Infestation skipped on " + map + ": pocket maps and levels five and deeper are excluded");
+                            __result = false;
+                            return false;
+                        }
                         var comp = ZUtils.GetMapComponentZLevel(map);
                         if (comp.hasCavesBelow.HasValue && comp.hasCavesBelow.Value)
                         {

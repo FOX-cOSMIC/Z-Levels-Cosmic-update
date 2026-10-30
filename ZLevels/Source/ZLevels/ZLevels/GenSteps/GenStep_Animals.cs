@@ -16,7 +16,7 @@ namespace ZLevels
 			if (mapParent.hasCaves)
 			{
 				int infestationCount = 0;
-				if (mapParent.TotalInfestations != null && mapParent.TotalInfestations.Count > 0)
+				if (mapParent.TotalInfestations != null && mapParent.TotalInfestations.Count > 0 && ZUtils.InfestationAllowedAt(mapParent.Z_LevelIndex))
 				{
 					infestationCount = mapParent.TotalInfestations.Count;
 				}

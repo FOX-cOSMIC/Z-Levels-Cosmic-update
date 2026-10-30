@@ -47,6 +47,14 @@ namespace ZLevels
 			zTracker = null;
 		}
 
+        // Infestations stop at five levels down: level -5 and every level below it is free of them.
+        public const int FirstInfestationFreeLevel = -5;
+
+        public static bool InfestationAllowedAt(int zIndex)
+        {
+            return zIndex > FirstInfestationFreeLevel;
+        }
+
         public static Map currentLookedIntoMap;
         public static IEnumerable<Map> GetAllMapsInClosestOrder(Thing thing, Map oldMap, IntVec3 oldPosition, bool skipOldMap = false, bool dontCheckForStairs = false)
         {

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using RimWorld;
 using Verse;
 using Verse.AI;
@@ -60,9 +61,22 @@ namespace ZLevelsValidation
             try
             {
                 if (DateTime.UtcNow > deadline)
-                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob);
+                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood());
                 if (Current.ProgramState != ProgramState.Playing || LongEventHandler.AnyEventNowOrWaiting)
                     return;
+                if (!ZLogger.DebugEnabled && GenCommandLine.CommandLineArgPassed("zlevelsdebug"))
+                {
+                    // ZLevelsMod and ZLevelsSettings are internal to the port, so the flag is set by reflection.
+                    var settings = typeof(ZLogger).Assembly.GetType("ZLevels.ZLevelsMod", throwOnError: true)
+                        .GetField("settings", BindingFlags.Public | BindingFlags.Static).GetValue(null);
+                    settings.GetType().GetField("DebugEnabled", BindingFlags.Public | BindingFlags.Instance).SetValue(settings, true);
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsinfestation"))
+                {
+                    finished = true;
+                    RunInfestationGuard();
+                    return;
+                }
                 Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
                 switch (stage)
                 {
@@ -261,8 +275,10 @@ namespace ZLevelsValidation
                         break;
                     case 20:
                         // Nothing assigns this job. The colonist has to find the wood on the lower level by itself.
+                        // Needs stay full for the whole wait. At superfast speed rest falls inside the window (run 20261030-191130 lay down at the lower stairs).
+                        RestNeeds(pawn);
                         if (pawn.Map == lower) wentDownForWood = true;
-                        if (WoodInZone(surface, unforcedZone) < 7) return;
+                        if (!UnforcedWoodInZone()) return;
                         Require(wentDownForWood, "colonist went down to the wood");
                         Record("unforced cross-level haul", "PASS");
                         var reloadedDown = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
@@ -286,6 +302,91 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels runtime validation failed: " + exception);
                 Root.Shutdown();
             }
+        }
+
+        // Infestations must never start five levels down or deeper. This builds levels -1 to -5 and forces caves below on -4
+        // and -5, so the depth rule is the only thing that can stop an infestation on -5. Depth -4 is the control that must get one.
+        private void RunInfestationGuard()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var tracker = Current.Game.GetComponent<ZLevelsManager>();
+                var infestation = DefDatabase<IncidentDef>.GetNamed("Infestation");
+                var holeDef = DefDatabase<ThingDef>.GetNamed("ZL_NaturalHole");
+                Map origin = Find.CurrentMap;
+                for (int depth = 1; depth <= 4; depth++)
+                {
+                    origin = CreateLevelBelow(tracker, origin);
+                }
+                Map four = origin;
+                Require(tracker.GetZIndexFor(four) == -4, "depth 4 index");
+                var fourComp = four.GetComponent<MapComponentZLevel>();
+                fourComp.hasCavesBelow = true;
+                SpawnFood(four);
+                infestation.Worker.TryExecute(new IncidentParms { target = four, points = 1000f });
+                int holesFour = four.listerThings.ThingsOfDef(holeDef).Count;
+                Require(fourComp.ActiveInfestations != null && fourComp.ActiveInfestations.Count == 1 && holesFour == 1,
+                    "depth 4 infestation expected: holes " + holesFour);
+                Record("infestation allowed at depth 4", "PASS: hole " + holesFour);
+
+                // Built after the depth 4 record, so it inherits the infestation list the way a real new level does.
+                Map five = CreateLevelBelow(tracker, four);
+                Require(tracker.GetZIndexFor(five) == -5, "depth 5 index");
+                var fiveComp = five.GetComponent<MapComponentZLevel>();
+                fiveComp.hasCavesBelow = true;
+                SpawnFood(five);
+                int recordsBefore = fiveComp.TotalInfestations == null ? 0 : fiveComp.TotalInfestations.Count;
+                int activeBefore = fiveComp.ActiveInfestations == null ? 0 : fiveComp.ActiveInfestations.Count;
+                infestation.Worker.TryExecute(new IncidentParms { target = five, points = 1000f });
+                int recordsAfter = fiveComp.TotalInfestations == null ? 0 : fiveComp.TotalInfestations.Count;
+                int activeAfter = fiveComp.ActiveInfestations == null ? 0 : fiveComp.ActiveInfestations.Count;
+                int holesFive = five.listerThings.ThingsOfDef(holeDef).Count;
+                string outcome = "records " + recordsBefore + " -> " + recordsAfter + ", active " + activeBefore + " -> " + activeAfter + ", holes " + holesFive;
+                Require(recordsAfter == recordsBefore && activeAfter == activeBefore && holesFive == 0, "depth 5 infestation not blocked: " + outcome);
+                Record("infestation blocked at depth 5", "PASS: " + outcome);
+                Record("infestation guard", "PASS");
+                finished = true;
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("infestation guard", "FAIL: " + exception);
+                Log.Error("Z-Levels infestation guard validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        private static Map CreateLevelBelow(ZLevelsManager tracker, Map origin)
+        {
+            // Caves below decide whether the new level has caves. Without them the level is solid rock: run 20261029-110937
+            // generated 24 walkable cells per level. The start cell is carved so the start spot is always valid.
+            origin.GetComponent<MapComponentZLevel>().hasCavesBelow = true;
+            IntVec3 spot = origin.Center;
+            ClearCell(origin, spot);
+            origin.terrainGrid.SetTerrain(spot, TerrainDefOf.Concrete);
+            Map level = tracker.CreateLowerLevel(origin, spot);
+            Record("generated level " + tracker.GetZIndexFor(level), "walkable cells " + CountWalkable(level) + ", start spot " + spot);
+            return level;
+        }
+
+        private static int CountWalkable(Map map)
+        {
+            int count = 0;
+            foreach (IntVec3 cell in map.AllCells)
+            {
+                if (cell.Walkable(map)) count++;
+            }
+            return count;
+        }
+
+        private static void SpawnFood(Map map)
+        {
+            IntVec3 spot = map.Center;
+            ClearCell(map, spot);
+            map.terrainGrid.SetTerrain(spot, TerrainDefOf.Concrete);
+            GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("MealSimple")), spot, map);
         }
 
         private T SpawnStair<T>(ThingDef definition, IntVec3 cell) where T : Building_Stairs
@@ -347,7 +448,26 @@ namespace ZLevelsValidation
             logs.stackCount = 7;
             unforcedWood = GenSpawn.Spawn(logs, woodCell, lower);
             unforcedWood.SetForbidden(false);
-            var zoneCell = pawn.Position + new IntVec3(0, 0, -3);
+            // Only the harness's logs may be hauled, and only the validation colonist may haul. Run 20261030-193538 filled the zone with surface wood in one second.
+            foreach (var map in new[] { surface, lower })
+            {
+                foreach (var wood in map.listerThings.ThingsOfDef(ThingDefOf.WoodLog).ToList())
+                {
+                    if (wood != unforcedWood) wood.SetForbidden(true);
+                }
+            }
+            foreach (var map in new[] { surface, lower, upper })
+            {
+                if (map == null) continue;
+                foreach (var colonist in map.mapPawns.FreeColonistsSpawned)
+                {
+                    if (colonist != pawn) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+                }
+            }
+            var originalCell = pawn.Position + new IntVec3(0, 0, -3);
+            // A pawn-based CanReach runs the ZL prefix, which needs a job search context and threw in run 20261030-193352. PassDoors without a pawn gives the vanilla answer.
+            Log.Message("validation zone candidate " + originalCell + " reachable from " + pawn.Position + ": " + surface.reachability.CanReach(pawn.Position, originalCell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
+            var zoneCell = FindReachableZoneCell(pawn.Position);
             ClearCell(surface, zoneCell);
             surface.terrainGrid.SetTerrain(zoneCell, TerrainDefOf.Concrete);
             unforcedZone = new Zone_Stockpile(StorageSettingsPreset.DefaultStockpile, surface.zoneManager);
@@ -355,14 +475,30 @@ namespace ZLevelsValidation
             unforcedZone.AddCell(zoneCell);
         }
 
-        private static int WoodInZone(Map map, Zone zone)
+        // A cell cut out of rock can be walled off, and then every haul to it fails with ErroredPather (run 20261030-192636).
+        private IntVec3 FindReachableZoneCell(IntVec3 near)
         {
-            int count = 0;
-            foreach (Thing thing in map.listerThings.ThingsOfDef(ThingDefOf.WoodLog))
+            foreach (var cell in GenRadial.RadialCellsAround(near, 4f, false))
             {
-                if (thing.Spawned && zone.ContainsCell(thing.Position)) count += thing.stackCount;
+                if (!cell.InBounds(surface) || cell.GetEdifice(surface) != null) continue;
+                if (surface.reachability.CanReach(near, cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) return cell;
             }
-            return count;
+            throw new InvalidOperationException("No reachable zone cell within 4 cells of " + near);
+        }
+
+        private string DescribeWood()
+        {
+            if (unforcedWood == null) return "wood none";
+            return "wood " + unforcedWood + " x" + unforcedWood.stackCount + " destroyed " + unforcedWood.Destroyed
+                + " at " + unforcedWood.PositionHeld + " on " + unforcedWood.MapHeld
+                + " in zone " + UnforcedWoodInZone();
+        }
+
+        // Only the harness's seven logs count. Other wood can reach the zone by itself.
+        private bool UnforcedWoodInZone()
+        {
+            return unforcedWood != null && unforcedWood.Spawned && unforcedWood.MapHeld == surface
+                && unforcedZone.ContainsCell(unforcedWood.Position) && unforcedWood.stackCount == 7;
         }
 
         private void SaveAndReload()
