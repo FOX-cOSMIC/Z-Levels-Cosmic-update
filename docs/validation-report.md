@@ -252,6 +252,23 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Runs `20261031-105856` (red) and `20261031-105952` (green) came from an earlier harness that did not unfog the lower level before the placement checks. The pair above is the evidence.
 - The `portal` block and the pocket map come in Task 2.
 
+## Vault v1 shared pocket
+
+- Red run `20261031-111428` (`-VaultPocket`) fails because the entrance has no portal block.
+- Three defects surfaced before the green run. Each one has a fix in `aba13be`.
+  - Run `20261031-111614` threw a `NullReferenceException` in `GenerateMap`. The engine reads `map.Biome` during generation, and the pocket had none. The generator now sets `biome` to `Underground`.
+  - Runs `20261031-111739` and `20261031-111900` recorded the pocket in the level index. The `MapComponentZLevel` guards alone did not stop it. `ZLevelsManager.GetZIndexFor` cached every map it was given. It now returns 0 for a pocket and records nothing.
+  - Run `20261031-112223` ran without the `FinalizeInit` guard. `MapComponentZLevel.FinalizeInit` threw `ArgumentOutOfRangeException` at `Find.WorldGrid[map.Tile]`, and the runner failed on the logged error. The guard stays.
+- Green run `20261031-115059` passes on the committed code. The first entrance makes the pocket, the pocket is in no level list, and a second entrance shares it with its own exit.
+
+## Regression runs for the shared pocket
+
+- `-InfestationGuard` (`20261031-112915`), `-StaleLookup` (`20261031-113001`), and `-VaultPlacement` (`20261031-113035`) pass on the guard build.
+- The main chain fails at stage 22, the campfire stage, in two of four guard-build runs: `20261031-112409` and `20261031-113130`. The colonist wanders (`Wait_Wander`) instead of hauling wood to the campfire. Runs `20261031-114607` and `20261031-114837` pass on the same build.
+- The main chain passes on the baseline build, which has the two guard files reverted to HEAD. The passing runs are `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
+- Two failures in four guard-build runs, against zero in five baseline runs, is not a significant difference. The guards change behavior only when `IsPocketMap` is true, and ZLevels sets that flag only for the vault pocket. The stage 22 cause is not found. It is the intermittent campfire failure that the Task 4 notes list as open.
+- Runs `20261031-113922`, `20261031-114145`, and `20261031-114423` used a stale build and do not count. Their DLL was the baseline build while the source had the guards. Later batches rebuild on every state change and check for compile output.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`
