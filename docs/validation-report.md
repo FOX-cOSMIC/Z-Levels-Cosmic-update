@@ -278,6 +278,12 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Not explained: run `20261031-121150` (stage 1, the colonist never entered, before reachability was recorded) and run `20261031-122033` (stage 2, the wall stalled after the wood beside it dropped from 10 logs to 2). Run `20261031-122033` recorded that the entrance was reachable, but not the wall cell. Since the reachable-entrance fix, six runs have passed with no stall.
 - The main chain still fails at stage 22 on the same code, at a rate the campfire notes already record. Failures: `20261031-112409` and `20261031-113130` on the guard build, and `20261031-122935` after the job-search fix. Passes: `20261031-114607` and `20261031-114837` on the guard build, and `20261031-123439` after the job-search fix. The baseline build passed in `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
 
+## Vault v1 save and reload (acceptance f)
+
+- `-VaultSave` (`-zlevelsvaultsave`) builds the entrance, has a colonist enter, builds a wall inside, and puts seven logs on the pocket floor. It then saves with the colonist in the pocket and checks, after reload, that the pocket exists, the entrance still leads to it, the colonist is on the pocket at the saved cell, the wall stands, and the logs are on the floor.
+- Pass runs: `20261031-150003`, `20261031-150102`, and `20261031-150149`. The post-reload checks ran about five seconds after the save, so the reload happened. The runner reported no errors.
+- No red run: the first real run passed, so no mod change was needed. The saved fields are the stage, the wall cell, and the log count. The colonist, the surface, and the stage come from the existing save fields.
+
 ## Vault v1 wealth (acceptance e)
 
 - Red: run `20261031-145150` (`-VaultLoad`). The surface total stayed at 37766.6 and the storyteller wealth at 25698.6 after the seven logs (8.4) reached the pocket. Run `20261031-145333` showed the cause: the pocket held the logs (`pocket items 8.4`), and the surface's raw item count did not change.

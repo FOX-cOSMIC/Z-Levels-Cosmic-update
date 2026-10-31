@@ -53,6 +53,9 @@ namespace ZLevelsValidation
         private Zone_Stockpile vaultZone;
         private Thing loadLogs;
         private int surfaceLogsBefore;
+        private int vaultSaveStage;
+        private IntVec3 vaultSavedWallCell = IntVec3.Invalid;
+        private int savedLogs;
         private float logsValue;
         private float wealthTotalBefore;
         private float wealthStorytellerBefore;
@@ -78,6 +81,9 @@ namespace ZLevelsValidation
             Scribe_References.Look(ref upper, "validationUpper");
             Scribe_Values.Look(ref belowAtSave, "validationBelowAtSave");
             Scribe_Values.Look<IntVec3>(ref savedPosition, "validationSavedPosition", IntVec3.Invalid);
+            Scribe_Values.Look(ref vaultSaveStage, "vaultSaveStage");
+            Scribe_Values.Look<IntVec3>(ref vaultSavedWallCell, "vaultSavedWallCell", IntVec3.Invalid);
+            Scribe_Values.Look(ref savedLogs, "vaultSavedLogs");
         }
 
         public override void GameComponentUpdate()
@@ -117,6 +123,11 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsvaultload"))
                 {
                     RunVaultLoadTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultsave"))
+                {
+                    RunVaultSaveTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -690,6 +701,107 @@ namespace ZLevelsValidation
         private int SurfaceLogCount()
         {
             return surface == null ? 0 : surface.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+        }
+
+        // Acceptance f. A colonist stands in the pocket with a wall built and seven logs on its floor. The game saves and reloads, and
+        // afterwards the pocket, the colonist's cell, the wall, and the logs must all be there. The saved stage picks the phase.
+        private void RunVaultSaveTick()
+        {
+            try
+            {
+                if (vaultSaveStage > 0 && vaultSaveStage < 4 && DateTime.UtcNow > vaultDeadline)
+                {
+                    throw new InvalidOperationException("Timed out at save stage " + vaultSaveStage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map);
+                }
+                if (vaultSaveStage == 0)
+                {
+                    deadline = DateTime.MaxValue;
+                    vaultDeadline = DateTime.UtcNow.AddMinutes(4);
+                    surface = Find.CurrentMap;
+                    pawn = FindValidationColonist(surface);
+                    RestoreWork(pawn);
+                    IntVec3 entranceCell = FindVaultEntranceCell(surface, pawn);
+                    ClearCell(surface, entranceCell);
+                    surface.terrainGrid.SetTerrain(entranceCell, TerrainDefOf.Concrete);
+                    foreach (IntVec3 around in GenRadial.RadialCellsAround(entranceCell, 1.5f, useCenter: true))
+                    {
+                        ClearCell(surface, around);
+                    }
+                    vaultEntrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
+                    vaultPocket = vaultEntrance.GetOtherMap();
+                    vaultWallDef = DefDatabase<ThingDef>.GetNamed("Wall");
+                    vaultWallCell = FindVaultWallCell(vaultPocket, vaultEntrance.exit.Position);
+                    Thing wood = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    wood.stackCount = 10;
+                    GenSpawn.Spawn(wood, vaultWallCell + new IntVec3(2, 0, 0), vaultPocket);
+                    pawn.jobs.StartJob(JobMaker.MakeJob(JobDefOf.EnterPortal, vaultEntrance), JobCondition.InterruptForced);
+                    vaultSaveStage = 1;
+                    return;
+                }
+                if (vaultSaveStage == 1)
+                {
+                    RestNeeds(pawn);
+                    if (pawn.Map != vaultPocket) return;
+                    GenConstruct.PlaceBlueprintForBuild(vaultWallDef, vaultWallCell, vaultPocket, Rot4.North, Faction.OfPlayer, ThingDefOf.WoodLog);
+                    vaultSaveStage = 2;
+                    return;
+                }
+                if (vaultSaveStage == 2)
+                {
+                    RestNeeds(pawn);
+                    if (vaultWallCell.GetEdifice(vaultPocket)?.def != vaultWallDef) return;
+                    Thing logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    logs.stackCount = 7;
+                    GenSpawn.Spawn(logs, FindFloorCell(vaultPocket, vaultEntrance.GetDestinationLocation()), vaultPocket);
+                    savedPosition = pawn.Position;
+                    vaultSavedWallCell = vaultWallCell;
+                    savedLogs = PocketLogCount();
+                    Record("wall built inside the pocket before the save", "PASS: colonist at " + savedPosition + ", logs in the pocket " + savedLogs);
+                    vaultSaveStage = 3;
+                    return;
+                }
+                if (vaultSaveStage == 3)
+                {
+                    vaultSaveStage = 4;
+                    GameDataSaveLoader.SaveGame("ZLevelsValidation");
+                    LongEventHandler.ExecuteWhenFinished(() => GameDataSaveLoader.LoadGame("ZLevelsValidation"));
+                    return;
+                }
+                if (!reloaded) return;
+                Map pocket = Current.Game.GetComponent<VaultPocket>()?.Pocket;
+                Require(pocket != null && pocket.IsPocketMap, "the pocket exists after reload");
+                var entrance = surface.listerThings.ThingsOfDef(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")).OfType<MapPortal>().FirstOrDefault();
+                Require(entrance != null && entrance.GetOtherMap() == pocket, "the entrance still leads to the pocket");
+                Record("pocket and entrance after reload", "PASS");
+                Require(pawn.Map == pocket && pawn.Position == savedPosition, "the colonist is on the pocket at " + savedPosition + ", it is on " + pawn.Map + " at " + pawn.Position);
+                Record("colonist on the pocket at the saved cell", "PASS");
+                Require(vaultSavedWallCell.GetEdifice(pocket)?.def == DefDatabase<ThingDef>.GetNamed("Wall"), "the wall is missing after reload");
+                Record("wall stands after reload", "PASS");
+                int logsAfter = pocket.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+                Require(logsAfter == savedLogs && savedLogs >= 7, "the logs on the pocket floor: " + logsAfter + " after reload, " + savedLogs + " at the save");
+                Record("logs on the pocket floor after reload", "PASS");
+                Record("vault save", "PASS");
+                finished = true;
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault save", "FAIL: " + exception);
+                Log.Error("Z-Levels vault save validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // A free floor cell near the pocket's exit, for logs the test puts on the floor.
+        private static IntVec3 FindFloorCell(Map pocket, IntVec3 exit)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(exit, 3f, false))
+            {
+                if (!cell.InBounds(pocket) || cell == exit || !cell.Standable(pocket) || cell.GetEdifice(pocket) != null || cell.GetFirstItem(pocket) != null) continue;
+                return cell;
+            }
+            throw new InvalidOperationException("No free floor cell beside the pocket exit.");
         }
 
         private int PocketLogCount()
