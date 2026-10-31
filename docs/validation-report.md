@@ -129,6 +129,8 @@ It was seen once. It has not appeared in any other run folder, and it has not be
 
 **The reachability prefix can throw (found in run 193352, not fixed).** `ZLevels.CanReach_Patch.Prefix` (`HarmonyPatches/ReachAndReservationPatches.cs:71-85`) reads the pawn's stale `lookedAtLocalCellMap` outside a job search. It teleports the pawn to that map, then calls `mapDest.reachability.CanReach` at line 85, and the call threw `NullReferenceException`. The postfix that moves the pawn back does not run after an exception, so the pawn can stay on the other map. The harness now asks the vanilla question, with `TraverseMode.PassDoors` and no pawn. The mod prefix is unchanged. Normal play may reach it. It needs its own reproduction.
 
+**Debug runs fail on an expected reservation error (run `20261031-214306`).** In debug mode, `ReachAndReservationPatches.cs:280` logs `claimant ... can't reserve target` as an ERROR when a reservation fails. A reservation conflict is a normal outcome, for example when a colonist tries to refuel a generator that another colonist holds. The runner counts every ERROR line as a failure, so run `214306` passed every check and still exited 1. Earlier debug runs have the same line, for example `20261030-192636`. Not changed.
+
 ## Runs after 135603: save below and unforced haul
 
 | Run | Result |
@@ -406,7 +408,54 @@ Plan: `docs/superpowers/plans/2026-10-31-storage-reachability.md`.
 
 Counts come from the harness. In run `212210`, the walled-cell haul targets `B = (105, 0, 129)`. In run `212346`, the reachable-cell haul targets `B = (133, 0, 124)`.
 
-**Regression set.** Running. The results are added here when the runs finish.
+**Debug check (run `20261031-220806`).** The scenario passes in debug mode. Every haul-job line in the log names the target `B = (119, 0, 104)`, which is the reachable cell. The log has no `ErroredPather` line. This check reads the job log, so it does not depend on the harness counter.
+
+**Regression set.** Fourteen runs on the fixed mod, 21:25 to 21:40 local. These ran before the harness changes below. Twelve passed.
+
+| Variant | Run | Result |
+|---|---|---|
+| Main chain | `20261031-212558` | PASS |
+| `-StaleLookup` | `212729` | PASS |
+| `-Supply` | `212800` | PASS |
+| `-VaultPlacement` | `213240` | FAIL: "a plain wall is accepted on the surface cell". The reason was not recorded. |
+| `-VaultPocket` | `213310` | PASS |
+| `-VaultEnter` | `213337` | PASS |
+| `-VaultLoad` | `213417` | PASS |
+| `-VaultSave` | `213455` | PASS |
+| `-VaultInfestation` | `213535` | PASS |
+| `-InfestationGuard` | `213604` | PASS |
+| `-OtherColonistsWork` | `213642` | PASS |
+| `-AllColonistsHaul` | `213745` | PASS |
+| `-OtherColonistHauls` | `213839` | FAIL: stage 15, "no colonist below before the unforced haul". No names were recorded. |
+| `-FreeColonists` | `213930` | PASS |
+
+**Repeat runs for the two failures.** These ran with the expanded messages, before the unfog and the hold.
+
+| Variant | Runs | Result |
+|---|---|---|
+| `-VaultPlacement` | `214410`, `214751`, `214941`, `215634` | PASS |
+| `-VaultPlacement` | `215514` | FAIL: "Cannot place in undiscovered areas." The test cell was in fog. |
+| `-OtherColonistHauls` | `214609`, `214658`, `215543`, `215708`, `215803` | PASS |
+| `-OtherColonistHauls` | `214849` | FAIL: stage 15. Anna, a colonist other than the validation colonist, was on the lower level with no hauling job. |
+| `-OtherColonistHauls` | `215012` | FAIL: stage 20 timeout. No colonist hauled the logs in the wait. The message did not list the other colonists, so the cause is not known. |
+| `-OtherColonistHauls`, debug | `214306` | Every check passed. The runner exited 1 on a debug-only log line. See Open issues. |
+
+**Harness changes after the batch.** These change test code only. Behavior for the core chain and the other variants is unchanged.
+
+- Messages, made before the repeat runs. The placement and entrance messages give the reason and the pawns on the test cell. The no-colonist-below message names each colonist below, with its job and position.
+- `-VaultPlacement` unfogs the test cell before the placement check. The game refuses placement in fog.
+- `-AllColonistsHaul` and `-OtherColonistHauls` keep the other colonists' work off from the start until the unforced haul begins. `-OtherColonistsWork` already did this. The check that no colonist is below runs while they are still held.
+- The stage 20 timeout message lists the other colonists' jobs and priorities for these variants.
+
+**Verification after the harness changes.**
+
+| Variant | Runs | Result |
+|---|---|---|
+| `-VaultPlacement` | `220111`, `220503` | PASS |
+| `-OtherColonistHauls` | `220153`, `220357`, `220643` | PASS |
+| `-AllColonistsHaul` | `220253`, `220541` | PASS |
+
+Before the change, `-OtherColonistHauls` failed 3 of 8 non-debug runs, and `-VaultPlacement` failed 2 of 6. After the change, all 7 runs pass. That is a small sample. The stage 20 timeout in run `215012` has not recurred, and its cause is not known.
 
 **Still open.**
 
@@ -414,6 +463,7 @@ Counts come from the harness. In run `212210`, the walled-cell haul targets `B =
 - Route length (requirement 4 in `docs/superpowers/plans/2026-10-30-cross-level-work.md`) is open.
 - `CanReach_Patch.Prefix` can still throw. See run `193352` in "Open issues". Not reproduced.
 - The extra reachability query runs for each candidate cell that passes the earlier checks. Its frame cost is not measured.
+- The stage 20 timeout in run `215012` has no cause yet.
 
 ## Evidence
 

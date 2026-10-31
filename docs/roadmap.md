@@ -7,10 +7,11 @@ Updated 2026-10-31. Order matters: finish a stage before starting the next. Port
 - **Level differences (answered 2026-10-29).** See `docs/levels-and-events.md`.
 - **Vault v1, a pocket dimension. Done 2026-10-31.** Acceptance a to h pass in isolated saves; the run folders are in `docs/validation-report.md`. Open: the test places the storage zone itself, so the check with the real zone tool is still to do (see Test gaps). Design in `docs/superpowers/specs/2026-10-29-vault-pocket-dimension.md`. Lucas decided on 2026-10-29 that items live inside the vault, the entrance goes on the surface only, and one pocket is shared. On 2026-10-30 Lucas confirmed the vault is not a numbered level, and only one vault level exists. On 2026-10-31 Lucas decided that a colonist inside the vault still counts as wealth.
 - **Colonist autonomy (requirement 3). Done 2026-10-31.** With the validation colonist's work off, a colonist other than it hauls across levels, mines below, and builds the campfire by itself (runs `20261031-201436`, `201557`, `201704`). Port plan box 74 is ticked. Most earlier stage 20 failures came from the harness. Run `202312` is still unexplained. The 124 starts and ends at once (run `20261028-145345`) came from an older code state. Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Vault v2 depends on this, and it is now unblocked.
-- **Reachability patch bugs.** `CanReach_Patch.Prefix` in `HarmonyPatches/ReachAndReservationPatches.cs` threw `NullReferenceException` at line 85 in run `193352`. A throw can leave a pawn on the other map. A haul to an unreachable cell is offered again about every second (run `192636`). The zone there was walled off by rock, which the harness did not check. Whether the mod's reachability patch causes the retry is not shown. Neither bug is fixed. Details: `docs/validation-report.md`, Open issues.
+- **Reachability bugs.** The retry is fixed for storage cells on the colonist's own level. The storage search now skips cells the colonist cannot reach. The cause was the storage search, not the reachability patch. Red and green runs: `20261031-212210` and `212346`. Debug check: `220806`. The regression set and harness notes are in `docs/validation-report.md`, "Storage reachability". Still open: `CanReach_Patch.Prefix` can throw and leave a pawn on the other map (run `193352`). It is not reproduced.
 
 ## Next
 
+- **Cross-level storage reachability.** The storage search does not check storage cells on another level. Checking them needs the stairs route. Plan: `docs/superpowers/plans/2026-10-31-storage-reachability.md`, Ruling 1.
 - **Smooth transitions (requirement 1).** Define "smooth" first. Today a colonist walks to the stairs and is then teleported on arrival. Port plan box 75.
 - **Infestation insects.** The letter says the bugs tunnel up. The code places them on the level below, next to the natural hole, and nothing moves them up. Decide whether they should come up, then build it or change the letter.
 - **Vault v2, hauling out and cross-level storage.** Depends on autonomy (requirement 3).
@@ -20,6 +21,8 @@ Updated 2026-10-31. Order matters: finish a stage before starting the next. Port
   - Every Harmony signature. Names are checked, and only the points in `docs/game-api-findings.md` have their signatures checked. Port plan box 56.
   - Walking past the lower stairs cell and digging out. Port plan box 69.
   - A repeat of the refuel pause from run `032903`. It was seen once and has not come back.
+  - The stage 20 timeout in `-OtherColonistHauls` (run `20261031-215012`). No colonist hauled the logs in the wait. The cause is not known.
+  - Debug runs fail on an expected reservation error (run `20261031-214306`). See `docs/validation-report.md`, Open issues.
 
 ## Decisions for Lucas
 

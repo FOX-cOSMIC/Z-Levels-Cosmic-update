@@ -41,4 +41,4 @@ Source: open issue "A haul to an unreachable cell is retried" (run `20261030-192
 - 2026-10-31: plan written.
 - 2026-10-31: Task 1 done. The first version had one stockpile cell. Run `20261031-211443` failed with one counted haul. Run `20261031-211859` passed with the fix, but it shows nothing about hauling, because no other cell existed. The scenario now has a reachable second cell. With the check off, run `20261031-212210` fails: one haul to the walled cell and none to the reachable cell.
 - 2026-10-31: Task 2 done. The check is back on. Run `20261031-212346` passes: no haul to the walled cell and one haul to the reachable cell.
-- 2026-10-31: Task 3 running. Results go to `docs/validation-report.md`.
+- 2026-10-31: Task 3 batch: 12 of 14 passed (runs `212558` to `213930`). `-VaultPlacement` (`213240`) and `-OtherColonistHauls` (`213839`) failed. Repeats showed both are intermittent. The one recorded reason (`215514`) was fog. Harness changes followed, test code only. Reruns: 7 of 7 pass (`220111` to `220643`). Debug check of the fix: run `220806` passes, and every haul targets the reachable cell.

@@ -129,7 +129,7 @@ namespace ZLevelsValidation
             try
             {
                 if (DateTime.UtcNow > deadline)
-                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild() + (OtherColonistsWork ? ", others: " + DescribeOthers() : ""));
+                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild() + ((AllColonistsHaul || OtherColonistsWork) ? ", others: " + DescribeOthers() : ""));
                 if (Current.ProgramState != ProgramState.Playing || LongEventHandler.AnyEventNowOrWaiting)
                     return;
                 // Debug mode pauses the game on every logged error. Keep it running, so the debug log covers a stall.
@@ -203,8 +203,8 @@ namespace ZLevelsValidation
                         surface = Find.CurrentMap;
                         pawn = FindValidationColonist(surface);
                         RestNeeds(pawn);
-                        // Test only: with -zlevelsothercolonistswork the other colonists stay off work until the unforced haul, so none wanders below early.
-                        if (OtherColonistsWork) foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned) if (other != pawn) HoldWork(other);
+                        // Test only: with -zlevelsothercolonistswork or -zlevelsallcolonistshaul the other colonists stay off work until the unforced haul, so none wanders below early.
+                        if (AllColonistsHaul || OtherColonistsWork) foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned) if (other != pawn) HoldWork(other);
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(surface) == 0, "surface registered");
                         Record("fresh colony", "PASS");
                         Record("validation colonist can haul, mine and build", "PASS: " + pawn.LabelShort);
@@ -557,7 +557,10 @@ namespace ZLevelsValidation
                 IntVec3 surfaceCell = surface.Center + new IntVec3(6, 0, 6);
                 ClearCell(surface, surfaceCell);
                 surface.terrainGrid.SetTerrain(surfaceCell, TerrainDefOf.Concrete);
-                Require(GenConstruct.CanPlaceBlueprintAt(wall,surfaceCell, Rot4.North, surface).Accepted, "a plain wall is accepted on the surface cell");
+                // The game refuses placement in fog, and the cell's fog depends on where the colonists happen to be. The player would see this cell.
+                surface.fogGrid.Unfog(surfaceCell);
+                AcceptanceReport wallReport = GenConstruct.CanPlaceBlueprintAt(wall, surfaceCell, Rot4.North, surface);
+                Require(wallReport.Accepted, "a plain wall is accepted on the surface cell: " + wallReport.Reason + "; pawns there: " + string.Join(", ", surfaceCell.GetThingList(surface).OfType<Pawn>().Select(p => p.LabelShort)));
                 Require(GenConstruct.CanPlaceBlueprintAt(entrance, surfaceCell, Rot4.North, surface).Accepted, "the surface takes a vault entrance");
                 Record("vault entrance on the surface", "PASS");
                 Map lower = CreateLevelBelow(tracker, surface);
@@ -1943,10 +1946,10 @@ namespace ZLevelsValidation
                 }
             }
             // The all-colonists variant counts any colonist who goes below as proof, so none may already be there.
-            if (AllColonistsHaul) Require(lower.mapPawns.FreeColonistsSpawned.Count == 0, "no colonist below before the unforced haul");
+            if (AllColonistsHaul) Require(lower.mapPawns.FreeColonistsSpawned.Count == 0, "no colonist below before the unforced haul: " + string.Join(", ", lower.mapPawns.FreeColonistsSpawned.Select(p => p.LabelShort + " on " + p.Map + " job " + (p.CurJob != null ? p.CurJob.def.defName : "none") + " at " + p.Position)));
+            if (AllColonistsHaul || OtherColonistsWork) foreach (Pawn other in OtherColonists().ToList()) RestoreWork(other);
             if (OtherColonistsWork)
             {
-                foreach (Pawn other in OtherColonists().ToList()) RestoreWork(other);
                 Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Hauling)), "no other colonist can haul");
                 Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Mining)), "no other colonist can mine");
                 Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Construction)), "no other colonist can build");
