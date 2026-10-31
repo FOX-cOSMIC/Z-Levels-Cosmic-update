@@ -53,6 +53,9 @@ namespace ZLevelsValidation
         private Zone_Stockpile vaultZone;
         private Thing loadLogs;
         private int surfaceLogsBefore;
+        private float logsValue;
+        private float wealthTotalBefore;
+        private float wealthStorytellerBefore;
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
@@ -617,6 +620,13 @@ namespace ZLevelsValidation
                     loadLogs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
                     loadLogs.stackCount = 7;
                     GenSpawn.Spawn(loadLogs, FindReachableZoneCell(vaultColonist.Position), surface);
+                    // Acceptance e. The wealth is read through the mod's getters (WealthTotal) and through the storyteller's wealth.
+                    logsValue = loadLogs.MarketValue * loadLogs.stackCount;
+                    surface.wealthWatcher.ForceRecount();
+                    wealthTotalBefore = surface.wealthWatcher.WealthTotal;
+                    wealthStorytellerBefore = surface.PlayerWealthForStoryteller;
+                    Record("surface wealth before", "total " + wealthTotalBefore.ToString("F1") + ", storyteller " + wealthStorytellerBefore.ToString("F1") + ", the seven logs " + logsValue.ToString("F1")
+                        + ", surface items " + RawWealthItems(surface).ToString("F1"));
                     var transferable = new TransferableOneWay();
                     transferable.things.Add(loadLogs);
                     vaultEntrance.AddToTheToLoadList(transferable, 7);
@@ -642,6 +652,19 @@ namespace ZLevelsValidation
                         Require(vaultZone.ContainsCell(log.Position) || log.Position.DistanceTo(vaultEntrance.GetDestinationLocation()) <= 4f,
                             "log at " + log.Position + " is not beside the exit");
                     }
+                    surface.wealthWatcher.ForceRecount();
+                    float wealthTotalAfter = surface.wealthWatcher.WealthTotal;
+                    float wealthStorytellerAfter = surface.PlayerWealthForStoryteller;
+                    vaultPocket.wealthWatcher.ForceRecount();
+                    Record("surface wealth after", "total " + wealthTotalAfter.ToString("F1") + ", storyteller " + wealthStorytellerAfter.ToString("F1")
+                        + ", surface items " + RawWealthItems(surface).ToString("F1") + ", pocket items " + RawWealthItems(vaultPocket).ToString("F1")
+                        + ", pocket tile " + vaultPocket.Tile + ", surface tile " + surface.Tile + ", maps in the surface total "
+                        + Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count);
+                    Require(wealthTotalBefore - wealthTotalAfter >= 0.99f * logsValue,
+                        "the total still counts the logs: it fell " + (wealthTotalBefore - wealthTotalAfter).ToString("F1") + " of " + logsValue.ToString("F1"));
+                    Require(wealthStorytellerBefore - wealthStorytellerAfter >= 0.99f * logsValue,
+                        "the storyteller wealth still counts the logs: it fell " + (wealthStorytellerBefore - wealthStorytellerAfter).ToString("F1") + " of " + logsValue.ToString("F1"));
+                    Record("vault wealth", "PASS");
                     Record("vault load after", DescribeLoad());
                     Record("vault load", "PASS");
                     finished = true;
@@ -655,6 +678,13 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels vault load validation failed: " + exception);
                 Root.Shutdown();
             }
+        }
+
+        // The game keeps the item total in a private field. Reading it shows what the mod's sum is built from.
+        private static float RawWealthItems(Map map)
+        {
+            var field = typeof(WealthWatcher).GetField("wealthItems", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+            return field == null ? -1f : (float)field.GetValue(map.wealthWatcher);
         }
 
         private int SurfaceLogCount()

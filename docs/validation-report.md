@@ -278,6 +278,14 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Not explained: run `20261031-121150` (stage 1, the colonist never entered, before reachability was recorded) and run `20261031-122033` (stage 2, the wall stalled after the wood beside it dropped from 10 logs to 2). Run `20261031-122033` recorded that the entrance was reachable, but not the wall cell. Since the reachable-entrance fix, six runs have passed with no stall.
 - The main chain still fails at stage 22 on the same code, at a rate the campfire notes already record. Failures: `20261031-112409` and `20261031-113130` on the guard build, and `20261031-122935` after the job-search fix. Passes: `20261031-114607` and `20261031-114837` on the guard build, and `20261031-123439` after the job-search fix. The baseline build passed in `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
 
+## Vault v1 wealth (acceptance e)
+
+- Red: run `20261031-145150` (`-VaultLoad`). The surface total stayed at 37766.6 and the storyteller wealth at 25698.6 after the seven logs (8.4) reached the pocket. Run `20261031-145333` showed the cause: the pocket held the logs (`pocket items 8.4`), and the surface's raw item count did not change.
+- Cause: vanilla `WealthWatcher.ForceRecount` adds each pocket map's wealth to the map it came from, when `pocketMap.sourceMap == map`. The spec requires the logs to leave the surface's total, so the pocket's items cannot count for the surface.
+- Fix: `ForceRecountVaultPocketPatch` in `HarmonyPatches/WealthPatches.cs`. It is a postfix on `ForceRecount` that subtracts the vault pocket's items, buildings, and floors. It only acts on the shared vault pocket. Pawns stay counted, because colonists are people, not stock. This is a decision: the spec does not say what a colonist inside the vault counts as.
+- Green: run `20261031-145522`. The total fell from 20138.0 to 20129.6 and the storyteller wealth from 16335.3 to 16326.9. Both fell by 8.4, the logs' value.
+- Regressions after the fix: the main chain (`20261031-145610`) and `-VaultEnter` (`20261031-145726`) pass.
+
 ## Vault v1 load list (acceptance d)
 
 - `-VaultLoad` (`-zlevelsvaultload`) puts seven logs on the entrance's load list with `AddToTheToLoadList`. The test places the pocket's storage zone beside the exit, as the player would. Colonists haul the logs in with vanilla `WorkGiver_HaulToPortal`, with no forced job.
