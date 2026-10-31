@@ -366,6 +366,11 @@ namespace ZLevels
 
         public int GetZIndexFor(Map map)
         {
+            if (map.IsPocketMap)
+            {
+                // A pocket map is not a level. Record nothing for it.
+                return 0;
+            }
             int index;
             if (this.mapIndex != null && this.mapIndex.TryGetValue(map, out index))
             {

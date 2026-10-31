@@ -29,6 +29,23 @@
 			<li>ZLevels.PlaceWorker_VaultSurface</li>
 		</placeWorkers>
 		<tickerType>Normal</tickerType>
+		<portal>
+			<pocketMapGenerator>ZL_VaultPocket</pocketMapGenerator>
+			<exitDef>ZL_VaultExit</exitDef>
+			<pocketMapSize>100</pocketMapSize>
+		</portal>
+	</ThingDef>
+
+	<ThingDef ParentName="PocketMapExit">
+		<defName>ZL_VaultExit</defName>
+		<label>vault exit</label>
+		<description>The way out of the vault, to the entrance on the surface.</description>
+		<size>(1,1)</size>
+		<graphicData>
+			<graphicClass>Graphic_Single</graphicClass>
+			<texPath>Things/Building/Misc/CaveExit/CaveExit</texPath>
+			<drawSize>(1,1)</drawSize>
+		</graphicData>
 	</ThingDef>
 
 </Defs>

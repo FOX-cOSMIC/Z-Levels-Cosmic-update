@@ -21,6 +21,10 @@ namespace ZLevels
         public override void MapGenerated()
         {
             base.MapGenerated();
+            if (map.IsPocketMap)
+            {
+                return;
+            }
             if (Rand.Chance(0.5f) && (Find.WorldGrid[map.Tile].hilliness == Hilliness.SmallHills
                         || Find.WorldGrid[map.Tile].hilliness == Hilliness.LargeHills
                         || Find.WorldGrid[map.Tile].hilliness == Hilliness.Mountainous
@@ -55,6 +59,12 @@ namespace ZLevels
         public override void FinalizeInit()
         {
             base.FinalizeInit();
+            if (map.IsPocketMap)
+            {
+                // A pocket map is not a level. It never registers, and it gets no caves below.
+                this.hasCavesBelow = false;
+                return;
+            }
             if (!this.hasCavesBelow.HasValue)
             {
                 if (Rand.Chance(0.5f) && (Find.WorldGrid[map.Tile].hilliness == Hilliness.SmallHills

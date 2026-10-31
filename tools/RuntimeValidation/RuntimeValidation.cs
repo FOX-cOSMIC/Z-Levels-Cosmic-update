@@ -79,6 +79,12 @@ namespace ZLevelsValidation
                     RunVaultPlacementCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultpocket"))
+                {
+                    finished = true;
+                    RunVaultPocketCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
                 {
                     finished = true;
@@ -424,6 +430,49 @@ namespace ZLevelsValidation
                 finished = true;
                 Record("vault placement", "FAIL: " + exception);
                 Log.Error("Z-Levels vault placement validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // Every vault entrance shares one pocket map, and each entrance gets its own exit in it. The first entrance makes the pocket.
+        private void RunVaultPocketCheck()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var tracker = Current.Game.GetComponent<ZLevelsManager>();
+                var entranceDef = DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance");
+                Map surface = Find.CurrentMap;
+                IntVec3 firstCell = surface.Center + new IntVec3(6, 0, 6);
+                IntVec3 secondCell = surface.Center + new IntVec3(-6, 0, 6);
+                foreach (IntVec3 cell in new[] { firstCell, secondCell })
+                {
+                    ClearCell(surface, cell);
+                    surface.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+                }
+                Require(entranceDef.portal != null, "the vault entrance has a portal block");
+                MapPortal first = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), firstCell, surface);
+                Map pocket = first.GetOtherMap();
+                Require(pocket != null && pocket.IsPocketMap, "the first entrance makes a pocket map");
+                Require(tracker.mapIndex == null || !tracker.mapIndex.ContainsKey(pocket), "the pocket is not a numbered level");
+                Require(tracker.ZLevelsTracker == null || !tracker.ZLevelsTracker.Values.Any(levels => levels.ZLevels != null && levels.ZLevels.ContainsValue(pocket)), "the pocket is in no level list");
+                Require(first.exit != null && first.exit.entrance == first && first.exit.Map == pocket, "the first entrance has an exit in the pocket");
+                Require(first.exit.GetOtherMap() == surface, "the first exit leads back to the surface");
+                Record("vault pocket created", "PASS");
+                MapPortal second = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), secondCell, surface);
+                Require(second.GetOtherMap() == pocket, "the second entrance uses the same pocket");
+                Require(second.exit != null && second.exit != first.exit && second.exit.entrance == second && second.exit.Map == pocket, "the second entrance has its own exit in the pocket");
+                Require(second.exit.GetOtherMap() == surface, "the second exit leads back to the surface");
+                Record("second entrance shares the pocket", "PASS");
+                finished = true;
+                Record("vault pocket", "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault pocket", "FAIL: " + exception);
+                Log.Error("Z-Levels vault pocket validation failed: " + exception);
                 Root.Shutdown();
             }
         }

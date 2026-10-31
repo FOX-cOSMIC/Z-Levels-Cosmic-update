@@ -1,9 +1,38 @@
 using RimWorld;
+using Verse;
 
 namespace ZLevels
 {
-    // The vault entrance. Its pocket map and exit come in Task 2 of the vault v1 plan.
+    // The vault entrance. Every entrance shares one pocket map. The first entrance makes it, and each later entrance adds its own exit to it.
     public class Building_VaultEntrance : MapPortal
     {
+        public override Map GeneratePocketMapInt()
+        {
+            VaultPocket vault = VaultPocket.Get();
+            Map shared = vault.Pocket;
+            if (shared != null)
+            {
+                SpawnExitIn(shared);
+                return shared;
+            }
+            shared = base.GeneratePocketMapInt();
+            vault.Pocket = shared;
+            return shared;
+        }
+
+        // The exit links to PocketMapUtility.currentlyGeneratingPortal when it spawns, so this entrance must be that portal while it does.
+        public void SpawnExitIn(Map pocket)
+        {
+            MapPortal previous = PocketMapUtility.currentlyGeneratingPortal;
+            PocketMapUtility.currentlyGeneratingPortal = this;
+            try
+            {
+                GenSpawn.Spawn(ThingMaker.MakeThing(def.portal.exitDef), VaultExitSpot.Find(pocket), pocket);
+            }
+            finally
+            {
+                PocketMapUtility.currentlyGeneratingPortal = previous;
+            }
+        }
     }
 }

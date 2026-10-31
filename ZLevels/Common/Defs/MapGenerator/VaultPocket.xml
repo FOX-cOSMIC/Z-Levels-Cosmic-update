@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+	<MapGeneratorDef>
+		<defName>ZL_VaultPocket</defName>
+		<label>vault</label>
+		<pocketMapProperties>
+			<biome>Underground</biome>
+			<destroyOnParentMapAbandoned>false</destroyOnParentMapAbandoned>
+		</pocketMapProperties>
+		<genSteps>
+			<li>ZL_VaultFloor</li>
+			<li>ZL_VaultExitStep</li>
+		</genSteps>
+	</MapGeneratorDef>
+
+	<GenStepDef>
+		<defName>ZL_VaultFloor</defName>
+		<order>10</order>
+		<genStep Class="ZLevels.GenStep_VaultFloor"/>
+	</GenStepDef>
+
+	<GenStepDef>
+		<defName>ZL_VaultExitStep</defName>
+		<order>400</order>
+		<genStep Class="ZLevels.GenStep_VaultExit"/>
+	</GenStepDef>
+
+</Defs>
