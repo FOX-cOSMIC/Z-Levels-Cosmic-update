@@ -1136,6 +1136,11 @@ namespace ZLevels
         {
             private static bool Prefix(JobGiver_Work __instance, bool ___emergency, ref ThinkResult __result, Pawn pawn, JobIssueParams jobParams)
             {
+                // A pocket map is not a level, so the cross-level search below does not reach it. The vanilla search runs on the pocket instead.
+                if (pawn.Map != null && pawn.Map.IsPocketMap)
+                {
+                    return true;
+                }
                 if (pawn.RaceProps.Humanlike)
                 {
                     var ZTracker = ZUtils.ZTracker;

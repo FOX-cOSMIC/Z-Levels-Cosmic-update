@@ -36,6 +36,15 @@ namespace ZLevelsValidation
         private Zone_Stockpile unforcedZone;
         private bool wentDownForWood;
         private Building minedWall;
+
+        // State for the vault enter-and-build check. It is not saved.
+        private int vaultStage;
+        private Pawn vaultColonist;
+        private MapPortal vaultEntrance;
+        private Map vaultPocket;
+        private IntVec3 vaultWallCell;
+        private ThingDef vaultWallDef;
+        private DateTime vaultDeadline;
         private bool wentDownForWall;
 
         public RuntimeValidation(Game game) { }
@@ -83,6 +92,11 @@ namespace ZLevelsValidation
                 {
                     finished = true;
                     RunVaultPocketCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultenter"))
+                {
+                    RunVaultEnterTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -432,6 +446,149 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels vault placement validation failed: " + exception);
                 Root.Shutdown();
             }
+        }
+
+        // The enter-and-build check runs once per tick. A colonist walks into the pocket, a wall is built inside, and the colonist walks back out.
+        private void RunVaultEnterTick()
+        {
+            try
+            {
+                if (vaultStage == 0)
+                {
+                    deadline = DateTime.MaxValue;
+                    vaultDeadline = DateTime.UtcNow.AddMinutes(4);
+                    Map surface = Find.CurrentMap;
+                    vaultColonist = surface.mapPawns.FreeColonistsSpawned.First();
+                    RestoreWork(vaultColonist);
+                    IntVec3 entranceCell = FindVaultEntranceCell(surface, vaultColonist);
+                    ClearCell(surface, entranceCell);
+                    surface.terrainGrid.SetTerrain(entranceCell, TerrainDefOf.Concrete);
+                    foreach (IntVec3 around in GenRadial.RadialCellsAround(entranceCell, 1.5f, useCenter: true))
+                    {
+                        ClearCell(surface, around);
+                    }
+                    vaultEntrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
+                    Record("colonist can reach the entrance", vaultColonist.CanReach(vaultEntrance, PathEndMode.Touch, Danger.Deadly).ToString());
+                    vaultPocket = vaultEntrance.GetOtherMap();
+                    vaultWallDef = DefDatabase<ThingDef>.GetNamed("Wall");
+                    vaultWallCell = FindVaultWallCell(vaultPocket, vaultEntrance.exit.Position);
+                    Thing wood = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    wood.stackCount = 10;
+                    GenSpawn.Spawn(wood, vaultWallCell + new IntVec3(2, 0, 0), vaultPocket);
+                    vaultColonist.jobs.StartJob(JobMaker.MakeJob(JobDefOf.EnterPortal, vaultEntrance), JobCondition.InterruptForced);
+                    Record("colonist sent to the vault entrance", "PASS");
+                    vaultStage = 1;
+                    return;
+                }
+                if (vaultStage > 0 && DateTime.UtcNow > vaultDeadline)
+                {
+                    throw new InvalidOperationException("Timed out at vault stage " + vaultStage + ", " + DescribeVaultEnter());
+                }
+                if (vaultStage == 1)
+                {
+                    if (vaultColonist.Map != vaultPocket)
+                    {
+                        return;
+                    }
+                    AcceptanceReport wallReport = GenConstruct.CanPlaceBlueprintAt(vaultWallDef, vaultWallCell, Rot4.North, vaultPocket);
+                    Record("wall accepted at the vault cell", wallReport.Accepted ? "yes" : "no: " + wallReport.Reason);
+                    GenConstruct.PlaceBlueprintForBuild(vaultWallDef, vaultWallCell, vaultPocket, Rot4.North, Faction.OfPlayer, ThingDefOf.WoodLog);
+                    Record("colonist enters the pocket", "PASS");
+                    Record("colonist can reach the wall cell", vaultColonist.CanReach(vaultWallCell, PathEndMode.Touch, Danger.Deadly).ToString());
+                    vaultStage = 2;
+                    return;
+                }
+                if (vaultStage == 2)
+                {
+                    Building wall = vaultWallCell.GetEdifice(vaultPocket);
+                    if (wall == null || wall.def != vaultWallDef)
+                    {
+                        return;
+                    }
+                    Record("wall built inside the pocket", "PASS");
+                    vaultColonist.jobs.StartJob(JobMaker.MakeJob(JobDefOf.EnterPortal, vaultEntrance.exit), JobCondition.InterruptForced);
+                    vaultStage = 3;
+                    return;
+                }
+                if (vaultStage == 3)
+                {
+                    if (vaultColonist.Map != vaultEntrance.Map)
+                    {
+                        return;
+                    }
+                    Require(vaultWallCell.GetEdifice(vaultPocket) != null, "the wall stands after the colonist leaves");
+                    Record("colonist leaves the pocket", "PASS");
+                    finished = true;
+                    Record("vault build inside", "PASS");
+                    Root.Shutdown();
+                }
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault build inside", "FAIL: " + exception);
+                Log.Error("Z-Levels vault build inside validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // The first cell at least six away from the colonist that the colonist can reach. The vault entrance goes there, so the colonist can walk to it.
+        private static IntVec3 FindVaultEntranceCell(Map surface, Pawn colonist)
+        {
+            IntVec3 origin = colonist.Position;
+            for (int dx = -12; dx <= 12; dx++)
+            {
+                for (int dz = -12; dz <= 12; dz++)
+                {
+                    IntVec3 cell = origin + new IntVec3(dx, 0, dz);
+                    if (!cell.InBounds(surface) || !cell.Standable(surface) || cell.DistanceTo(origin) < 6f)
+                    {
+                        continue;
+                    }
+                    if (colonist.CanReach(cell, PathEndMode.Touch, Danger.Deadly))
+                    {
+                        return cell;
+                    }
+                }
+            }
+            throw new InvalidOperationException("No cell near the colonist can be reached for the vault entrance.");
+        }
+
+        // Facts for a timeout message: the colonist's job, the blueprint, and the wood beside the wall.
+        private string DescribeVaultEnter()
+        {
+            Blueprint blueprint = vaultPocket != null && vaultWallCell.IsValid ? vaultWallCell.GetThingList(vaultPocket).OfType<Blueprint>().FirstOrDefault() : null;
+            int wood = vaultPocket != null && vaultWallCell.IsValid ? (vaultWallCell + new IntVec3(2, 0, 0)).GetThingList(vaultPocket).Where(t => t.def == ThingDefOf.WoodLog).Sum(t => t.stackCount) : -1;
+            Pawn colonist = vaultColonist;
+            return "colonist job " + colonist?.CurJob?.def?.defName
+                + ", colonist on the pocket " + (colonist != null && colonist.Map == vaultPocket)
+                + ", construction priority " + colonist?.workSettings?.GetPriority(WorkTypeDefOf.Construction)
+                + ", blueprint " + (blueprint != null ? blueprint.def.defName : "none")
+                + ", wood beside the wall " + wood
+                + ", colonist can reach the wall cell " + (colonist != null && vaultWallCell.IsValid && colonist.Map == vaultPocket && colonist.CanReach(vaultWallCell, PathEndMode.Touch, Danger.Deadly));
+        }
+
+        // A pocket cell with a free cell two steps east for the wood. It sits away from the exit, so the colonist can walk to both.
+        private static IntVec3 FindVaultWallCell(Map pocket, IntVec3 exit)
+        {
+            foreach (IntVec3 cell in pocket.AllCells)
+            {
+                IntVec3 woodCell = cell + new IntVec3(2, 0, 0);
+                if (cell.DistanceTo(exit) < 4 || cell.DistanceToEdge(pocket) < 3 || !cell.Standable(pocket))
+                {
+                    continue;
+                }
+                if (!woodCell.InBounds(pocket) || !woodCell.Standable(pocket))
+                {
+                    continue;
+                }
+                if (cell.GetThingList(pocket).Count > 0 || woodCell.GetThingList(pocket).Count > 0)
+                {
+                    continue;
+                }
+                return cell;
+            }
+            throw new InvalidOperationException("The vault pocket has no room for a wall.");
         }
 
         // Every vault entrance shares one pocket map, and each entrance gets its own exit in it. The first entrance makes the pocket.
