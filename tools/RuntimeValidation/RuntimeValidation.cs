@@ -130,6 +130,11 @@ namespace ZLevelsValidation
                     RunVaultSaveTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultinfestation"))
+                {
+                    RunVaultInfestationGuard();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
                 {
                     finished = true;
@@ -829,6 +834,64 @@ namespace ZLevelsValidation
             }
             if (cells.Count == 0) throw new InvalidOperationException("No free cell beside the pocket exit for a storage zone.");
             return cells;
+        }
+
+        // Acceptance g. An infestation aimed at the vault pocket records nothing and digs no hole. The pocket's cave flag is forced on, so
+        // the pocket check in Patch_Infestation_TryExecuteWorker is the only thing that can stop it. Same shape as RunInfestationGuard.
+        private void RunVaultInfestationGuard()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var infestation = DefDatabase<IncidentDef>.GetNamed("Infestation");
+                var holeDef = DefDatabase<ThingDef>.GetNamed("ZL_NaturalHole");
+                surface = Find.CurrentMap;
+                vaultEntrance = PlaceVaultEntrance(surface, FindValidationColonist(surface));
+                Map pocket = vaultEntrance.GetOtherMap();
+                var pocketComp = pocket.GetComponent<MapComponentZLevel>();
+                pocketComp.hasCavesBelow = true;
+                SpawnFood(pocket);
+                int recordsBefore = pocketComp.TotalInfestations == null ? 0 : pocketComp.TotalInfestations.Count;
+                int activeBefore = pocketComp.ActiveInfestations == null ? 0 : pocketComp.ActiveInfestations.Count;
+                infestation.Worker.TryExecute(new IncidentParms { target = pocket, points = 1000f });
+                int recordsAfter = pocketComp.TotalInfestations == null ? 0 : pocketComp.TotalInfestations.Count;
+                int activeAfter = pocketComp.ActiveInfestations == null ? 0 : pocketComp.ActiveInfestations.Count;
+                int holes = pocket.listerThings.ThingsOfDef(holeDef).Count;
+                string outcome = "records " + recordsBefore + " -> " + recordsAfter + ", active " + activeBefore + " -> " + activeAfter + ", holes " + holes
+                    + ", caves below " + pocketComp.hasCavesBelow;
+                Require(recordsAfter == recordsBefore && activeAfter == activeBefore && holes == 0, "the pocket took an infestation: " + outcome);
+                Record("infestation blocked on the pocket", "PASS: " + outcome);
+                // Control: the same setup on the surface must dig a hole. Then the empty result above comes from the pocket check, not the setup.
+                surface.GetComponent<MapComponentZLevel>().hasCavesBelow = true;
+                SpawnFood(surface);
+                infestation.Worker.TryExecute(new IncidentParms { target = surface, points = 1000f });
+                int surfaceHoles = surface.listerThings.ThingsOfDef(holeDef).Count;
+                Require(surfaceHoles >= 1, "the surface control dug no hole");
+                Record("infestation control on the surface", "PASS: holes " + surfaceHoles);
+                Record("vault infestation", "PASS");
+                finished = true;
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault infestation", "FAIL: " + exception);
+                Log.Error("Z-Levels vault infestation validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // An entrance on a reachable surface cell. The cell and its neighbours are cleared, as in the other vault checks.
+        private MapPortal PlaceVaultEntrance(Map surface, Pawn colonist)
+        {
+            IntVec3 entranceCell = FindVaultEntranceCell(surface, colonist);
+            ClearCell(surface, entranceCell);
+            surface.terrainGrid.SetTerrain(entranceCell, TerrainDefOf.Concrete);
+            foreach (IntVec3 around in GenRadial.RadialCellsAround(entranceCell, 1.5f, useCenter: true))
+            {
+                ClearCell(surface, around);
+            }
+            return (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
         }
 
         private static IntVec3 FindVaultEntranceCell(Map surface, Pawn colonist)

@@ -278,6 +278,13 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Not explained: run `20261031-121150` (stage 1, the colonist never entered, before reachability was recorded) and run `20261031-122033` (stage 2, the wall stalled after the wood beside it dropped from 10 logs to 2). Run `20261031-122033` recorded that the entrance was reachable, but not the wall cell. Since the reachable-entrance fix, six runs have passed with no stall.
 - The main chain still fails at stage 22 on the same code, at a rate the campfire notes already record. Failures: `20261031-112409` and `20261031-113130` on the guard build, and `20261031-122935` after the job-search fix. Passes: `20261031-114607` and `20261031-114837` on the guard build, and `20261031-123439` after the job-search fix. The baseline build passed in `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
 
+## Vault v1 infestation on the pocket (acceptance g)
+
+- `-VaultInfestation` (`-zlevelsvaultinfestation`) forces the pocket's cave flag on, puts food on the pocket, and fires the infestation incident at the pocket. It requires no infestation record, no active infestation, and no hole. It then runs the same setup on the surface as a control, which must dig a hole.
+- The pocket check is `map.IsPocketMap` in `Patch_Infestation_TryExecuteWorker` (`HarmonyPatches/AnimalPatches.cs`). The depth check does not cover the pocket, because the pocket reports index 0 and levels down to -4 are allowed. So the pocket check is the only guard.
+- Red: the check was removed for one run. Run `20261031-150543` then reported `records 0 -> 1, active 0 -> 1, holes 1`, and the scenario failed. The file was restored from HEAD afterwards. Only this run was red, and no committed code changed.
+- Green: runs `20261031-150455` and `20261031-150625`. Both show `records 0 -> 0, active 0 -> 0, holes 0, caves below True` on the pocket and `holes 1` on the surface control.
+
 ## Vault v1 save and reload (acceptance f)
 
 - `-VaultSave` (`-zlevelsvaultsave`) builds the entrance, has a colonist enter, builds a wall inside, and puts seven logs on the pocket floor. It then saves with the colonist in the pocket and checks, after reload, that the pocket exists, the entrance still leads to it, the colonist is on the pocket at the saved cell, the wall stands, and the logs are on the floor.
