@@ -43,6 +43,14 @@ namespace ZLevelsValidation
         // Test only: colonists below when the unforced haul started, and colonists who came below during it, by name.
         private readonly HashSet<string> belowAtStart = new HashSet<string>();
         private readonly HashSet<string> enteredBelow = new HashSet<string>();
+        // Test only: -zlevelsunreachablezone walls in one stockpile cell and counts the haul jobs that head for it. Run 20261030-192636 retried such a haul every second.
+        private int unreachableStage;
+        private DateTime unreachableEnd;
+        private int unreachableStarts;
+        private readonly Dictionary<Pawn, Job> unreachableLastJobs = new Dictionary<Pawn, Job>();
+        private IntVec3 unreachableCell = IntVec3.Invalid;
+        private IntVec3 unreachableFarCell = IntVec3.Invalid;
+        private int unreachableFarStarts;
         // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
         private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
         // With -zlevelsothercolonistshaul the validation colonist is also kept off hauling, so the haul must be taken by another colonist.
@@ -169,6 +177,11 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelssupply"))
                 {
                     RunSupplyTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsunreachablezone"))
+                {
+                    RunUnreachableZoneTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -1673,6 +1686,125 @@ namespace ZLevelsValidation
                     if (colonist != pawn) yield return colonist;
                 }
             }
+        }
+
+        // Test only: a haul can start and end inside one frame, so the unreachable-zone check counts haul starts on every game tick.
+        public override void GameComponentTick()
+        {
+            base.GameComponentTick();
+            if (unreachableStage != 1 || surface == null) return;
+            foreach (Pawn colonist in surface.mapPawns.FreeColonistsSpawned)
+            {
+                unreachableLastJobs.TryGetValue(colonist, out Job last);
+                Job job = colonist.CurJob;
+                if (job == null || job == last) continue;
+                unreachableLastJobs[colonist] = job;
+                bool towardsWalled = HaulsToCell(colonist, job, unreachableCell);
+                if (!towardsWalled && !HaulsToCell(colonist, job, unreachableFarCell)) continue;
+                if (towardsWalled) unreachableStarts++;
+                else unreachableFarStarts++;
+                Log.Message((towardsWalled ? "unreachable zone haul start by " : "reachable zone haul start by ") + colonist + ": " + job);
+            }
+        }
+
+        // Test only: a colonist must not take hauls to a stockpile cell it cannot reach. Only the validation colonist may haul. Seven logs lie outside the walls, and a reachable second stockpile cell lies farther away and must get the haul.
+        private void RunUnreachableZoneTick()
+        {
+            try
+            {
+                if (unreachableStage == 0)
+                {
+                    Map map = Find.CurrentMap;
+                    surface = map;
+                    pawn = FindValidationColonist(map);
+                    RestNeeds(pawn);
+                    foreach (Pawn other in map.mapPawns.FreeColonistsSpawned)
+                    {
+                        if (other != pawn) HoldWork(other);
+                    }
+                    if (!FindWalledZone(map, pawn.Position, out IntVec3 center, out IntVec3 logCell)) throw new InvalidOperationException("No open 3 by 3 block with a reachable cell beside it.");
+                    if (!FindFarCell(map, pawn.Position, logCell, center, out IntVec3 farCell)) throw new InvalidOperationException("No reachable cell far from the logs for a second stockpile cell.");
+                    ThingDef wallDef = DefDatabase<ThingDef>.GetNamed("Wall");
+                    foreach (IntVec3 neighbour in GenRadial.RadialCellsAround(center, 1.5f, false))
+                    {
+                        GenSpawn.Spawn(ThingMaker.MakeThing(wallDef, GenStuff.DefaultStuffFor(wallDef)), neighbour, map);
+                    }
+                    unreachableCell = center;
+                    unreachableFarCell = farCell;
+                    Zone_Stockpile zone = new Zone_Stockpile(StorageSettingsPreset.DefaultStockpile, map.zoneManager);
+                    map.zoneManager.RegisterZone(zone);
+                    zone.AddCell(center);
+                    zone.AddCell(farCell);
+                    Thing logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    logs.stackCount = 7;
+                    GenSpawn.Spawn(logs, logCell, map);
+                    logs.SetForbidden(false);
+                    unreachableEnd = DateTime.UtcNow.AddSeconds(60);
+                    unreachableStage = 1;
+                    return;
+                }
+                if (DateTime.UtcNow < unreachableEnd) return;
+                finished = true;
+                Record("unreachable zone haul starts", unreachableStarts.ToString());
+                Record("reachable zone haul starts", unreachableFarStarts.ToString());
+                Record("unreachable zone", unreachableStarts > 0 ? "FAIL: " + unreachableStarts + " haul job(s) headed for the walled cell in 60 seconds" : unreachableFarStarts == 0 ? "FAIL: no haul job headed for the reachable cell in 60 seconds" : "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("unreachable zone", "FAIL: " + exception);
+                Log.Error("Z-Levels unreachable zone validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // Test only: true for a haul job whose destination is the cell, before or after the cross-level conversion.
+        private bool HaulsToCell(Pawn colonist, Job job, IntVec3 cell)
+        {
+            if (job.def == JobDefOf.HaulToCell) return job.targetB.Cell == cell;
+            return job.def == ZLevelsDefOf.ZL_HaulThingToDest && Current.Game.GetComponent<ZLevelsManager>().jobTracker.TryGetValue(colonist, out JobTracker tracker) && tracker.targetDest.Cell == cell;
+        }
+
+        // Test only: an open 3 by 3 block at least five cells from the colonist, and a free cell three cells below its centre that the colonist can reach.
+        private static bool FindWalledZone(Map map, IntVec3 near, out IntVec3 center, out IntVec3 logCell)
+        {
+            foreach (IntVec3 candidate in GenRadial.RadialCellsAround(near, 12f, false))
+            {
+                center = candidate;
+                logCell = candidate + new IntVec3(0, 0, -3);
+                if (candidate.DistanceTo(near) < 5f || !logCell.InBounds(map) || !logCell.Standable(map) || logCell.GetEdifice(map) != null || logCell.GetFirstItem(map) != null) continue;
+                if (!map.reachability.CanReach(near, logCell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                bool open = true;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        IntVec3 cell = candidate + new IntVec3(dx, 0, dz);
+                        if (!cell.InBounds(map) || !cell.Standable(map) || cell.GetEdifice(map) != null || cell.GetFirstItem(map) != null) open = false;
+                    }
+                }
+                if (open) return true;
+            }
+            center = IntVec3.Invalid;
+            logCell = IntVec3.Invalid;
+            return false;
+        }
+
+        // Test only: a free, reachable cell at least 4.5 cells from the logs and farther from the colonist than the walled cell, so the walled cell is the closer choice before the fix.
+        private static bool FindFarCell(Map map, IntVec3 near, IntVec3 logCell, IntVec3 center, out IntVec3 farCell)
+        {
+            foreach (IntVec3 candidate in GenRadial.RadialCellsAround(logCell, 9f, false))
+            {
+                if (candidate.DistanceTo(logCell) < 4.5f || candidate.DistanceTo(center) <= 2f || candidate.DistanceTo(near) <= center.DistanceTo(near)) continue;
+                if (!candidate.InBounds(map) || !candidate.Standable(map) || candidate.GetEdifice(map) != null || candidate.GetFirstItem(map) != null) continue;
+                if (!map.reachability.CanReach(near, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                if (!map.reachability.CanReach(logCell, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                farCell = candidate;
+                return true;
+            }
+            farCell = IntVec3.Invalid;
+            return false;
         }
 
         // Test only: the other colonists' jobs and work priorities, for a timeout message.

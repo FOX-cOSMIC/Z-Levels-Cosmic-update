@@ -1584,12 +1584,14 @@ namespace ZLevels
                     }
                 }
 
-                //var tPosition = t.SpawnedOrAnyParentSpawned ? t.PositionHeld : carrier.PositionHeld;
-                //Log.Message($"{carrier} CanReach({tPosition}, {c}, PathEndMode.ClosestTouch, TraverseParms.For(carrier, Danger.Deadly, TraverseMode.ByPawn, false)): " +
-                //    $"{carrier.Map.reachability.CanReach(tPosition, c, PathEndMode.ClosestTouch, TraverseParms.For(carrier, Danger.Deadly, TraverseMode.ByPawn, false))}");
+                // A cell on the carrier's own level must be reachable from the carrier. Cells on other levels are not checked here,
+                // because the route to them goes through the stairs, which this query does not know.
+                if (carrier != null && map == carrier.Map && !carrier.Map.reachability.CanReach(carrier.Position, c, PathEndMode.OnCell, TraverseParms.For(carrier, Danger.Deadly, TraverseMode.ByPawn, false)))
+                {
+                    return false;
+                }
 
-                return true;// carrier == null || carrier.Map.reachability.CanReach(t.SpawnedOrAnyParentSpawned ? t.PositionHeld : carrier.PositionHeld, c, PathEndMode.ClosestTouch,
-                            //TraverseParms.For(carrier, Danger.Deadly, TraverseMode.ByPawn, false));
+                return true;
             }
 
             private static bool NoStorageBlockersIn(IntVec3 c, Map map, Thing thing)

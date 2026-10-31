@@ -95,6 +95,8 @@ The final run's lower-level screenshot shows the lamp and the cells around it, w
 
 4. **Reload check with the colonist downstairs (run 134128).** The harness saved while the colonist stood on the lower level, so `reload three-level colony` failed. The save file puts the colonist on map 1, `ZL_Underground`. The harness now brings the colonist up and saves after they arrive. Runs 135155 and 135603 pass the reload checks with this change. Before this change, nothing checked where the colonist stood before a save.
 
+5. **Retried haul to a walled storage cell (run 192636).** The storage search could choose a stockpile cell behind rock. Each haul to it ended with `ErroredPather`, and the job came back about every second. The reachability check in `IsGoodStoreCell` was commented out. It now runs for storage cells on the colonist's own level. See "Storage reachability (2026-10-31)".
+
 ## Open issues
 
 **Sealed stairs pocket (lower level).** The lower stairs stand on a hewn floor under a thick roof (`RoofRockThick`). Natural rock walls fill all eight neighbouring cells. Run 134416 has limestone walls, and run 135603 has granite walls. The game data marks both stone types as mineable (`Data/Core/Defs/ThingDefs_Misc/Various_Stone.xml`). Across the 13 runs that measured reachability, the stairs reached no other walkable cell. The walkable cells on the lower level number from 21 to 1998 in those runs.
@@ -126,8 +128,6 @@ It was seen once. It has not appeared in any other run folder, and it has not be
 **Save and reload.** Each validation run saves and reloads once. Since run 144444 the harness no longer climbs the colonist up first. It saves with the colonist on the lower level, reloads, and checks the same level and cell. Run 134128 failed its reload check when it saved with the colonist downstairs, but that check expected the surface. It did not prove a lost level. Hauling, power and the wood are not rechecked after the reload. Run 135603 saved with the colonist on the surface.
 
 **The reachability prefix can throw (found in run 193352, not fixed).** `ZLevels.CanReach_Patch.Prefix` (`HarmonyPatches/ReachAndReservationPatches.cs:71-85`) reads the pawn's stale `lookedAtLocalCellMap` outside a job search. It teleports the pawn to that map, then calls `mapDest.reachability.CanReach` at line 85, and the call threw `NullReferenceException`. The postfix that moves the pawn back does not run after an exception, so the pawn can stay on the other map. The harness now asks the vanilla question, with `TraverseMode.PassDoors` and no pawn. The mod prefix is unchanged. Normal play may reach it. It needs its own reproduction.
-
-**A haul to an unreachable cell is retried (observed in run 192636, not diagnosed).** A colonist was offered a haul to a cell it could not path to. Each attempt ended with `ErroredPather`, and the job was offered again about every second. Vanilla avoids this by checking reachability before it offers the job. Whether the ZL reachability patch causes it is not shown.
 
 ## Runs after 135603: save below and unforced haul
 
@@ -384,6 +384,36 @@ Open:
 - The hold is a test choice. Other colonists have no work until the unforced haul, so this variant does not show what they do before it.
 - Four of the five failures before the hold change have no diagnosed cause. The timeout messages now list each other colonist's job and priorities (`DescribeOthers`). Three runs since the hold change is a small sample.
 - The first four runs predate the record of colonists below, so their colonists are not known.
+
+## Storage reachability (2026-10-31)
+
+Plan: `docs/superpowers/plans/2026-10-31-storage-reachability.md`.
+
+**Cause.** The reachability check in `IsGoodStoreCell` (`ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/JobPatches.cs`) was commented out. The storage search picks the closest cell by straight-line distance, so a stockpile cell behind rock can win. Each haul to it ends with `ErroredPather`, and the job is offered again about every second.
+
+**Fix.** A storage cell on the colonist's own level must be reachable from the colonist. The query starts at the colonist's position and uses `PathEndMode.OnCell`. Storage cells on other levels are unchanged. Checking them needs the stairs route, and this query cannot see it (plan, Ruling 1).
+
+**Scenario.** `-zlevelsunreachablezone` (runner switch `-UnreachableZone`, pass label `unreachable zone`). The colony has two stockpile cells. The walled cell has walls on all eight sides. The reachable cell is farther from the logs and from the colonist, so the search picks the walled cell before the fix. Seven logs lie outside the walls. Only the validation colonist may haul. The run passes when no haul job targets the walled cell for 60 seconds and at least one targets the reachable cell.
+
+**Counter limit.** The harness counts a haul job when it sees the job on a game tick. A job that starts and fails within one tick can be missed. Run `20261031-211055` is a debug run of an earlier version of the scenario, before the fix. Its log shows 8 haul jobs to the same walled cell, and 7 of them end with `ErroredPather`. The harness counted 1. A zero count shows that no attempt was seen. It does not show that none started.
+
+| Run | Cells | Reachability check | Haul jobs to walled cell | Haul jobs to reachable cell | Result |
+|---|---|---|---|---|---|
+| `20261031-211443` | one | off | 1 | n/a | FAIL |
+| `20261031-211859` | one | on | 0 | n/a | PASS. No other cell existed, so the run shows nothing about hauling. |
+| `20261031-212210` | two | off | 1 | 0 | FAIL |
+| `20261031-212346` | two | on | 0 | 1 | PASS |
+
+Counts come from the harness. In run `212210`, the walled-cell haul targets `B = (105, 0, 129)`. In run `212346`, the reachable-cell haul targets `B = (133, 0, 124)`.
+
+**Regression set.** Running. The results are added here when the runs finish.
+
+**Still open.**
+
+- Storage cells on other levels are not checked. The check needs the stairs route (plan, Ruling 1).
+- Route length (requirement 4 in `docs/superpowers/plans/2026-10-30-cross-level-work.md`) is open.
+- `CanReach_Patch.Prefix` can still throw. See run `193352` in "Open issues". Not reproduced.
+- The extra reachability query runs for each candidate cell that passes the earlier checks. Its frame cost is not measured.
 
 ## Evidence
 
