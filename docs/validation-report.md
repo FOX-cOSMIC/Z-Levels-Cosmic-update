@@ -465,6 +465,30 @@ Before the change, `-OtherColonistHauls` failed 3 of 8 non-debug runs, and `-Vau
 - The extra reachability query runs for each candidate cell that passes the earlier checks. Its frame cost is not measured.
 - The stage 20 timeout in run `215012` has no cause yet.
 
+## Multiple builds below and a staircase destroyed by damage (2026-10-31)
+
+**Multiple builds below.** Scenario `-zlevelsmultibuild` (runner switch `-MultiBuild`, pass label `multiple builds below`). Three wall sites lie in the lower room, with 20 logs beside them. Surface colonists take no hauling. The surface's haulable items are removed at the start, and any that appear later are removed too. The walls must be built from the lower level alone. The run passes when all three walls stand and no surface item is carried down.
+
+**Control.** `-zlevelsmultibuildsurfacelogs` puts the logs on the surface and keeps surface hauling on. The same walls then need a cross-level haul, so the count must rise.
+
+| Run | Variant | Walls built | Surface items carried down | Walks to lower items | Result |
+|---|---|---|---|---|---|
+| `20261031-230253` | control | 3 of 3 | 1 | 0 | FAIL, as expected |
+| `20261031-230355` | pass | 3 of 3 | 0 | 0 | PASS |
+| `20261031-230502` | pass | 3 of 3 | 0 | 1 | PASS |
+| `20261031-230547` | pass | 3 of 3 | 0 | 1 | PASS |
+| `20261031-231051` | pass, final harness | 3 of 3 | 0 | 0 | PASS |
+
+Items removed at the start: 1294, 1720, and 1203 in the three pass runs. The builders were Duster, Chant, and Lips. "Walks to lower items" counts colonists who walk down the stairs to pick up logs below. That is not hauling between levels, so it does not fail the run.
+
+Earlier attempts. Runs `20261031-225614` to `230119` counted the walks as cross-level hauls. The monitor counts only items that start on the surface now. Run `20261031-225148` found no room for the sites. Run `20261031-225249` mined the room to a radius of nine. A roof collapse then damaged the lower staircase, which led to the exception below. The harness then failed on the validation colonist's needs, which were null. The damage source was not logged.
+
+**Staircase destroyed by damage.** Scenario `-zlevelsstairsdamage` (runner switch `-StairsDamage`, pass label `stairs damage`). The validation colonist walks down, and the lower staircase takes 10,000 crush damage.
+
+Runs `20261031-230657` and `230754` fail with `System.NullReferenceException`. The stack runs from `Building_StairsUp.GetMatchingStair()` (`ZLevels/Source/ZLevels/ZLevels/Buildings/Building_StairsUp.cs:139`), through `Building_Stairs.PostApplyDamage` (line 49), to `Thing.TakeDamage`. Once the damage destroys the staircase, `PostApplyDamage` still reads the staircase's map. Run `230754` records that the staircase is not spawned and has no map when the exception fires. Run `225249` reached the same exception during a game update.
+
+Not fixed. The fix needs a decision (roadmap, Decisions for Lucas, item 4). The mod code is unchanged in this commit.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`

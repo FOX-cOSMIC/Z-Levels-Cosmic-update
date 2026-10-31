@@ -51,6 +51,16 @@ namespace ZLevelsValidation
         private IntVec3 unreachableCell = IntVec3.Invalid;
         private IntVec3 unreachableFarCell = IntVec3.Invalid;
         private int unreachableFarStarts;
+        private const int MultiBuildSiteCount = 3;
+        private int multiBuildStage;
+        private List<IntVec3> multiBuildSites = new List<IntVec3>();
+        private int multiBuildRemovedItems;
+        private readonly Dictionary<Pawn, Job> multiBuildLastJobs = new Dictionary<Pawn, Job>();
+        private readonly HashSet<string> multiBuildBuilders = new HashSet<string>();
+        private int multiBuildCrossHauls;
+        private int multiBuildLateItems;
+        private int multiBuildLowerWalks;
+        private int stairsDamageStage;
         // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
         private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
         // With -zlevelsothercolonistshaul the validation colonist is also kept off hauling, so the haul must be taken by another colonist.
@@ -182,6 +192,16 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsunreachablezone"))
                 {
                     RunUnreachableZoneTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsmultibuild"))
+                {
+                    RunMultiBuildTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsdamage"))
+                {
+                    RunStairsDamageTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -1808,6 +1828,224 @@ namespace ZLevelsValidation
             }
             farCell = IntVec3.Invalid;
             return false;
+        }
+
+        // Test only: three wall sites below, with no cross-level hauling allowed. Surface colonists take no hauling and surface items are forbidden,
+        // so the walls must get their logs from the lower level. The control (-zlevelsmultibuildsurfacelogs) puts the logs on the surface instead,
+        // so the same walls need cross-level hauls, and the count must rise.
+        private void RunMultiBuildTick()
+        {
+            try
+            {
+                if (multiBuildStage == 0)
+                {
+                    surface = Find.CurrentMap;
+                    pawn = FindValidationColonist(surface);
+                    RestNeeds(pawn);
+                    bool control = GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs");
+                    if (!control)
+                    {
+                        foreach (Pawn colonist in surface.mapPawns.FreeColonistsSpawned) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+                    }
+                    var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                    if (control)
+                    {
+                        if (!FindOpenCell(surface, pawn.Position, out IntVec3 surfaceLogCell)) throw new InvalidOperationException("No open cell near the colonist for the surface logs.");
+                        var surfaceLogs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                        surfaceLogs.stackCount = 20;
+                        GenSpawn.Spawn(surfaceLogs, surfaceLogCell, surface);
+                        surfaceLogs.SetForbidden(false);
+                    }
+                    else
+                    {
+                        // After the stairs are placed, because placing them clears their cell. The surface then has no items to carry down.
+                        foreach (Thing thing in surface.listerThings.AllThings.ToList())
+                        {
+                            if (thing.def.EverHaulable && !(thing is Pawn))
+                            {
+                                thing.Destroy(DestroyMode.Vanish);
+                                multiBuildRemovedItems++;
+                            }
+                        }
+                    }
+                    deadline = DateTime.UtcNow.AddMinutes(8);
+                    multiBuildStage = 1;
+                    down.GiveJob(pawn, down);
+                    return;
+                }
+                if (multiBuildStage == 1)
+                {
+                    RestNeeds(pawn);
+                    if (pawn.Map == surface) return;
+                    lower = pawn.Map;
+                    Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(lower) == -1, "lower index");
+                    OpenLowerRoom(lower);
+                    IntVec3 stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position;
+                    UnfogAround(lower, stairs, 20f);
+                    if (!FindBuildSites(lower, stairs, MultiBuildSiteCount, out List<IntVec3> sites, out IntVec3 logCell)) throw new InvalidOperationException("No open sites below the stairs for the walls and the logs.");
+                    multiBuildSites = sites;
+                    ThingDef wallDef = DefDatabase<ThingDef>.GetNamed("Wall");
+                    foreach (IntVec3 site in sites) GenConstruct.PlaceBlueprintForBuild(wallDef, site, lower, Rot4.North, Faction.OfPlayer, ThingDefOf.WoodLog);
+                    if (!GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs"))
+                    {
+                        var logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                        logs.stackCount = 20;
+                        GenSpawn.Spawn(logs, logCell, lower);
+                        logs.SetForbidden(false);
+                    }
+                    Record("multi-build sites", string.Join(", ", sites));
+                    multiBuildStage = 2;
+                    return;
+                }
+                RestNeeds(pawn);
+                // Items that appear on the surface after the start are removed and counted, so none can be carried down.
+                if (!GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs"))
+                {
+                    foreach (Thing thing in surface.listerThings.AllThings.ToList())
+                    {
+                        if (!thing.def.EverHaulable || thing is Pawn) continue;
+                        thing.Destroy(DestroyMode.Vanish);
+                        multiBuildLateItems++;
+                    }
+                }
+                foreach (Map map in new[] { surface, lower })
+                {
+                    foreach (Pawn colonist in map.mapPawns.FreeColonistsSpawned)
+                    {
+                        Job job = colonist.CurJob;
+                        multiBuildLastJobs.TryGetValue(colonist, out Job last);
+                        if (job == null || job == last) continue;
+                        multiBuildLastJobs[colonist] = job;
+                        if (job.def == ZLevelsDefOf.ZL_HaulThingToDest)
+                        {
+                            // The job walks the colonist down the stairs. The item only changes level if it starts on the surface.
+                            Thing carried = job.targetA.Thing;
+                            if (carried != null && carried.Map == surface)
+                            {
+                                multiBuildCrossHauls++;
+                                Log.Message("multi-build cross-level haul by " + colonist + ": " + job + "; item at " + carried.Position + " on " + carried.Map + ", stack " + carried.stackCount + ", id " + carried.thingIDNumber);
+                            }
+                            else
+                            {
+                                multiBuildLowerWalks++;
+                            }
+                        }
+                        if (colonist.Map == lower && job.def == JobDefOf.FinishFrame) multiBuildBuilders.Add(colonist.LabelShort);
+                    }
+                }
+                ThingDef builtDef = DefDatabase<ThingDef>.GetNamed("Wall");
+                int built = multiBuildSites.Count(site => site.GetEdifice(lower)?.def == builtDef);
+                if (built < multiBuildSites.Count) return;
+                finished = true;
+                Record("multi-build walls built", built + " of " + multiBuildSites.Count);
+                Record("cross-level hauls during the builds", multiBuildCrossHauls + " surface items carried down; " + multiBuildLowerWalks + " walks to items below");
+                Record("builders below", string.Join(", ", multiBuildBuilders));
+                Record("surface items removed", (multiBuildRemovedItems + multiBuildLateItems) + " (" + multiBuildLateItems + " appeared after the start)");
+                Record("multiple builds below", multiBuildCrossHauls > 0 ? "FAIL: " + multiBuildCrossHauls + " cross-level haul(s) during the builds" : "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("multiple builds below", "FAIL: " + exception);
+                Log.Error("Z-Levels multiple builds validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // Test only: wall sites two to three and a half cells from the stairs and two apart, all reachable from them, with a log cell beside them.
+        // The room the stairs open onto is small, so the sites stay inside it.
+        private static bool FindBuildSites(Map map, IntVec3 near, int count, out List<IntVec3> sites, out IntVec3 logCell)
+        {
+            sites = new List<IntVec3>();
+            logCell = IntVec3.Invalid;
+            foreach (IntVec3 candidate in GenRadial.RadialCellsAround(near, 3.5f, false))
+            {
+                if (candidate.DistanceTo(near) < 2f || !IsOpenCell(map, candidate)) continue;
+                if (sites.Any(site => site.DistanceTo(candidate) < 2f)) continue;
+                if (!map.reachability.CanReach(near, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                sites.Add(candidate);
+                if (sites.Count == count) break;
+            }
+            if (sites.Count < count) return false;
+            foreach (IntVec3 candidate in GenRadial.RadialCellsAround(near, 3.5f, false))
+            {
+                if (candidate.DistanceTo(near) < 2f || !IsOpenCell(map, candidate) || sites.Any(site => site.DistanceTo(candidate) < 2f)) continue;
+                if (!map.reachability.CanReach(near, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                logCell = candidate;
+                return true;
+            }
+            return false;
+        }
+
+        // Test only: an open cell two to six cells from the colonist that it can reach, for the surface logs in the control run.
+        private static bool FindOpenCell(Map map, IntVec3 near, out IntVec3 cell)
+        {
+            foreach (IntVec3 candidate in GenRadial.RadialCellsAround(near, 6f, false))
+            {
+                if (candidate.DistanceTo(near) < 2f || !IsOpenCell(map, candidate)) continue;
+                if (!map.reachability.CanReach(near, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                cell = candidate;
+                return true;
+            }
+            cell = IntVec3.Invalid;
+            return false;
+        }
+
+        private static bool IsOpenCell(Map map, IntVec3 cell)
+        {
+            return cell.InBounds(map) && cell.Standable(map) && cell.GetEdifice(map) == null && cell.GetFirstItem(map) == null;
+        }
+
+        private static void UnfogAround(Map map, IntVec3 center, float radius)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(center, radius, false))
+            {
+                if (cell.InBounds(map)) map.fogGrid.Unfog(cell);
+            }
+        }
+
+        // Test only: damage that destroys the lower staircase must not throw. Building_StairsUp.PostApplyDamage looks up the staircase's map after the damage,
+        // and the staircase no longer has one once it is destroyed.
+        private void RunStairsDamageTick()
+        {
+            try
+            {
+                if (stairsDamageStage == 0)
+                {
+                    surface = Find.CurrentMap;
+                    pawn = FindValidationColonist(surface);
+                    RestNeeds(pawn);
+                    var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                    deadline = DateTime.UtcNow.AddMinutes(4);
+                    stairsDamageStage = 1;
+                    down.GiveJob(pawn, down);
+                    return;
+                }
+                RestNeeds(pawn);
+                if (pawn.Map == surface) return;
+                lower = pawn.Map;
+                Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
+                finished = true;
+                try
+                {
+                    stairs.TakeDamage(new DamageInfo(DamageDefOf.Crush, 10000f));
+                    Record("lower stairs destroyed by damage", stairs.Destroyed ? "yes" : "no");
+                    Record("stairs damage", "PASS");
+                }
+                catch (Exception exception)
+                {
+                    Record("lower stairs after the exception", "spawned " + stairs.Spawned + ", map " + (stairs.Map == null ? "none" : "set"));
+                    Record("stairs damage", "FAIL: " + exception);
+                }
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("stairs damage", "FAIL: " + exception);
+                Root.Shutdown();
+            }
         }
 
         // Test only: the other colonists' jobs and work priorities, for a timeout message.

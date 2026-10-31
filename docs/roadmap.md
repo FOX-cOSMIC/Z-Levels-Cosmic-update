@@ -8,6 +8,7 @@ Updated 2026-10-31. Order matters: finish a stage before starting the next. Port
 - **Vault v1, a pocket dimension. Done 2026-10-31.** Acceptance a to h pass in isolated saves; the run folders are in `docs/validation-report.md`. Open: the test places the storage zone itself, so the check with the real zone tool is still to do (see Test gaps). Design in `docs/superpowers/specs/2026-10-29-vault-pocket-dimension.md`. Lucas decided on 2026-10-29 that items live inside the vault, the entrance goes on the surface only, and one pocket is shared. On 2026-10-30 Lucas confirmed the vault is not a numbered level, and only one vault level exists. On 2026-10-31 Lucas decided that a colonist inside the vault still counts as wealth.
 - **Colonist autonomy (requirement 3). Done 2026-10-31.** With the validation colonist's work off, a colonist other than it hauls across levels, mines below, and builds the campfire by itself (runs `20261031-201436`, `201557`, `201704`). Port plan box 74 is ticked. Most earlier stage 20 failures came from the harness. Run `202312` is still unexplained. The 124 starts and ends at once (run `20261028-145345`) came from an older code state. Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Vault v2 depends on this, and it is now unblocked.
 - **Reachability bugs.** The retry is fixed for storage cells on the colonist's own level. The storage search now skips cells the colonist cannot reach. The cause was the storage search, not the reachability patch. Red and green runs: `20261031-212210` and `212346`. Debug check: `220806`. The regression set and harness notes are in `docs/validation-report.md`, "Storage reachability". Still open: `CanReach_Patch.Prefix` can throw and leave a pawn on the other map (run `193352`). It is not reproduced.
+- **Multiple builds below, with surface hauling stopped. Done 2026-10-31.** Three walls below were built from the lower logs alone (runs `20261031-230355`, `230502`, `230547`). The control with the logs on the surface needs a cross-level haul (run `230253`). The main chain still passes (run `230913`). Details: `docs/validation-report.md`, "Multiple builds below".
 
 ## Next
 
@@ -29,6 +30,7 @@ Updated 2026-10-31. Order matters: finish a stage before starting the next. Port
 - Should the lower level's start open onto a cave? The lower stairs open onto sealed rock today, and the code does not say (validation report, Open issues).
 - Should spilled logs stay on their level? In run `165858`, a blocker haul moved 10 logs to the surface.
 - Should the rebuilt `ZLevels/1.7/Assemblies/ZLevels.dll` be committed? The committed copy is from `0222951`. The rebuild has the same size and different bytes. The regression runs loaded the rebuild.
+- When a staircase is destroyed, should its partner be destroyed too? Today the partner takes the same damage, and the code throws `NullReferenceException` once the staircase is gone (run `230657`). I recommend yes: the partner is destroyed too, so the pair stays consistent.
 
 ## Later
 
