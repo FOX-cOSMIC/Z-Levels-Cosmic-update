@@ -269,6 +269,15 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Two failures in four guard-build runs, against zero in five baseline runs, is not a significant difference. The guards change behavior only when `IsPocketMap` is true, and ZLevels sets that flag only for the vault pocket. The stage 22 cause is not found. It is the intermittent campfire failure that the Task 4 notes list as open.
 - Runs `20261031-113922`, `20261031-114145`, and `20261031-114423` used a stale build and do not count. Their DLL was the baseline build while the source had the guards. Later batches rebuild on every state change and check for compile output.
 
+## Vault v1 enter, build inside, and exit
+
+- Red run `20261031-120628` (`-VaultEnter`) fails at the wall stage. The colonist is in the pocket, and the blueprint is placed, but the colonist wanders and the wall stays unbuilt.
+- The cause is in `TryIssueJobPackagePatch`. For a humanlike pawn, the prefix replaces the vanilla job search with the mod's cross-level search. That search covers the maps the level tracker knows, and a pocket map is not one of them. The prefix now returns to the vanilla search when the pawn is on a pocket map. Other maps are unchanged.
+- Green after that fix: `20261031-121640` (with `-ZLevelsDebug`), `20261031-121745`, `20261031-121832`, `20261031-121918`, `20261031-123838`, `20261031-123918`, `20261031-124003`, and `20261031-124049` (debug). Also `20261031-124228`, `20261031-124319`, `20261031-124414`, `20261031-124459`, `20261031-124723`, and `20261031-124813`. Each one passes with the colonist entering, the wall built, and the colonist leaving.
+- Setup fix: the entrance used to go on a fixed offset from the centre. A random surface layout can put it where the colonist cannot reach it. Run `20261031-122503` recorded `colonist can reach the entrance | False` and timed out at stage 1. The entrance now goes on the nearest cell the colonist can reach, and every later run records `True`.
+- Not explained: run `20261031-121150` (stage 1, the colonist never entered) and run `20261031-122033` (stage 2, the wall stalled after the wood beside it dropped from 10 logs to 2). Neither recorded the reachability fact. No run since the setup fix has failed this way, across 14 runs with the fixes in place.
+- The main chain still fails at stage 22 on the same code, at a rate the campfire notes already record. Failures: `20261031-112409` and `20261031-113130` on the guard build, and `20261031-122935` after the job-search fix. Passes: `20261031-114607` and `20261031-114837` on the guard build, and `20261031-123439` after the job-search fix. The baseline build passed in `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`
