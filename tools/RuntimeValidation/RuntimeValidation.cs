@@ -56,6 +56,18 @@ namespace ZLevelsValidation
         private int vaultSaveStage;
         private IntVec3 vaultSavedWallCell = IntVec3.Invalid;
         private int savedLogs;
+        // State for the cross-level supply tests. It is not saved.
+        private int supplyStage;
+        private DateTime supplyDeadline;
+        private string supplyLabel;
+        private int supplyNextStage;
+        private int supplyFailures;
+        private HashSet<int> supplyBaseline;
+        private bool supplyFailedOnce;
+        private IntVec3 supplyCell;
+        private int supplyBefore;
+        private int supplyOther;
+        private CompRefuelable supplyFuel;
         private float logsValue;
         private float wealthTotalBefore;
         private float wealthStorytellerBefore;
@@ -96,6 +108,9 @@ namespace ZLevelsValidation
                     throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild());
                 if (Current.ProgramState != ProgramState.Playing || LongEventHandler.AnyEventNowOrWaiting)
                     return;
+                // Debug mode pauses the game on every logged error. Keep it running, so the debug log covers a stall.
+                if (ZLogger.DebugEnabled && Find.TickManager.CurTimeSpeed == TimeSpeed.Paused)
+                    Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
                 if (!ZLogger.DebugEnabled && GenCommandLine.CommandLineArgPassed("zlevelsdebug"))
                 {
                     // ZLevelsMod and ZLevelsSettings are internal to the port, so the flag is set by reflection.
@@ -133,6 +148,11 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsvaultinfestation"))
                 {
                     RunVaultInfestationGuard();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelssupply"))
+                {
+                    RunSupplyTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -370,6 +390,7 @@ namespace ZLevelsValidation
                         if (minedWall == null || !minedWall.Destroyed) return;
                         Require(wentDownForWall, "colonist went down to the wall");
                         Record("mines below by itself", "PASS");
+                        ReleaseForbiddenWood();
                         PlaceCampfire(lower);
                         deadline = DateTime.UtcNow.AddMinutes(4);
                         Next(22);
@@ -894,6 +915,430 @@ namespace ZLevelsValidation
             return (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
         }
 
+        // Cross-level supply. Each test puts the materials on one level and the job on the other, so the job must fetch them across
+        // the stairs. Only the validation colonist has work. Wood and granite on both levels are cleared before each test.
+        private void RunSupplyTick()
+        {
+            try
+            {
+                if (supplyStage == 0)
+                {
+                    deadline = DateTime.MaxValue;
+                    supplyDeadline = DateTime.UtcNow.AddMinutes(4);
+                    Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+                    surface = Find.CurrentMap;
+                    pawn = FindValidationColonist(surface);
+                    RestoreWork(pawn);
+                    foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned)
+                    {
+                        if (other != pawn) HoldWork(other);
+                    }
+                    var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                    down.GiveJob(pawn, down);
+                    supplyStage = 1;
+                    return;
+                }
+                RestNeeds(pawn);
+                if (supplyStage == 1)
+                {
+                    if (pawn.Map == surface)
+                    {
+                        if (DateTime.UtcNow > supplyDeadline) throw new InvalidOperationException("The colonist did not walk down the stairs, " + DescribeSupply());
+                        return;
+                    }
+                    lower = pawn.Map;
+                    OpenLowerRoom(lower);
+                    Record("colonist below for the supply tests", "PASS");
+                    supplyStage = 10;
+                    return;
+                }
+                if (supplyStage > 1 && supplyStage % 10 == 1 && DateTime.UtcNow > supplyDeadline)
+                {
+                    EndSupplyTest(false, "timed out, " + DescribeSupply());
+                    return;
+                }
+                if (supplyStage == 10)
+                {
+                    CaptureSupplyBaseline();
+                    ClearSupplyItems();
+                    // 40 logs, not 20: a first build that fails by chance can still finish with the second 20.
+                    PlaceSupplyStack(surface, MakeSupplyZone(surface, SurfaceStairsCell()), Def("WoodLog"), 40);
+                    supplyCell = FindSupplyCell(lower, LowerStairsCell(), Def("Campfire").Size);
+                    GenConstruct.PlaceBlueprintForBuild(Def("Campfire"), supplyCell, lower, Rot4.North, Faction.OfPlayer, null);
+                    supplyBefore = CountOn(surface, Def("WoodLog"));
+                    BeginSupplyTest("supply S1, build below from surface storage", 10);
+                    return;
+                }
+                if (supplyStage == 11)
+                {
+                    if (supplyCell.GetEdifice(lower)?.def != Def("Campfire")) return;
+                    int used = supplyBefore - CountOn(surface, Def("WoodLog"));
+                    EndSupplyTest(used >= 20, used + " logs taken from the surface, the campfire needs 20");
+                    return;
+                }
+                if (supplyStage == 20)
+                {
+                    ClearSupplyItems();
+                    PlaceSupplyStack(lower, MakeSupplyZone(lower, LowerStairsCell()), Def("BlocksGranite"), 20);
+                    supplyCell = FindSupplyCell(surface, SurfaceStairsCell(), Def("Wall").Size);
+                    GenConstruct.PlaceBlueprintForBuild(Def("Wall"), supplyCell, surface, Rot4.North, Faction.OfPlayer, Def("BlocksGranite"));
+                    supplyBefore = CountOn(lower, Def("BlocksGranite"));
+                    BeginSupplyTest("supply S2, build on the surface from lower storage", 20);
+                    return;
+                }
+                if (supplyStage == 21)
+                {
+                    if (supplyCell.GetEdifice(surface)?.def != Def("Wall")) return;
+                    int used = supplyBefore - CountOn(lower, Def("BlocksGranite"));
+                    EndSupplyTest(used > 0, used + " blocks taken from the lower level");
+                    return;
+                }
+                if (supplyStage == 30)
+                {
+                    ClearSupplyItems();
+                    PlaceSupplyStack(lower, MakeSupplyZone(lower, LowerStairsCell()), Def("ChunkGranite"), 20);
+                    PlaceStonecutter(surface);
+                    supplyBefore = CountOn(surface, Def("BlocksGranite"));
+                    supplyOther = CountOn(lower, Def("ChunkGranite"));
+                    BeginSupplyTest("supply S3, craft on the surface from lower storage", 30);
+                    return;
+                }
+                if (supplyStage == 31)
+                {
+                    int made = CountOn(surface, Def("BlocksGranite")) - supplyBefore;
+                    if (made <= 0) return;
+                    int used = supplyOther - CountOn(lower, Def("ChunkGranite"));
+                    EndSupplyTest(used > 0, made + " blocks made, " + used + " chunks taken from the lower level");
+                    return;
+                }
+                if (supplyStage == 40)
+                {
+                    ClearSupplyItems();
+                    PlaceSupplyStack(surface, MakeSupplyZone(surface, SurfaceStairsCell()), Def("ChunkGranite"), 20);
+                    PlaceStonecutter(lower);
+                    supplyBefore = CountOn(lower, Def("BlocksGranite"));
+                    supplyOther = CountOn(surface, Def("ChunkGranite"));
+                    BeginSupplyTest("supply S4, craft below from surface storage", 40);
+                    return;
+                }
+                if (supplyStage == 41)
+                {
+                    int made = CountOn(lower, Def("BlocksGranite")) - supplyBefore;
+                    if (made <= 0) return;
+                    int used = supplyOther - CountOn(surface, Def("ChunkGranite"));
+                    EndSupplyTest(used > 0, made + " blocks made, " + used + " chunks taken from the surface");
+                    return;
+                }
+                if (supplyStage == 50)
+                {
+                    ClearSupplyItems();
+                    PlaceSupplyStack(lower, MakeSupplyZone(lower, LowerStairsCell()), Def("WoodLog"), 20);
+                    supplyFuel = SpawnEmptyCampfire(surface);
+                    supplyBefore = CountOn(lower, Def("WoodLog"));
+                    BeginSupplyTest("supply S5, refuel on the surface from lower storage", 50);
+                    return;
+                }
+                if (supplyStage == 51)
+                {
+                    if (supplyFuel.Fuel <= 0f) return;
+                    int used = supplyBefore - CountOn(lower, Def("WoodLog"));
+                    EndSupplyTest(used > 0, used + " logs taken from the lower level");
+                    return;
+                }
+                if (supplyStage == 60)
+                {
+                    ClearSupplyItems();
+                    PlaceSupplyStack(surface, MakeSupplyZone(surface, SurfaceStairsCell()), Def("WoodLog"), 20);
+                    supplyFuel = SpawnEmptyCampfire(lower);
+                    supplyBefore = CountOn(surface, Def("WoodLog"));
+                    BeginSupplyTest("supply S6, refuel below from surface storage", 60);
+                    return;
+                }
+                if (supplyStage == 61)
+                {
+                    if (supplyFuel.Fuel <= 0f) return;
+                    int used = supplyBefore - CountOn(surface, Def("WoodLog"));
+                    EndSupplyTest(used > 0, used + " logs taken from the surface");
+                    return;
+                }
+                if (supplyStage == 70)
+                {
+                    ClearSupplyItems();
+                    // 10 logs below and 40 above: the partial stock the main chain's rebuild saw in runs 141006 to 143044.
+                    PlaceSupplyStack(lower, MakeSupplyZone(lower, LowerStairsCell()), Def("WoodLog"), 10);
+                    PlaceSupplyStack(surface, MakeSupplyZone(surface, SurfaceStairsCell()), Def("WoodLog"), 40);
+                    supplyCell = FindSupplyCell(lower, LowerStairsCell(), Def("Campfire").Size);
+                    GenConstruct.PlaceBlueprintForBuild(Def("Campfire"), supplyCell, lower, Rot4.North, Faction.OfPlayer, null);
+                    supplyBefore = CountOn(surface, Def("WoodLog"));
+                    supplyOther = CountOn(lower, Def("WoodLog"));
+                    BeginSupplyTest("supply S7, build below with part of the logs below", 70);
+                    return;
+                }
+                if (supplyStage == 71)
+                {
+                    if (supplyCell.GetEdifice(lower)?.def != Def("Campfire")) return;
+                    int fromSurface = supplyBefore - CountOn(surface, Def("WoodLog"));
+                    int fromLower = supplyOther - CountOn(lower, Def("WoodLog"));
+                    EndSupplyTest(fromSurface > 0, fromLower + " logs taken from below and " + fromSurface + " from the surface, the campfire needs 20");
+                    return;
+                }
+                if (supplyStage == 80)
+                {
+                    ClearSupplyItems();
+                    // Logs on bare floor, not in a zone, as the main chain's colony stock is.
+                    PlaceFloorStack(surface, SurfaceStairsCell(), Def("WoodLog"), 40);
+                    supplyCell = FindSupplyCell(lower, LowerStairsCell(), Def("Campfire").Size);
+                    GenConstruct.PlaceBlueprintForBuild(Def("Campfire"), supplyCell, lower, Rot4.North, Faction.OfPlayer, null);
+                    supplyBefore = CountOn(surface, Def("WoodLog"));
+                    BeginSupplyTest("supply S8, build below from logs on the surface floor", 80);
+                    return;
+                }
+                if (supplyStage == 81)
+                {
+                    if (supplyCell.GetEdifice(lower)?.def != Def("Campfire")) return;
+                    int fromSurface = supplyBefore - CountOn(surface, Def("WoodLog"));
+                    EndSupplyTest(fromSurface >= 20, fromSurface + " logs taken from the surface floor, the campfire needs 20");
+                    return;
+                }
+                if (supplyStage == 90)
+                {
+                    ClearSupplyItems();
+                    // Logs on bare floor on both levels, as the main chain has them: 20 below, 40 above.
+                    PlaceFloorStack(lower, LowerStairsCell(), Def("WoodLog"), 20);
+                    PlaceFloorStack(surface, SurfaceStairsCell(), Def("WoodLog"), 40);
+                    supplyCell = FindSupplyCell(lower, LowerStairsCell(), Def("Campfire").Size);
+                    GenConstruct.PlaceBlueprintForBuild(Def("Campfire"), supplyCell, lower, Rot4.North, Faction.OfPlayer, null);
+                    supplyBefore = CountOn(surface, Def("WoodLog"));
+                    supplyOther = CountOn(lower, Def("WoodLog"));
+                    supplyFailedOnce = false;
+                    BeginSupplyTest("supply S9, rebuild after a failed build with logs on the floor", 90);
+                    return;
+                }
+                if (supplyStage == 91)
+                {
+                    if (!supplyFailedOnce)
+                    {
+                        if (supplyCell.GetEdifice(lower) is Frame frame)
+                        {
+                            supplyFailedOnce = true;
+                            frame.FailConstruction(pawn);
+                            Record("supply S9 construction failed once on purpose", "PASS");
+                        }
+                        return;
+                    }
+                    if (supplyCell.GetEdifice(lower)?.def != Def("Campfire")) return;
+                    int fromSurface = supplyBefore - CountOn(surface, Def("WoodLog"));
+                    int fromLower = supplyOther - CountOn(lower, Def("WoodLog"));
+                    EndSupplyTest(true, fromLower + " logs taken from below and " + fromSurface + " from the surface after the failed build");
+                    return;
+                }
+                if (supplyStage == 100)
+                {
+                    Record("cross-level supply", supplyFailures == 0 ? "PASS" : "FAIL: " + supplyFailures + " of 9 supply tests failed, see the lines above");
+                    finished = true;
+                    Root.Shutdown();
+                }
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("cross-level supply", "FAIL: " + exception);
+                Log.Error("Z-Levels cross-level supply validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        private void BeginSupplyTest(string label, int setupStage)
+        {
+            supplyLabel = label;
+            supplyStage = setupStage + 1;
+            supplyNextStage = setupStage + 10;
+            supplyDeadline = DateTime.UtcNow.AddMinutes(4);
+        }
+
+        // A failed test is recorded and the next one runs, so one run shows every result.
+        private void EndSupplyTest(bool passed, string detail)
+        {
+            if (passed)
+            {
+                Record(supplyLabel, "PASS: " + detail);
+            }
+            else
+            {
+                supplyFailures++;
+                Record(supplyLabel, "FAIL: " + detail);
+            }
+            supplyStage = supplyNextStage;
+        }
+
+        // Everything that exists before the first supply test. Cleanup never removes these.
+        private void CaptureSupplyBaseline()
+        {
+            supplyBaseline = new HashSet<int>();
+            foreach (Map map in new[] { surface, lower })
+            {
+                foreach (Thing thing in map.listerThings.AllThings)
+                {
+                    supplyBaseline.Add(thing.thingIDNumber);
+                }
+            }
+        }
+
+        private IntVec3 StairsCellOf(Map map)
+        {
+            return map == surface ? SurfaceStairsCell() : LowerStairsCell();
+        }
+
+        // A campfire with no fuel, so the refuel job has to bring the logs.
+        private CompRefuelable SpawnEmptyCampfire(Map map)
+        {
+            ThingDef campfire = Def("Campfire");
+            IntVec3 cell = FindSupplyCell(map, StairsCellOf(map), campfire.Size);
+            CompRefuelable refuelable = SpawnPlayerBuilding(map, campfire, cell).GetComp<CompRefuelable>();
+            EmptyFuel(refuelable);
+            return refuelable;
+        }
+
+        // The stairs cell may have no region to path from, so reachability starts at a free cell beside it.
+        private static IntVec3 StandableBeside(Map map, IntVec3 cell)
+        {
+            foreach (IntVec3 neighbour in GenRadial.RadialCellsAround(cell, 1.5f, false))
+            {
+                if (neighbour.InBounds(map) && neighbour.Standable(map) && neighbour.GetEdifice(map) == null) return neighbour;
+            }
+            throw new InvalidOperationException("No free cell beside " + cell + " on " + map);
+        }
+
+        private static ThingDef Def(string name)
+        {
+            return DefDatabase<ThingDef>.GetNamed(name);
+        }
+
+        private IntVec3 SurfaceStairsCell()
+        {
+            return surface.listerThings.AllThings.OfType<Building_StairsDown>().First().Position;
+        }
+
+        private IntVec3 LowerStairsCell()
+        {
+            return lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position;
+        }
+
+        private static int CountOn(Map map, ThingDef def)
+        {
+            return map.listerThings.ThingsOfDef(def).Sum(thing => thing.stackCount);
+        }
+
+        // Removes the materials, and the buildings and blueprints that earlier supply tests made. Anything in supplyBaseline stays.
+        private void ClearSupplyItems()
+        {
+            // Every stone chunk counts: the stonecutter takes any of them, so a natural chunk left on the map would be used instead.
+            ThingCategoryDef stoneChunks = DefDatabase<ThingCategoryDef>.GetNamed("StoneChunks");
+            foreach (Map map in new[] { surface, lower })
+            {
+                foreach (Thing thing in map.listerThings.AllThings.ToList())
+                {
+                    bool material = thing.def == Def("WoodLog") || thing.def == Def("BlocksGranite") || (thing.def.thingCategories?.Contains(stoneChunks) ?? false);
+                    bool built = !supplyBaseline.Contains(thing.thingIDNumber) && (thing is Blueprint || thing is Frame
+                        || thing.def == Def("Campfire") || thing.def == Def("Wall") || thing.def == Def("TableStonecutter"));
+                    if (material || built) thing.Destroy(DestroyMode.Vanish);
+                }
+            }
+            if (pawn.carryTracker.CarriedThing != null) pawn.carryTracker.innerContainer.ClearAndDestroyContents();
+        }
+
+        // A stockpile zone of up to four free cells, reachable from the stairs.
+        private static Zone_Stockpile MakeSupplyZone(Map map, IntVec3 near)
+        {
+            var zone = new Zone_Stockpile(StorageSettingsPreset.DefaultStockpile, map.zoneManager);
+            map.zoneManager.RegisterZone(zone);
+            int added = 0;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(near, 3f, false))
+            {
+                if (added == 4) break;
+                if (!cell.InBounds(map) || cell == near || !cell.Standable(map) || cell.GetEdifice(map) != null || cell.GetFirstItem(map) != null
+                    || map.zoneManager.ZoneAt(cell) != null) continue;
+                if (!map.reachability.CanReach(StandableBeside(map, near), cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                zone.AddCell(cell);
+                added++;
+            }
+            if (added == 0) throw new InvalidOperationException("No free cell for a storage zone near " + near + " on " + map);
+            return zone;
+        }
+
+        // Spawns count of def as stacks no bigger than the def's stack limit, spread over the zone's cells.
+        private static void PlaceSupplyStack(Map map, Zone_Stockpile zone, ThingDef def, int count)
+        {
+            List<IntVec3> cells = zone.Cells.Where(c => c.GetEdifice(map) == null).ToList();
+            for (int i = 0; count > 0; i++)
+            {
+                int size = Math.Min(count, def.stackLimit);
+                Thing stack = ThingMaker.MakeThing(def);
+                stack.stackCount = size;
+                GenSpawn.Spawn(stack, cells[i % cells.Count], map);
+                count -= size;
+            }
+        }
+
+        // Spawns count of def as stacks no bigger than the def's stack limit, on one free floor cell near a point (not in a zone).
+        private static void PlaceFloorStack(Map map, IntVec3 near, ThingDef def, int count)
+        {
+            IntVec3 cell = FindSupplyCell(map, near, IntVec2.One);
+            while (count > 0)
+            {
+                int size = Math.Min(count, def.stackLimit);
+                Thing stack = ThingMaker.MakeThing(def);
+                stack.stackCount = size;
+                GenSpawn.Spawn(stack, cell, map);
+                count -= size;
+            }
+        }
+
+        // A free cell with room for the whole footprint, reachable from the stairs.
+        private static IntVec3 FindSupplyCell(Map map, IntVec3 near, IntVec2 size)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(near, 4f, false))
+            {
+                CellRect footprint = GenAdj.OccupiedRect(cell, Rot4.North, size);
+                if (!footprint.Cells.All(c => c.InBounds(map) && c.Standable(map) && c.GetEdifice(map) == null && c.GetFirstItem(map) == null
+                    && map.zoneManager.ZoneAt(c) == null)) continue;
+                if (!map.reachability.CanReach(StandableBeside(map, near), cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                return cell;
+            }
+            throw new InvalidOperationException("No free cell within 4 cells of " + near + " on " + map);
+        }
+
+        private static ThingWithComps SpawnPlayerBuilding(Map map, ThingDef def, IntVec3 cell)
+        {
+            var building = (ThingWithComps)ThingMaker.MakeThing(def, def.MadeFromStuff ? GenStuff.DefaultStuffFor(def) : null);
+            building.SetFaction(Faction.OfPlayer);
+            return (ThingWithComps)GenSpawn.Spawn(building, cell, map);
+        }
+
+        private static void EmptyFuel(CompRefuelable refuelable)
+        {
+            if (refuelable.Fuel > 0f) refuelable.ConsumeFuel(refuelable.Fuel);
+            Require(refuelable.Fuel <= 0f, "the campfire started with fuel");
+        }
+
+        // A stonecutter's table with one bill: make any stone blocks.
+        private void PlaceStonecutter(Map map)
+        {
+            ThingDef table = Def("TableStonecutter");
+            IntVec3 cell = FindSupplyCell(map, StairsCellOf(map), table.Size);
+            var building = (Building_WorkTable)SpawnPlayerBuilding(map, table, cell);
+            building.BillStack.AddBill(new Bill_Production(DefDatabase<RecipeDef>.GetNamed("Make_StoneBlocksAny")));
+        }
+
+        private string DescribeSupply()
+        {
+            return "colonist job " + (pawn?.CurJob?.def.defName ?? "none") + " on " + pawn?.Map + " at " + pawn?.Position
+                + ", wood on the surface " + CountOn(surface, Def("WoodLog")) + " and below " + (lower == null ? 0 : CountOn(lower, Def("WoodLog")))
+                + ", granite blocks on the surface " + CountOn(surface, Def("BlocksGranite")) + " and below " + (lower == null ? 0 : CountOn(lower, Def("BlocksGranite")))
+                + ", chunks on the surface " + CountOn(surface, Def("ChunkGranite")) + " and below " + (lower == null ? 0 : CountOn(lower, Def("ChunkGranite")))
+                + ", game ticks " + Find.TickManager.TicksGame + ", speed " + Find.TickManager.CurTimeSpeed;
+        }
+
         private static IntVec3 FindVaultEntranceCell(Map surface, Pawn colonist)
         {
             IntVec3 origin = colonist.Position;
@@ -1119,6 +1564,19 @@ namespace ZLevelsValidation
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
         }
 
+        // The unforced haul test forbids the colony's other wood, so it cannot be used. The campfire rebuild needs the rest of its logs
+        // from the surface stock, so release that wood here. The other colonists keep no work.
+        private void ReleaseForbiddenWood()
+        {
+            foreach (var map in new[] { surface, lower })
+            {
+                foreach (var wood in map.listerThings.ThingsOfDef(ThingDefOf.WoodLog).ToList())
+                {
+                    wood.SetForbidden(false);
+                }
+            }
+        }
+
         // Test only: a campfire blueprint in the lower room, with 20 logs beside it. Only the validation colonist may haul or build.
         private void PlaceCampfire(Map map)
         {
@@ -1135,9 +1593,9 @@ namespace ZLevelsValidation
             }
             if (!logCell.IsValid || !campfireCell.IsValid) throw new InvalidOperationException("No free cells in the lower room for a campfire.");
             var logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
-            // A campfire costs 20 logs. After a failed construction the blueprint needs all 20 on its level again, so exactly 20 leaves no
-            // room for a failure: run 20261031-143044 had 10 logs on the level after one and the rebuild never started. 40 covers one failure.
-            logs.stackCount = 40;
+            // A campfire costs 20 logs. Exactly 20 is the case under test: a failed first build leaves part of them on this level, and the
+            // rebuild must take the rest from the surface. Run 20261031-143044 stalled here with 10 logs left below. 40 was the workaround.
+            logs.stackCount = 20;
             campfireLogCell = logCell;
             GenSpawn.Spawn(logs, logCell, map);
             GenConstruct.PlaceBlueprintForBuild(DefDatabase<ThingDef>.GetNamed("Campfire"), campfireCell, map, Rot4.North, Faction.OfPlayer, null);
@@ -1364,8 +1822,14 @@ namespace ZLevelsValidation
             List<Thing> logs = lower.listerThings.ThingsOfDef(ThingDefOf.WoodLog);
             Thing closest = GenClosest.ClosestThingReachable(campfireCell, lower, ThingRequest.ForDef(ThingDefOf.WoodLog), PathEndMode.ClosestTouch, TraverseParms.For(TraverseMode.PassDoors));
             bool available = lower.itemAvailability.ThingsAvailableAnywhere(ThingDefOf.WoodLog, Math.Max(needed, 1), pawn);
+            List<Thing> surfaceLogs = surface.listerThings.ThingsOfDef(ThingDefOf.WoodLog);
+            bool surfaceAvailable = surface.itemAvailability.ThingsAvailableAnywhere(ThingDefOf.WoodLog, Math.Max(needed, 1), pawn);
+            Thing blocking = GenConstruct.FirstBlockingThing(blueprint, pawn);
             return "blueprint " + blueprint.def.defName + " needs " + needed + " logs, logs on the lower level " + logs.Sum(log => log.stackCount)
-                + " in " + logs.Count + " stacks, available " + available + ", closest reachable " + (closest == null ? "none" : closest.Position.ToString());
+                + " in " + logs.Count + " stacks, available " + available + ", closest reachable " + (closest == null ? "none" : closest.Position.ToString())
+                + ", logs on the surface " + surfaceLogs.Sum(log => log.stackCount) + " in " + surfaceLogs.Count + " stacks, surface available " + surfaceAvailable
+                + ", blocking " + (blocking == null ? "none" : blocking.ToString()) + " at " + (blocking == null ? "none" : blocking.Position.ToString())
+                + ", lower logs at " + string.Join(", ", logs.Select(log => log.stackCount + "@" + log.Position));
         }
 
         // Test only: the surface stairs down the colonist can reach by map reachability, with no pawn, as DescribeCampfire does.

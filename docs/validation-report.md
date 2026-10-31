@@ -308,13 +308,48 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 
 ## Main chain stage 22: the campfire rebuild stall (2026-10-31)
 
-- Cause: the campfire stage's build can fail. Vanilla `JobDriver_ConstructFinishFrame` rolls each tick against the colonist's `ConstructSuccessChance`. A failure calls `Frame.FailConstruction`, which removes the frame, loses the logs already delivered, and puts a new blueprint back. That blueprint needs all 20 logs on its level again. The scenario gave exactly 20, so one failure left 10 logs there. Vanilla then never starts the rebuild, and the cross-level storage haul takes those 10 logs to the surface. The colonist wanders.
-- Evidence for the cause: run `20261031-141006` (debug, no forced failure) has two campfire blueprint IDs, `142700` and `142703`. The `FinishFrame` job ends `Succeeded` just before the second blueprint appears. Each of the eight debug runs that passed (`133307`, `133550`, `133745`, `133909`, `135417`, `140434`, `140635`, `140845`) has one blueprint ID and no failure. The non-debug stalls `20261031-112409`, `113130`, `122935`, and `135821` show the same trail (logs on the surface, colonist wandering). Their logs carry no IDs, so their failure roll is not confirmed.
+- Failure: the campfire build can fail. Vanilla `JobDriver_ConstructFinishFrame` rolls against the colonist's `ConstructSuccessChance` each tick. A failure calls `Frame.FailConstruction`. The frame goes, and 10 of the 20 delivered logs land on its cell. The new blueprint needs 20 logs again.
+- Cause: the unforced-haul test forbids every other log on both levels and sets the other colonists' hauling priority to 0. Nothing lifts either before the campfire stage. The colony's other logs stay forbidden to the colonist, so the rebuild has only the 10 logs below, and it never starts. Run `173903` shows it: 10 logs below that the colonist may take, and 7 on the surface.
+- Evidence for the failure: run `20261031-141006` (debug, no forced failure) has two campfire blueprint IDs, `142700` and `142703`. The `FinishFrame` job ends `Succeeded` just before the second blueprint appears. Each of the eight debug runs that passed (`133307`, `133550`, `133745`, `133909`, `135417`, `140434`, `140635`, `140845`) has one blueprint ID and no failure. The non-debug stalls `20261031-112409`, `113130`, `122935`, and `135821` show the same trail (logs on the surface, colonist wandering). Their logs carry no IDs, so their failure roll is not confirmed.
 - The stage 1 stall in run `20261031-134036` was a harness gap. Stage 1 did not reset needs, so rest fell on the walk to the stairs at superfast speed, and the colonist lay down. Stage 1 now resets needs like the other stages.
-- Harness change: the first frame fails once on purpose, so the rebuild is always tested. The campfire has 40 logs. The rebuild record prints the logs on the level after the failure.
-- Red, before the change (20 logs, forced failure): `20261031-142258` and `20261031-143044`. Stage 22 times out with `needs 20 logs` and `logs on the lower level 0` or `10`.
-- Green, after the change (40 logs, forced failure): `20261031-143912`, `20261031-144104`, and `20261031-144206`. The rebuild record shows `available True`, then `builds below by itself | PASS` and `core validation | PASS`.
-- No mod code changed for this stall. Open: the cross-level storage haul takes spilled or spare materials to storage even when a blueprint on their own level needs them. The test does not reach that case, and no decision has been made about it.
+- Harness change: the first frame fails once on purpose, so the rebuild is always tested. The rebuild record prints the logs on the level after the failure, and what the surface holds.
+- Red with 20 logs: `20261031-142258`, `143044`, `163254`, `163924`, `164720`, and `173903`. Stage 22 times out with the colonist wandering.
+- Fix: the harness releases the forbidden logs before the campfire stage (`ReleaseForbiddenWood`). The other colonists keep no work, as the test needs. The mod needed no change. Green with 20 logs: `20261031-175236`. The rebuild record shows `surface available True`, and the run shows `core validation | PASS`.
+- The earlier fix hid the stall. Runs `143912`, `144104`, and `144206` used 40 logs. The rebuild then took everything from the lower level, so it never needed the surface. The campfire is back to 20 logs.
+- Open, no decision yet:
+  - A failed build can drop logs on the blueprint's own cell. The blocker haul then moved 10 logs to the surface (run `165858`).
+  - `ConstructDeliverJobOnThing` in `HarmonyPatches/JobPatches.cs` loops over the levels but never moves the colonist. A search on another level therefore runs only while the colonist stands there. Run `172505` (debug) shows 415 searches from the lower level and none from the surface. The tested cases pass, so no check fails on it. Not changed.
+
+## Cross-level supply (2026-10-31)
+
+The `-Supply` scenario checks whether a job may take materials from the other level. Before each check, the scenario clears the logs and stone chunks on both levels. It also removes the campfires, walls, stonecutters, and blueprints that earlier checks built. The colony's own buildings stay.
+
+| Check | Job | Materials | Result |
+|---|---|---|---|
+| S1 | Build below | 20 logs on the surface | Pass |
+| S2 | Build on the surface | Stone blocks below | Pass |
+| S3 | Craft on the surface | 20 chunks below | Pass |
+| S4 | Craft below | 20 chunks on the surface | Pass |
+| S5 | Refuel on the surface | 20 logs below | Pass |
+| S6 | Refuel below | 20 logs on the surface | Pass |
+| S7 | Build below | 10 logs below, 40 on the surface | Pass, all 20 taken from the surface |
+| S8 | Build below | 40 logs on bare floor on the surface | Pass |
+| S9 | Rebuild after a failed build | 20 logs below, 40 on the surface | Pass |
+
+All nine pass in run `20261031-175919`. The mod needed no change. A job can take materials from the other level for building, crafting, and refuelling, in both directions. The scenario does not require it. In S7, the campfire took all 20 logs from the surface and left the 10 below.
+
+Harness problems found and fixed while building the checks:
+
+- A chunk stacks to 1 in the game. The 20-chunk stacks were cut to one chunk (run `20261031-154500`). The stacks are split now.
+- A natural chunk on the surface was used before the test's chunks (run `20261031-155330`). Every stone chunk is cleared before each check now.
+- Debug mode pauses the game on every logged error (`HarmonyPatches/Logging.cs`). Run `20261031-155330` froze at its first error. The harness keeps the game running during debug runs now.
+
+Regression runs after these changes, all passing: main chain `20261031-175236`, VaultPlacement `175414`, VaultPocket `175448`, VaultEnter `175517`, VaultLoad `175603`, VaultSave `175640`, VaultInfestation `175732`, InfestationGuard `175805`, StaleLookup `175845`, and Supply `175919`.
+
+Open:
+
+- The test makes the storage zone itself (decision 2). A check with the real zone tool is still to do.
+- Spilled materials can move to another level (see stage 22).
 
 ## Evidence
 

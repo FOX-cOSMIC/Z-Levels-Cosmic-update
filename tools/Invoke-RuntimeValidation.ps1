@@ -10,6 +10,7 @@ param(
     [switch]$VaultLoad,
     [switch]$VaultSave,
     [switch]$VaultInfestation,
+    [switch]$Supply,
     [switch]$ZLevelsDebug,
     [int]$TimeoutSeconds = 900
 )
@@ -89,6 +90,7 @@ if ($VaultEnter) { $arguments += '-zlevelsvaultenter' }
 if ($VaultLoad) { $arguments += '-zlevelsvaultload' }
 if ($VaultSave) { $arguments += '-zlevelsvaultsave' }
 if ($VaultInfestation) { $arguments += '-zlevelsvaultinfestation' }
+if ($Supply) { $arguments += '-zlevelssupply' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
 if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
@@ -103,7 +105,7 @@ if (Test-Path -LiteralPath $log) {
 $resultsPath = Join-Path $runDirectory 'validation-results.txt'
 if (!(Test-Path -LiteralPath $resultsPath)) { throw "Game exited without validation results: $runDirectory" }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } else { 'core validation' }
+$requiredPass = if ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
     throw "Runtime scenarios did not all pass: $runDirectory"
