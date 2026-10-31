@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+
+	<ThingDef ParentName="BuildingBase">
+		<defName>ZL_VaultEntrance</defName>
+		<label>vault entrance</label>
+		<description>An entrance to the vault, a pocket space outside the levels. Colonists can enter it and build inside. It can only be built on the surface.</description>
+		<thingClass>ZLevels.Building_VaultEntrance</thingClass>
+		<altitudeLayer>Building</altitudeLayer>
+		<size>(1,1)</size>
+		<passability>Impassable</passability>
+		<fillPercent>1</fillPercent>
+		<costList>
+			<Steel>60</Steel>
+		</costList>
+		<statBases>
+			<WorkToBuild>1500</WorkToBuild>
+			<MaxHitPoints>300</MaxHitPoints>
+			<Flammability>0</Flammability>
+		</statBases>
+		<graphicData>
+			<texPath>Things/Building/Misc/CaveExit/CaveExit</texPath>
+			<graphicClass>Graphic_Single</graphicClass>
+			<drawSize>(1,1)</drawSize>
+		</graphicData>
+		<designationCategory>Structure</designationCategory>
+		<rotatable>false</rotatable>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_VaultSurface</li>
+		</placeWorkers>
+		<tickerType>Normal</tickerType>
+	</ThingDef>
+
+</Defs>

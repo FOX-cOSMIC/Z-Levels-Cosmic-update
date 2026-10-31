@@ -73,6 +73,12 @@ namespace ZLevelsValidation
                         .GetField("settings", BindingFlags.Public | BindingFlags.Static).GetValue(null);
                     settings.GetType().GetField("DebugEnabled", BindingFlags.Public | BindingFlags.Instance).SetValue(settings, true);
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultplacement"))
+                {
+                    finished = true;
+                    RunVaultPlacementCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
                 {
                     finished = true;
@@ -368,6 +374,56 @@ namespace ZLevelsValidation
                 finished = true;
                 Record("infestation guard", "FAIL: " + exception);
                 Log.Error("Z-Levels infestation guard validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // Vault entrances go on the surface only. A plain wall shows the cell is buildable, so the vault rule is what refuses the entrance.
+        private void RunVaultPlacementCheck()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var tracker = Current.Game.GetComponent<ZLevelsManager>();
+                var entrance = DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance");
+                var wall = DefDatabase<ThingDef>.GetNamed("Wall");
+                Map surface = Find.CurrentMap;
+                IntVec3 surfaceCell = surface.Center + new IntVec3(6, 0, 6);
+                ClearCell(surface, surfaceCell);
+                surface.terrainGrid.SetTerrain(surfaceCell, TerrainDefOf.Concrete);
+                Require(GenConstruct.CanPlaceBlueprintAt(wall,surfaceCell, Rot4.North, surface).Accepted, "a plain wall is accepted on the surface cell");
+                Require(GenConstruct.CanPlaceBlueprintAt(entrance, surfaceCell, Rot4.North, surface).Accepted, "the surface takes a vault entrance");
+                Record("vault entrance on the surface", "PASS");
+                Map lower = CreateLevelBelow(tracker, surface);
+                foreach (IntVec3 cell in lower.AllCells)
+                {
+                    lower.fogGrid.Unfog(cell);
+                }
+                Record("lower cells that take a wall", lower.AllCells.Count(c => GenConstruct.CanPlaceBlueprintAt(wall, c, Rot4.North, lower).Accepted).ToString());
+                Record("lower cells that take stairs", lower.AllCells.Count(c => GenConstruct.CanPlaceBlueprintAt(DefDatabase<ThingDef>.GetNamed("ZL_StairsUp"), c, Rot4.North, lower).Accepted).ToString());
+                // Unexplored lower cells may refuse building, so unfog them first. Then the first cell that takes a plain wall is the control.
+                IntVec3 lowerCell = IntVec3.Invalid;
+                foreach (IntVec3 cell in lower.AllCells)
+                {
+                    if (GenConstruct.CanPlaceBlueprintAt(wall,cell, Rot4.North, lower).Accepted)
+                    {
+                        lowerCell = cell;
+                        break;
+                    }
+                }
+                Require(lowerCell.IsValid, "a lower cell takes a plain wall");
+                AcceptanceReport lowerReport = GenConstruct.CanPlaceBlueprintAt(entrance, lowerCell, Rot4.North, lower);
+                Require(!lowerReport.Accepted, "a lower level refuses a vault entrance");
+                Record("vault entrance on a lower level", "refused: " + lowerReport.Reason);
+                finished = true;
+                Record("vault placement", "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault placement", "FAIL: " + exception);
+                Log.Error("Z-Levels vault placement validation failed: " + exception);
                 Root.Shutdown();
             }
         }
