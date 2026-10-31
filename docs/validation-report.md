@@ -351,6 +351,30 @@ Open:
 - The test makes the storage zone itself (decision 2). A check with the real zone tool is still to do.
 - Spilled materials can move to another level (see stage 22).
 
+## Colonist autonomy (2026-10-31)
+
+Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Two harness flags let free colonists take the unforced cross-level haul. Neither changes the mod.
+
+- `-AllColonistsHaul` (pass label `all colonists haul`). The other colonists keep their hauling. Stage 20 passes when the seven logs reach the zone and any colonist was below during the wait. No colonist may be below before the haul.
+- `-OtherColonistHauls` (pass label `other colonist hauls across levels`). The same rules, and the validation colonist's hauling is off, so a colonist other than it must take the haul. The run records the colonists below during the wait.
+
+| Run | Flag | Result | Colonists below during the haul |
+|---|---|---|---|
+| 20261031-193644 | `-AllColonistsHaul` | PASS, before the no-colonist-below check | not recorded |
+| 20261031-193842 | `-AllColonistsHaul` | PASS | not recorded |
+| 20261031-193939 | `-AllColonistsHaul` | PASS | not recorded |
+| 20261031-194037 | `-AllColonistsHaul` | PASS | not recorded |
+| 20261031-194231 | `-OtherColonistHauls` | PASS | Gin |
+| 20261031-194328 | `-OtherColonistHauls` | PASS | O'Connell |
+| 20261031-194425 | `-OtherColonistHauls` | PASS | Biscuit |
+
+Single colonist: the validation colonist alone passed the unforced haul in 56 runs after run `20261030-205256`, the last stage 20 failure. That run used a colonist whose backstory disables work types, including Hauling. `FindValidationColonist` now skips such colonists.
+
+Open:
+
+- Building and mining by free colonists are not tested. Stages 21 and 22 still hold the other colonists at zero work.
+- The first four runs predate the record of colonists below, so their colonists are not known.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`

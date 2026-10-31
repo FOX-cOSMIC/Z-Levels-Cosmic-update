@@ -37,6 +37,12 @@ namespace ZLevelsValidation
         private Zone_Stockpile unforcedZone;
         private bool wentDownForWood;
         private Building minedWall;
+        // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
+        private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
+        // With -zlevelsothercolonistshaul the validation colonist is also kept off hauling, so the haul must be taken by another colonist.
+        private static bool AllColonistsHaul => OtherColonistsHaul || GenCommandLine.CommandLineArgPassed("zlevelsallcolonistshaul");
+        // Colonists seen below during the unforced haul, by name.
+        private readonly HashSet<string> belowDuringWait = new HashSet<string>();
 
         // State for the vault enter-and-build check. It is not saved.
         private int vaultStage;
@@ -375,9 +381,27 @@ namespace ZLevelsValidation
                         // Needs stay full for the whole wait. At superfast speed rest falls inside the window (run 20261030-191130 lay down at the lower stairs).
                         RestNeeds(pawn);
                         if (pawn.Map == lower) wentDownForWood = true;
+                        if (AllColonistsHaul && lower.mapPawns.FreeColonistsSpawned.Count > 0) wentDownForWood = true;
+                        if (AllColonistsHaul) foreach (Pawn below in lower.mapPawns.FreeColonistsSpawned) belowDuringWait.Add(below.LabelShort);
                         if (!UnforcedWoodInZone()) return;
                         Require(wentDownForWood, "colonist went down to the wood");
                         Record("unforced cross-level haul", "PASS");
+                        if (AllColonistsHaul)
+                        {
+                            finished = true;
+                            Record("colonists below during the haul", string.Join(", ", belowDuringWait));
+                            if (OtherColonistsHaul)
+                            {
+                                Require(belowDuringWait.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist went below");
+                                Record("other colonist hauls across levels", "PASS");
+                            }
+                            else
+                            {
+                                Record("all colonists haul", "PASS");
+                            }
+                            Root.Shutdown();
+                            break;
+                        }
                         DesignateMining(lower);
                         deadline = DateTime.UtcNow.AddMinutes(4);
                         Next(21);
@@ -1688,6 +1712,8 @@ namespace ZLevelsValidation
         {
             RestNeeds(pawn);
             RestoreWork(pawn);
+            if (OtherColonistsHaul) pawn.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+            belowDuringWait.Clear();
             Current.Game.GetComponent<ZLevelsManager>().ResetJobTrackerFor(pawn);
             var woodCell = lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position + new IntVec3(1, 0, 0);
             ClearCell(lower, woodCell);
@@ -1696,7 +1722,7 @@ namespace ZLevelsValidation
             logs.stackCount = 7;
             unforcedWood = GenSpawn.Spawn(logs, woodCell, lower);
             unforcedWood.SetForbidden(false);
-            // Only the harness's logs may be hauled, and only the validation colonist may haul. Run 20261030-193538 filled the zone with surface wood in one second.
+            // Only the harness's logs may be hauled. Unless the all-colonists variant is on, only the validation colonist may haul. Run 20261030-193538 filled the zone with surface wood in one second.
             foreach (var map in new[] { surface, lower })
             {
                 foreach (var wood in map.listerThings.ThingsOfDef(ThingDefOf.WoodLog).ToList())
@@ -1709,9 +1735,11 @@ namespace ZLevelsValidation
                 if (map == null) continue;
                 foreach (var colonist in map.mapPawns.FreeColonistsSpawned)
                 {
-                    if (colonist != pawn) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+                    if (colonist != pawn && !AllColonistsHaul) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
                 }
             }
+            // The all-colonists variant counts any colonist who goes below as proof, so none may already be there.
+            if (AllColonistsHaul) Require(lower.mapPawns.FreeColonistsSpawned.Count == 0, "no colonist below before the unforced haul");
             var originalCell = pawn.Position + new IntVec3(0, 0, -3);
             // A pawn-based CanReach runs the ZL prefix, which needs a job search context and threw in run 20261030-193352. PassDoors without a pawn gives the vanilla answer.
             Log.Message("validation zone candidate " + originalCell + " reachable from " + pawn.Position + ": " + surface.reachability.CanReach(pawn.Position, originalCell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
