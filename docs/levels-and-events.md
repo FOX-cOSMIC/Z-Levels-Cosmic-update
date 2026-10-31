@@ -15,10 +15,19 @@ Checked against the code and the installed 1.7 game files on 2026-10-29. Not mea
 - The vanilla incident has base chance 2.7 and at most one every 20 days (`minRefireDays`), in `Core/Defs/Storyteller/Incidents_Map_Threats.xml`. The storyteller picks among all incidents by weight, so the real rate depends on the storyteller and threat level. Not measured.
 - The mod patches it on any map with caves below (`AnimalPatches.cs`, `Patch_Infestation_TryExecuteWorker`). It opens a natural hole at a food spot on that map and records the infestation. Insects are placed on lower levels near that spot when those levels are generated.
 - Nothing moves the insects up. The vanilla letter says they "tunnel towards you". In run `20261028-135155` none of the 90 lower animals could reach the stairs.
-- No infestation starts on level five or deeper, or on a pocket map. `ZUtils.InfestationAllowedAt` and the `IsPocketMap` check stop the patch, and `GenStep_Animals.cs` skips directed placement on those levels. Validated by run `20261030-215956`. The pocket-map case is untested until the vault exists.
+- No infestation starts on level five or deeper, or on a pocket map. `ZUtils.InfestationAllowedAt` and the `IsPocketMap` check stop the patch, and `GenStep_Animals.cs` skips directed placement on those levels. Validated by run `20261030-215956`. The pocket-map case is validated by `-VaultInfestation`: runs `20261031-150455` and `20261031-150625` pass, and run `20261031-150543` fails with the check removed.
 
 ## Incidents on other levels
 
 - Every map is an incident target: `Storyteller.AllIncidentTargets` lists all maps.
-- The threat points for a lower level come from the colonists' gear on that level. The surface uses the wealth of all levels (`Map.PlayerWealthForStoryteller`).
+- The threat points for a lower level come from the colonists' gear on that level. The surface uses the wealth of all levels (`Map.PlayerWealthForStoryteller`), and the vault pocket is left out of that wealth (see the pocket section).
 - Only infestations are patched. Raids and other incidents on lower levels were not tested in game.
+
+## The vault pocket map
+
+- One pocket is shared by every vault entrance. It is not a numbered level: `ZLevelsManager.GetZIndexFor` returns 0 for it, and it is not in `ZLevelsTracker`. The cross-level job search never includes it, so `TryIssueJobPackagePatch` returns to the vanilla search on a pocket map.
+- `MapComponentZLevel` does not roll caves or read the world grid on a pocket map.
+- No infestation starts on the pocket (the `IsPocketMap` check in the infestation patch). Run `20261031-150543` shows the case fails without the check.
+- Wealth: vanilla `WealthWatcher.ForceRecount` adds a pocket's wealth to its source map. `ForceRecountVaultPocketPatch` subtracts the vault pocket's items, buildings, and floors, so logs and walls inside the vault leave the surface total. Pawns stay counted. Runs `20261031-145150` (red) and `20261031-145522` (green).
+- Load list: colonists haul items in with vanilla `WorkGiver_HaulToPortal`. Items land in the pocket's storage zone, which the test places beside the exit. Runs `20261031-144723`, `144819`, `144908`, and `144946`.
+- Save and reload keep the pocket, the entrance's link to it, the colonist's cell, the wall, and the items on the floor. Runs `20261031-150003`, `150102`, and `150149`.
