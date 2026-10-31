@@ -13,6 +13,8 @@ param(
     [switch]$Supply,
     [switch]$AllColonistsHaul,
     [switch]$OtherColonistHauls,
+    [switch]$FreeColonists,
+    [switch]$OtherColonistsWork,
     [switch]$ZLevelsDebug,
     [int]$TimeoutSeconds = 900
 )
@@ -95,6 +97,8 @@ if ($VaultInfestation) { $arguments += '-zlevelsvaultinfestation' }
 if ($Supply) { $arguments += '-zlevelssupply' }
 if ($AllColonistsHaul) { $arguments += '-zlevelsallcolonistshaul' }
 if ($OtherColonistHauls) { $arguments += '-zlevelsothercolonistshaul' }
+if ($FreeColonists) { $arguments += '-zlevelsfreecolonists' }
+if ($OtherColonistsWork) { $arguments += '-zlevelsothercolonistswork' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
 if (!$process.WaitForExit($TimeoutSeconds * 1000)) {

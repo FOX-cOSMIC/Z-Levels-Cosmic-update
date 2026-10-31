@@ -37,10 +37,20 @@ namespace ZLevelsValidation
         private Zone_Stockpile unforcedZone;
         private bool wentDownForWood;
         private Building minedWall;
+        // Test only: names of the colonists seen mining and building under -zlevelsfreecolonists.
+        private readonly HashSet<string> minersSeen = new HashSet<string>();
+        private readonly HashSet<string> buildersSeen = new HashSet<string>();
+        // Test only: colonists below when the unforced haul started, and colonists who came below during it, by name.
+        private readonly HashSet<string> belowAtStart = new HashSet<string>();
+        private readonly HashSet<string> enteredBelow = new HashSet<string>();
         // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
         private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
         // With -zlevelsothercolonistshaul the validation colonist is also kept off hauling, so the haul must be taken by another colonist.
         private static bool AllColonistsHaul => OtherColonistsHaul || GenCommandLine.CommandLineArgPassed("zlevelsallcolonistshaul");
+        // Test only: -zlevelsfreecolonists leaves every colonist's work on for the whole chain, so the mining and the campfire can be done by any colonist.
+        private static bool FreeColonists => GenCommandLine.CommandLineArgPassed("zlevelsfreecolonists");
+        // Test only: -zlevelsothercolonistswork keeps the validation colonist off hauling, mining and building, so other colonists must do all three.
+        private static bool OtherColonistsWork => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistswork");
         // Colonists seen below during the unforced haul, by name.
         private readonly HashSet<string> belowDuringWait = new HashSet<string>();
 
@@ -111,7 +121,7 @@ namespace ZLevelsValidation
             try
             {
                 if (DateTime.UtcNow > deadline)
-                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild());
+                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild() + (OtherColonistsWork ? ", others: " + DescribeOthers() : ""));
                 if (Current.ProgramState != ProgramState.Playing || LongEventHandler.AnyEventNowOrWaiting)
                     return;
                 // Debug mode pauses the game on every logged error. Keep it running, so the debug log covers a stall.
@@ -180,6 +190,8 @@ namespace ZLevelsValidation
                         surface = Find.CurrentMap;
                         pawn = FindValidationColonist(surface);
                         RestNeeds(pawn);
+                        // Test only: with -zlevelsothercolonistswork the other colonists stay off work until the unforced haul, so none wanders below early.
+                        if (OtherColonistsWork) foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned) if (other != pawn) HoldWork(other);
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(surface) == 0, "surface registered");
                         Record("fresh colony", "PASS");
                         Record("validation colonist can haul, mine and build", "PASS: " + pawn.LabelShort);
@@ -381,11 +393,19 @@ namespace ZLevelsValidation
                         // Needs stay full for the whole wait. At superfast speed rest falls inside the window (run 20261030-191130 lay down at the lower stairs).
                         RestNeeds(pawn);
                         if (pawn.Map == lower) wentDownForWood = true;
-                        if (AllColonistsHaul && lower.mapPawns.FreeColonistsSpawned.Count > 0) wentDownForWood = true;
-                        if (AllColonistsHaul) foreach (Pawn below in lower.mapPawns.FreeColonistsSpawned) belowDuringWait.Add(below.LabelShort);
+                        if ((AllColonistsHaul || FreeColonists || OtherColonistsWork) && lower.mapPawns.FreeColonistsSpawned.Count > 0) wentDownForWood = true;
+                        if (AllColonistsHaul || FreeColonists || OtherColonistsWork)
+                        {
+                            foreach (Pawn below in lower.mapPawns.FreeColonistsSpawned)
+                            {
+                                belowDuringWait.Add(below.LabelShort);
+                                if (!belowAtStart.Contains(below.LabelShort)) enteredBelow.Add(below.LabelShort);
+                            }
+                        }
                         if (!UnforcedWoodInZone()) return;
                         Require(wentDownForWood, "colonist went down to the wood");
                         Record("unforced cross-level haul", "PASS");
+                        if (OtherColonistsWork) Require(enteredBelow.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist went below during the haul");
                         if (AllColonistsHaul)
                         {
                             finished = true;
@@ -410,10 +430,13 @@ namespace ZLevelsValidation
                         // Nothing assigns this job. The colonist has to go down and mine the wall by itself.
                         RestNeeds(pawn);
                         RecordCampfireTrail();
-                        if (pawn.Map == lower) wentDownForWall = true;
+                        if (FreeColonists || OtherColonistsWork) RecordMiners();
+                        if (pawn.Map == lower || ((FreeColonists || OtherColonistsWork) && lower.mapPawns.FreeColonistsSpawned.Count > 0)) wentDownForWall = true;
                         if (minedWall == null || !minedWall.Destroyed) return;
                         Require(wentDownForWall, "colonist went down to the wall");
                         Record("mines below by itself", "PASS");
+                        if (FreeColonists || OtherColonistsWork) Record("mined by", string.Join(", ", minersSeen));
+                        if (OtherColonistsWork) Require(minersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist mined");
                         ReleaseForbiddenWood();
                         PlaceCampfire(lower);
                         deadline = DateTime.UtcNow.AddMinutes(4);
@@ -423,6 +446,7 @@ namespace ZLevelsValidation
                         // Nothing assigns this job. The colonist has to haul the logs to the blueprint and build it by itself.
                         RestNeeds(pawn);
                         RecordCampfireTrail();
+                        if (FreeColonists || OtherColonistsWork) RecordBuilders();
                         // Vanilla construction can fail at random, and the frame goes back to a blueprint with its logs spilled. Fail the
                         // first frame once, on purpose, so the rebuild below is always tested (run 20261031-141006 stalled after such a failure).
                         if (!constructionFailed && campfireCell.GetEdifice(lower) is Frame failingFrame)
@@ -436,6 +460,8 @@ namespace ZLevelsValidation
                         Building campfire = campfireCell.GetEdifice(lower);
                         if (campfire == null || campfire.def != DefDatabase<ThingDef>.GetNamed("Campfire")) return;
                         Record("builds below by itself", "PASS");
+                        if (FreeColonists || OtherColonistsWork) Record("built by", string.Join(", ", buildersSeen));
+                        if (OtherColonistsWork) Require(buildersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist built");
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -1624,19 +1650,61 @@ namespace ZLevelsValidation
             GenSpawn.Spawn(logs, logCell, map);
             GenConstruct.PlaceBlueprintForBuild(DefDatabase<ThingDef>.GetNamed("Campfire"), campfireCell, map, Rot4.North, Faction.OfPlayer, null);
             Record("campfire placed", DescribeCampfire());
+            if (OtherColonistsWork) pawn.workSettings.SetPriority(WorkTypeDefOf.Construction, 0);
             foreach (var colonistMap in new[] { surface, lower, upper })
             {
                 if (colonistMap == null) continue;
                 foreach (var colonist in colonistMap.mapPawns.FreeColonistsSpawned)
                 {
-                    if (colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Construction)) continue;
+                    if (FreeColonists || OtherColonistsWork || colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Construction)) continue;
                     colonist.workSettings.SetPriority(WorkTypeDefOf.Construction, 0);
                 }
             }
         }
 
+        // Test only: every colonist except the validation colonist, on any level.
+        private IEnumerable<Pawn> OtherColonists()
+        {
+            foreach (Map map in new[] { surface, lower, upper })
+            {
+                if (map == null) continue;
+                foreach (Pawn colonist in map.mapPawns.FreeColonistsSpawned)
+                {
+                    if (colonist != pawn) yield return colonist;
+                }
+            }
+        }
+
+        // Test only: the other colonists' jobs and work priorities, for a timeout message.
+        private string DescribeOthers()
+        {
+            return string.Join("; ", OtherColonists().Select(c => c.LabelShort + " on " + c.Map + " " + (c.CurJob != null ? c.CurJob.def.defName : "no job")
+                + " H" + c.workSettings?.GetPriority(WorkTypeDefOf.Hauling) + " M" + c.workSettings?.GetPriority(WorkTypeDefOf.Mining)
+                + " C" + c.workSettings?.GetPriority(WorkTypeDefOf.Construction)));
+        }
+
+        // Test only: names of the colonists mining the wall, collected while the designation waits. Needs -zlevelsfreecolonists.
+        private void RecordMiners()
+        {
+            if (minedWall == null) return;
+            foreach (Pawn colonist in lower.mapPawns.FreeColonistsSpawned)
+            {
+                if (colonist.CurJob != null && colonist.CurJob.def == JobDefOf.Mine && colonist.CurJob.targetA.Thing == minedWall) minersSeen.Add(colonist.LabelShort);
+            }
+        }
+
+        // Test only: names of the colonists building the campfire, collected while its blueprint or frame stands. Needs -zlevelsfreecolonists.
+        private void RecordBuilders()
+        {
+            foreach (Pawn colonist in lower.mapPawns.FreeColonistsSpawned)
+            {
+                Job job = colonist.CurJob;
+                if (job != null && job.def == JobDefOf.FinishFrame && job.targetA.Cell == campfireCell) buildersSeen.Add(colonist.LabelShort);
+            }
+        }
+
         // Test only: one natural-rock wall on the edge of the lower room gets a mining designation. Only the validation colonist may
-        // mine, so the job can only be its own.
+        // mine, so the job can only be its own. -zlevelsfreecolonists lifts that.
         private void DesignateMining(Map map)
         {
             Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
@@ -1653,12 +1721,13 @@ namespace ZLevelsValidation
                 if (!openNeighbour) continue;
                 minedWall = rock;
                 map.designationManager.AddDesignation(new Designation(rock, DesignationDefOf.Mine));
+                if (OtherColonistsWork) pawn.workSettings.SetPriority(WorkTypeDefOf.Mining, 0);
                 foreach (var colonistMap in new[] { surface, lower, upper })
                 {
                     if (colonistMap == null) continue;
                     foreach (var colonist in colonistMap.mapPawns.FreeColonistsSpawned)
                     {
-                        if (colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Mining)) continue;
+                        if (FreeColonists || OtherColonistsWork || colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Mining)) continue;
                         colonist.workSettings.SetPriority(WorkTypeDefOf.Mining, 0);
                     }
                 }
@@ -1712,8 +1781,11 @@ namespace ZLevelsValidation
         {
             RestNeeds(pawn);
             RestoreWork(pawn);
-            if (OtherColonistsHaul) pawn.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+            if (OtherColonistsHaul || OtherColonistsWork) pawn.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
             belowDuringWait.Clear();
+            enteredBelow.Clear();
+            belowAtStart.Clear();
+            foreach (Pawn below in lower.mapPawns.FreeColonistsSpawned) belowAtStart.Add(below.LabelShort);
             Current.Game.GetComponent<ZLevelsManager>().ResetJobTrackerFor(pawn);
             var woodCell = lower.listerThings.AllThings.OfType<Building_StairsUp>().First().Position + new IntVec3(1, 0, 0);
             ClearCell(lower, woodCell);
@@ -1735,11 +1807,18 @@ namespace ZLevelsValidation
                 if (map == null) continue;
                 foreach (var colonist in map.mapPawns.FreeColonistsSpawned)
                 {
-                    if (colonist != pawn && !AllColonistsHaul) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+                    if (colonist != pawn && !AllColonistsHaul && !FreeColonists && !OtherColonistsWork) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
                 }
             }
             // The all-colonists variant counts any colonist who goes below as proof, so none may already be there.
             if (AllColonistsHaul) Require(lower.mapPawns.FreeColonistsSpawned.Count == 0, "no colonist below before the unforced haul");
+            if (OtherColonistsWork)
+            {
+                foreach (Pawn other in OtherColonists().ToList()) RestoreWork(other);
+                Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Hauling)), "no other colonist can haul");
+                Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Mining)), "no other colonist can mine");
+                Require(OtherColonists().Any(c => !c.WorkTypeIsDisabled(WorkTypeDefOf.Construction)), "no other colonist can build");
+            }
             var originalCell = pawn.Position + new IntVec3(0, 0, -3);
             // A pawn-based CanReach runs the ZL prefix, which needs a job search context and threw in run 20261030-193352. PassDoors without a pawn gives the vanilla answer.
             Log.Message("validation zone candidate " + originalCell + " reachable from " + pawn.Position + ": " + surface.reachability.CanReach(pawn.Position, originalCell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));

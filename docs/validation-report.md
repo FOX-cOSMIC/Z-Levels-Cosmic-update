@@ -367,12 +367,22 @@ Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Two harness flag
 | 20261031-194231 | `-OtherColonistHauls` | PASS | Gin |
 | 20261031-194328 | `-OtherColonistHauls` | PASS | O'Connell |
 | 20261031-194425 | `-OtherColonistHauls` | PASS | Biscuit |
+| 20261031-194734 | `-FreeColonists` (full chain) | PASS | not recorded |
+| 20261031-195200 | `-FreeColonists` (full chain) | PASS | Rebecca, the validation colonist, mined and built |
+| 20261031-201436 | `-OtherColonistsWork` (full chain) | PASS | Skvelt mined and built |
+| 20261031-201557 | `-OtherColonistsWork` (full chain) | PASS | Darby mined and built |
+| 20261031-201704 | `-OtherColonistsWork` (full chain) | PASS | Ash mined and built |
+
+`-FreeColonists` runs the full chain with every colonist's work on. `-OtherColonistsWork` runs the full chain with the validation colonist's hauling, mining, and building off. Other colonists have no work until the unforced haul, and then their work is restored. The chain passes only if a colonist other than the validation colonist came below during the haul, mined the wall, and built the campfire. The records `mined by` and `built by` name who did each job.
+
+Before the hold change, `-OtherColonistsWork` failed five times: `195518` (stage 22, no frame ever started), `200303` and `200858` (stage 21, no colonist mined in four minutes), `200801` (stage 20, no colonist came below during the haul), and `200017` (stage 15, a start check that now applies only to `-AllColonistsHaul`). The only pass before the change was `195406`, where Lumi mined and built.
 
 Single colonist: the validation colonist alone passed the unforced haul in 56 runs after run `20261030-205256`, the last stage 20 failure. That run used a colonist whose backstory disables work types, including Hauling. `FindValidationColonist` now skips such colonists.
 
 Open:
 
-- Building and mining by free colonists are not tested. Stages 21 and 22 still hold the other colonists at zero work.
+- The hold is a test choice. Other colonists have no work until the unforced haul, so this variant does not show what they do before it.
+- Four of the five failures before the hold change have no diagnosed cause. The timeout messages now list each other colonist's job and priorities (`DescribeOthers`). Three runs since the hold change is a small sample.
 - The first four runs predate the record of colonists below, so their colonists are not known.
 
 ## Evidence
