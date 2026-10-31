@@ -50,6 +50,9 @@ namespace ZLevelsValidation
         private IntVec3 campfireCell = IntVec3.Invalid;
         private IntVec3 campfireLogCell = IntVec3.Invalid;
         private bool constructionFailed;
+        private Zone_Stockpile vaultZone;
+        private Thing loadLogs;
+        private int surfaceLogsBefore;
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
@@ -106,6 +109,11 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsvaultenter"))
                 {
                     RunVaultEnterTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultload"))
+                {
+                    RunVaultLoadTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -568,6 +576,119 @@ namespace ZLevelsValidation
         }
 
         // The first cell at least six away from the colonist that the colonist can reach. The vault entrance goes there, so the colonist can walk to it.
+        // Acceptance d. Seven logs go on the entrance's load list, and colonists haul them into the pocket with no forced job. The test
+        // places the pocket's storage zone beside the exit, as a player would. The colonist's needs are reset each tick, as in the stairs stages.
+        private void RunVaultLoadTick()
+        {
+            try
+            {
+                if (vaultStage > 0 && DateTime.UtcNow > vaultDeadline)
+                {
+                    throw new InvalidOperationException("Timed out at load stage " + vaultStage + ", " + DescribeLoad());
+                }
+                if (vaultStage == 0)
+                {
+                    deadline = DateTime.MaxValue;
+                    vaultDeadline = DateTime.UtcNow.AddMinutes(4);
+                    Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+                    surface = Find.CurrentMap;
+                    vaultColonist = FindValidationColonist(surface);
+                    RestoreWork(vaultColonist);
+                    foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned)
+                    {
+                        if (other != vaultColonist && !other.WorkTypeIsDisabled(WorkTypeDefOf.Hauling)) other.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+                    }
+                    IntVec3 entranceCell = FindVaultEntranceCell(surface, vaultColonist);
+                    ClearCell(surface, entranceCell);
+                    surface.terrainGrid.SetTerrain(entranceCell, TerrainDefOf.Concrete);
+                    foreach (IntVec3 around in GenRadial.RadialCellsAround(entranceCell, 1.5f, useCenter: true))
+                    {
+                        ClearCell(surface, around);
+                    }
+                    vaultEntrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
+                    vaultPocket = vaultEntrance.GetOtherMap();
+                    vaultZone = new Zone_Stockpile(StorageSettingsPreset.DefaultStockpile, vaultPocket.zoneManager);
+                    vaultPocket.zoneManager.RegisterZone(vaultZone);
+                    foreach (IntVec3 cell in FindPocketZoneCells(vaultPocket, vaultEntrance.GetDestinationLocation()))
+                    {
+                        vaultZone.AddCell(cell);
+                    }
+                    surfaceLogsBefore = SurfaceLogCount();
+                    loadLogs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    loadLogs.stackCount = 7;
+                    GenSpawn.Spawn(loadLogs, FindReachableZoneCell(vaultColonist.Position), surface);
+                    var transferable = new TransferableOneWay();
+                    transferable.things.Add(loadLogs);
+                    vaultEntrance.AddToTheToLoadList(transferable, 7);
+                    Record("vault load before", DescribeLoad());
+                    vaultStage = 1;
+                    return;
+                }
+                RestNeeds(vaultColonist);
+                if (vaultStage == 1)
+                {
+                    if (PocketLogCount() < 7) return;
+                    vaultStage = 2;
+                    return;
+                }
+                if (vaultStage == 2)
+                {
+                    Require(vaultEntrance.leftToLoad == null || !vaultEntrance.leftToLoad.Any(), "the load list is empty");
+                    // The colony starts with its own wood on the surface, so the test compares against the count before the seven were placed.
+                    Require(SurfaceLogCount() <= surfaceLogsBefore, "the seven logs left the surface");
+                    Require(PocketLogCount() == 7, "all seven logs are in the pocket");
+                    foreach (Thing log in vaultPocket.listerThings.ThingsOfDef(ThingDefOf.WoodLog))
+                    {
+                        Require(vaultZone.ContainsCell(log.Position) || log.Position.DistanceTo(vaultEntrance.GetDestinationLocation()) <= 4f,
+                            "log at " + log.Position + " is not beside the exit");
+                    }
+                    Record("vault load after", DescribeLoad());
+                    Record("vault load", "PASS");
+                    finished = true;
+                    Root.Shutdown();
+                }
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault load", "FAIL: " + exception);
+                Log.Error("Z-Levels vault load validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        private int SurfaceLogCount()
+        {
+            return surface == null ? 0 : surface.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+        }
+
+        private int PocketLogCount()
+        {
+            return vaultPocket == null ? 0 : vaultPocket.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+        }
+
+        private string DescribeLoad()
+        {
+            int queued = vaultEntrance?.leftToLoad == null ? 0 : vaultEntrance.leftToLoad.Sum(item => item.CountToTransfer);
+            return "logs on the surface " + SurfaceLogCount() + ", in the pocket " + PocketLogCount() + ", on the load list " + queued
+                + ", colonist job " + (vaultColonist?.CurJob?.def.defName ?? "none") + " on " + vaultColonist?.Map;
+        }
+
+        // The pocket's storage zone goes beside the exit, so the logs land near it. Cells must be reachable from the exit.
+        private static List<IntVec3> FindPocketZoneCells(Map pocket, IntVec3 exit)
+        {
+            var cells = new List<IntVec3>();
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(exit, 2.5f, false))
+            {
+                if (cells.Count == 4) break;
+                if (!cell.InBounds(pocket) || cell == exit || !cell.Standable(pocket) || cell.GetEdifice(pocket) != null) continue;
+                if (!pocket.reachability.CanReach(exit, cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                cells.Add(cell);
+            }
+            if (cells.Count == 0) throw new InvalidOperationException("No free cell beside the pocket exit for a storage zone.");
+            return cells;
+        }
+
         private static IntVec3 FindVaultEntranceCell(Map surface, Pawn colonist)
         {
             IntVec3 origin = colonist.Position;

@@ -278,6 +278,13 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - Not explained: run `20261031-121150` (stage 1, the colonist never entered, before reachability was recorded) and run `20261031-122033` (stage 2, the wall stalled after the wood beside it dropped from 10 logs to 2). Run `20261031-122033` recorded that the entrance was reachable, but not the wall cell. Since the reachable-entrance fix, six runs have passed with no stall.
 - The main chain still fails at stage 22 on the same code, at a rate the campfire notes already record. Failures: `20261031-112409` and `20261031-113130` on the guard build, and `20261031-122935` after the job-search fix. Passes: `20261031-114607` and `20261031-114837` on the guard build, and `20261031-123439` after the job-search fix. The baseline build passed in `20261031-113739`, `20261031-114027`, `20261031-114249`, `20261031-114726`, and `20261031-114940`.
 
+## Vault v1 load list (acceptance d)
+
+- `-VaultLoad` (`-zlevelsvaultload`) puts seven logs on the entrance's load list with `AddToTheToLoadList`. The test places the pocket's storage zone beside the exit, as the player would. Colonists haul the logs in with vanilla `WorkGiver_HaulToPortal`, with no forced job.
+- Pass runs: `20261031-144723`, `20261031-144819` (debug), `20261031-144908`, and `20261031-144946`. Each shows the surface go from 307 logs to 300, the pocket hold 7, the load list end at 0, and every log in the zone or within 4 cells of the exit.
+- Run `20261031-144622` failed on a check the test got wrong. It counted the colony's own 300 logs as left on the surface. The check now compares with the count before the seven were placed.
+- No red run exists for this feature. The first real run passed, so no mod change was needed. The spec's open item (who places the storage zone) is still open. The test places the zone the way a player would, which matches the recommended default: the player places one.
+
 ## Main chain stage 22: the campfire rebuild stall (2026-10-31)
 
 - Cause: the campfire stage's build can fail. Vanilla `JobDriver_ConstructFinishFrame` rolls each tick against the colonist's `ConstructSuccessChance`. A failure calls `Frame.FailConstruction`, which removes the frame, loses the logs already delivered, and puts a new blueprint back. That blueprint needs all 20 logs on its level again. The scenario gave exactly 20, so one failure left 10 logs there. Vanilla then never starts the rebuild, and the cross-level storage haul takes those 10 logs to the surface. The colonist wanders.
