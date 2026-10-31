@@ -244,6 +244,14 @@ The last line should be `Runtime validation passed. Evidence: <run folder>`. The
 - The main chain passes with both fixes in run `20261030-220145`, with no ERROR lines.
 - The campfire failures in runs `20261030-212212` and `20261030-210423` are still open. Four later runs with the look-up diagnostics passed (`213427`, `213543`, `213704`, `213816`), and the cause is unknown.
 
+## Vault v1 entrance placement
+
+- `ZL_VaultEntrance` is placeable on the surface only. `PlaceWorker_VaultSurface` refuses pocket maps and every level other than the surface, and the refusal text reaches the player.
+- Run `20261031-110445` (`-VaultPlacement`) fails with the placement rule removed from `Vault.xml` for that run. The lower cell accepts the entrance, and the check throws `a lower level refuses a vault entrance`.
+- Run `20261031-110532` passes with the rule in place. The surface takes the entrance. The lower cell refuses it with `Vault entrances can only be built on the surface.` The runner finds no relevant ERROR lines and prints a warning for unrelated Workshop duplicate-package errors.
+- Runs `20261031-105856` (red) and `20261031-105952` (green) came from an earlier harness that did not unfog the lower level before the placement checks. The pair above is the evidence.
+- The `portal` block and the pocket map come in Task 2.
+
 ## Evidence
 
 - Build log: `.artifacts/build/release-build-final.log`
