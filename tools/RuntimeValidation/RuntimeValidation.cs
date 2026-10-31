@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -46,6 +47,14 @@ namespace ZLevelsValidation
         private ThingDef vaultWallDef;
         private DateTime vaultDeadline;
         private bool wentDownForWall;
+        private IntVec3 campfireCell = IntVec3.Invalid;
+        private IntVec3 campfireLogCell = IntVec3.Invalid;
+        private bool constructionFailed;
+
+        // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
+        private readonly List<string> campfireTrail = new List<string>();
+        private readonly List<string> campfireTrailLatest = new List<string>();
+        private string lastTrailEntry = "";
 
         public RuntimeValidation(Game game) { }
 
@@ -72,7 +81,7 @@ namespace ZLevelsValidation
             try
             {
                 if (DateTime.UtcNow > deadline)
-                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood());
+                    throw new InvalidOperationException("Timed out at stage " + stage + ", pawn job=" + pawn?.CurJob + ", pawn at " + pawn?.Position + " on " + pawn?.Map + ", " + DescribeWood() + ", " + DescribeCampfire() + ", " + DescribeLookUpMaps(pawn) + ", trail: " + DescribeCampfireTrail() + ", rebuild: " + DescribeRebuild());
                 if (Current.ProgramState != ProgramState.Playing || LongEventHandler.AnyEventNowOrWaiting)
                     return;
                 if (!ZLogger.DebugEnabled && GenCommandLine.CommandLineArgPassed("zlevelsdebug"))
@@ -116,15 +125,18 @@ namespace ZLevelsValidation
                 {
                     case 0:
                         surface = Find.CurrentMap;
-                        pawn = surface.mapPawns.FreeColonistsSpawned.First();
+                        pawn = FindValidationColonist(surface);
                         RestNeeds(pawn);
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(surface) == 0, "surface registered");
                         Record("fresh colony", "PASS");
+                        Record("validation colonist can haul, mine and build", "PASS: " + pawn.LabelShort);
                         var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
                         Next(1);
                         down.GiveJob(pawn, down);
                         break;
                     case 1:
+                        // The walk to the stairs runs at superfast speed. Rest can fall on the way and lay the colonist down (run 20261031-134036).
+                        RestNeeds(pawn);
                         if (pawn.Map == surface) return;
                         lower = pawn.Map;
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetZIndexFor(lower) == -1, "lower index");
@@ -294,6 +306,7 @@ namespace ZLevelsValidation
                         break;
                     case 5:
                         if (!reloaded) return;
+                        Record("look-up maps after reload", DescribeLookUpMaps(pawn));
                         Require(surface != null && lower != null && upper != null && pawn != null, "saved references resolved");
                         Require(Current.Game.GetComponent<ZLevelsManager>().GetAllMaps(surface.Tile).Count == 3, "levels survive reload");
                         Require(belowAtSave && pawn.Map == lower, "colonist below survives reload");
@@ -325,10 +338,32 @@ namespace ZLevelsValidation
                     case 21:
                         // Nothing assigns this job. The colonist has to go down and mine the wall by itself.
                         RestNeeds(pawn);
+                        RecordCampfireTrail();
                         if (pawn.Map == lower) wentDownForWall = true;
                         if (minedWall == null || !minedWall.Destroyed) return;
                         Require(wentDownForWall, "colonist went down to the wall");
                         Record("mines below by itself", "PASS");
+                        PlaceCampfire(lower);
+                        deadline = DateTime.UtcNow.AddMinutes(4);
+                        Next(22);
+                        break;
+                    case 22:
+                        // Nothing assigns this job. The colonist has to haul the logs to the blueprint and build it by itself.
+                        RestNeeds(pawn);
+                        RecordCampfireTrail();
+                        // Vanilla construction can fail at random, and the frame goes back to a blueprint with its logs spilled. Fail the
+                        // first frame once, on purpose, so the rebuild below is always tested (run 20261031-141006 stalled after such a failure).
+                        if (!constructionFailed && campfireCell.GetEdifice(lower) is Frame failingFrame)
+                        {
+                            constructionFailed = true;
+                            failingFrame.FailConstruction(pawn);
+                            Record("construction failed once on purpose", "PASS");
+                            Record("rebuild right after the failure", DescribeRebuild());
+                            return;
+                        }
+                        Building campfire = campfireCell.GetEdifice(lower);
+                        if (campfire == null || campfire.def != DefDatabase<ThingDef>.GetNamed("Campfire")) return;
+                        Record("builds below by itself", "PASS");
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -758,6 +793,40 @@ namespace ZLevelsValidation
                 if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
         }
 
+        // Test only: a campfire blueprint in the lower room, with 20 logs beside it. Only the validation colonist may haul or build.
+        private void PlaceCampfire(Map map)
+        {
+            Building_StairsUp stairs = map.listerThings.AllThings.OfType<Building_StairsUp>().First();
+            IntVec3 logCell = IntVec3.Invalid;
+            campfireCell = IntVec3.Invalid;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 3f, false))
+            {
+                if (!cell.InBounds(map) || cell.DistanceTo(stairs.Position) < 2f || !cell.Standable(map)) continue;
+                if (cell.GetEdifice(map) != null || cell.GetFirstItem(map) != null) continue;
+                if (!logCell.IsValid) { logCell = cell; continue; }
+                campfireCell = cell;
+                break;
+            }
+            if (!logCell.IsValid || !campfireCell.IsValid) throw new InvalidOperationException("No free cells in the lower room for a campfire.");
+            var logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+            // A campfire costs 20 logs. After a failed construction the blueprint needs all 20 on its level again, so exactly 20 leaves no
+            // room for a failure: run 20261031-143044 had 10 logs on the level after one and the rebuild never started. 40 covers one failure.
+            logs.stackCount = 40;
+            campfireLogCell = logCell;
+            GenSpawn.Spawn(logs, logCell, map);
+            GenConstruct.PlaceBlueprintForBuild(DefDatabase<ThingDef>.GetNamed("Campfire"), campfireCell, map, Rot4.North, Faction.OfPlayer, null);
+            Record("campfire placed", DescribeCampfire());
+            foreach (var colonistMap in new[] { surface, lower, upper })
+            {
+                if (colonistMap == null) continue;
+                foreach (var colonist in colonistMap.mapPawns.FreeColonistsSpawned)
+                {
+                    if (colonist == pawn || colonist.WorkTypeIsDisabled(WorkTypeDefOf.Construction)) continue;
+                    colonist.workSettings.SetPriority(WorkTypeDefOf.Construction, 0);
+                }
+            }
+        }
+
         // Test only: one natural-rock wall on the edge of the lower room gets a mining designation. Only the validation colonist may
         // mine, so the job can only be its own.
         private void DesignateMining(Map map)
@@ -801,13 +870,26 @@ namespace ZLevelsValidation
             }
         }
 
+        // Priority 3 is the default for an active work type. naturalPriority is a sort key (100 to 1400), not a priority: the game logs it as invalid.
         private static void RestoreWork(Pawn colonist)
         {
             foreach (WorkTypeDef work in DefDatabase<WorkTypeDef>.AllDefsListForReading)
             {
                 if (colonist.WorkTypeIsDisabled(work)) continue;
-                colonist.workSettings.SetPriority(work, work.naturalPriority);
+                colonist.workSettings.SetPriority(work, 3);
             }
+        }
+
+        // Backstories can disable work types: Solid_Child.xml disables ManualDumb (Hauling, Cleaning), and others disable Mining or
+        // Construction. Run 20261030-205256 used such a colonist. Its Hauling stayed 0, and it idled while the logs stayed below.
+        private static Pawn FindValidationColonist(Map map)
+        {
+            foreach (Pawn colonist in map.mapPawns.FreeColonistsSpawned)
+            {
+                if (!colonist.WorkTypeIsDisabled(WorkTypeDefOf.Hauling) && !colonist.WorkTypeIsDisabled(WorkTypeDefOf.Mining)
+                    && !colonist.WorkTypeIsDisabled(WorkTypeDefOf.Construction)) return colonist;
+            }
+            throw new InvalidOperationException("No free colonist can haul, mine and build.");
         }
 
         // A colonist who lies down to rest on the way stalls the stairs stages: run 144826 timed out at stage 1.
@@ -876,6 +958,109 @@ namespace ZLevelsValidation
             return "wood " + unforcedWood + " x" + unforcedWood.stackCount + " destroyed " + unforcedWood.Destroyed
                 + " at " + unforcedWood.PositionHeld + " on " + unforcedWood.MapHeld
                 + " in zone " + UnforcedWoodInZone() + colonist;
+        }
+
+        // Test only: the campfire blueprint, and whether the colonist can reach it and its logs. Uses the map's reachability with no pawn,
+        // because a pawn-based CanReach from the harness throws in the ZL prefix (run 20261030-193352).
+        private string DescribeCampfire()
+        {
+            if (!campfireCell.IsValid || lower == null) return "campfire none";
+            Thing blueprint = campfireCell.GetThingList(lower).FirstOrDefault(thing => thing is Blueprint);
+            string state = "campfire blueprint " + (blueprint == null ? "missing" : blueprint.def.defName + " at " + blueprint.Position + " destroyed " + blueprint.Destroyed);
+            if (pawn == null || pawn.Map != lower) return state + ", colonist not on the lower level";
+            string reachesLogs = campfireLogCell.IsValid
+                ? lower.reachability.CanReach(pawn.Position, campfireLogCell, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors)).ToString()
+                : "no logs placed";
+            return state + ", colonist reaches blueprint " + lower.reachability.CanReach(pawn.Position, campfireCell, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors))
+                + ", colonist reaches logs " + reachesLogs
+                + ", construction priority " + pawn.workSettings.GetPriority(WorkTypeDefOf.Construction) + ", construction disabled " + pawn.WorkTypeIsDisabled(WorkTypeDefOf.Construction)
+                + ", hauling priority " + pawn.workSettings.GetPriority(WorkTypeDefOf.Hauling)
+                + ", use work priorities " + Find.PlaySettings.useWorkPriorities;
+        }
+
+        // Test only: the colonist's look-up table, which holds map references saved with the game. A map the game no longer holds can make
+        // the reachability prefix throw and leave the colonist on that map (run 20261030-212014).
+        private static string DescribeLookUpMaps(Pawn colonist)
+        {
+            var manager = Current.Game.GetComponent<ZLevelsManager>();
+            if (colonist == null || manager?.jobTracker == null || !manager.jobTracker.TryGetValue(colonist, out JobTracker tracker)
+                || tracker.lookedAtLocalCellMap == null) return "look-up none";
+            int notInGame = 0;
+            int noReachability = 0;
+            foreach (Map map in tracker.lookedAtLocalCellMap.Values)
+            {
+                if (map == null || !Find.Maps.Contains(map)) notInGame++;
+                else if (map.reachability == null) noReachability++;
+            }
+            return "look-up entries " + tracker.lookedAtLocalCellMap.Count + ", maps not in the game " + notInGame + ", maps without reachability " + noReachability;
+        }
+
+        // Test only: each change of the colonist's level or job, with its queued jobs and the surface stairs it can reach. A timeout
+        // message prints the last entries, so a stall shows the moves before it.
+        private void RecordCampfireTrail()
+        {
+            if (pawn == null || pawn.Map == null) return;
+            string where = pawn.Map == lower ? "lower" : pawn.Map == surface ? "surface" : pawn.Map.ToString();
+            string job = pawn.CurJob == null ? "no job" : pawn.CurJob.def.defName;
+            string entry = where + " " + job;
+            if (entry == lastTrailEntry) return;
+            lastTrailEntry = entry;
+            var manager = Current.Game.GetComponent<ZLevelsManager>();
+            int queued = 0;
+            if (manager.jobTracker != null && manager.jobTracker.TryGetValue(pawn, out JobTracker tracker) && tracker.activeJobs != null) queued = tracker.activeJobs.Count;
+            string stairs = pawn.Map == surface ? ", " + DescribeSurfaceStairs() : "";
+            string text = DateTime.UtcNow.ToString("HH:mm:ss") + " " + entry + " at " + pawn.Position + ", queued " + queued + stairs;
+            // The first entries show how the colonist got off the lower level; the latest show the stall.
+            if (campfireTrail.Count < 60)
+            {
+                campfireTrail.Add(text);
+                return;
+            }
+            campfireTrailLatest.Add(text);
+            if (campfireTrailLatest.Count > 40) campfireTrailLatest.RemoveAt(0);
+        }
+
+        private string DescribeCampfireTrail()
+        {
+            if (campfireTrail.Count == 0) return "none";
+            string first = string.Join(" | ", campfireTrail);
+            return campfireTrailLatest.Count == 0 ? first : first + " | ... | " + string.Join(" | ", campfireTrailLatest);
+        }
+
+        // Test only: after the forced failure, what the lower level can still deliver to the rebuilt blueprint, as the vanilla
+        // delivery search sees it. Reachability is checked from the blueprint's cell, since the colonist may be on either level.
+        private string DescribeRebuild()
+        {
+            if (!constructionFailed || lower == null || !campfireCell.IsValid) return "none";
+            Blueprint blueprint = campfireCell.GetThingList(lower).OfType<Blueprint>().FirstOrDefault();
+            if (blueprint == null) return "no blueprint on the lower level";
+            int needed = ((IConstructible)blueprint).ThingCountNeeded(ThingDefOf.WoodLog);
+            List<Thing> logs = lower.listerThings.ThingsOfDef(ThingDefOf.WoodLog);
+            Thing closest = GenClosest.ClosestThingReachable(campfireCell, lower, ThingRequest.ForDef(ThingDefOf.WoodLog), PathEndMode.ClosestTouch, TraverseParms.For(TraverseMode.PassDoors));
+            bool available = lower.itemAvailability.ThingsAvailableAnywhere(ThingDefOf.WoodLog, Math.Max(needed, 1), pawn);
+            return "blueprint " + blueprint.def.defName + " needs " + needed + " logs, logs on the lower level " + logs.Sum(log => log.stackCount)
+                + " in " + logs.Count + " stacks, available " + available + ", closest reachable " + (closest == null ? "none" : closest.Position.ToString());
+        }
+
+        // Test only: the surface stairs down the colonist can reach by map reachability, with no pawn, as DescribeCampfire does.
+        // ZUtils.GetAllMapsInClosestOrder tries these stairs with pawn.CanReach before it searches the level below.
+        private string DescribeSurfaceStairs()
+        {
+            int total = 0;
+            int reachable = 0;
+            string below = "";
+            foreach (Building_StairsDown stairs in surface.listerThings.AllThings.OfType<Building_StairsDown>())
+            {
+                total++;
+                if (surface.reachability.CanReach(pawn.Position, stairs.Position, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) reachable++;
+                // The search teleports the colonist to these stairs on the lower level. Check the campfire from there.
+                if (below == "" && lower != null && campfireCell.IsValid && campfireLogCell.IsValid)
+                {
+                    below = ", from those stairs below the blueprint reachable " + lower.reachability.CanReach(stairs.Position, campfireCell, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors))
+                        + ", below the logs reachable " + lower.reachability.CanReach(stairs.Position, campfireLogCell, PathEndMode.Touch, TraverseParms.For(TraverseMode.PassDoors));
+                }
+            }
+            return "surface stairs down reachable " + reachable + " of " + total + below;
         }
 
         // Only the harness's seven logs count. Other wood can reach the zone by itself.
