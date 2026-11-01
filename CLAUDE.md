@@ -1,6 +1,6 @@
 # Z-Levels for RimWorld 1.7
 
-Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. One checkout: this folder, branch `master`, no remote.
+Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public).
 
 ## Documents
 
@@ -36,7 +36,7 @@ Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. On
 ## Git
 
 - Commit only your own paths: `git commit -- <paths>`. The tree may hold other sessions' changes; check `git status` and leave changes you did not make alone.
-- Stay on `master`. Do not push; there is no remote.
+- Stay on `master`. Push only when Lucas asks, and only to a branch on `origin`. Do not push to `origin`'s `master`: it shares no history with this branch, so that needs a merge decision. Never force-push.
 
 ## Routes
 
