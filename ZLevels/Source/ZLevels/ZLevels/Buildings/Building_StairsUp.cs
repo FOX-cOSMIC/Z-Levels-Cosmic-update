@@ -44,7 +44,8 @@ namespace ZLevels
 
         public override void PostApplyDamage(DamageInfo dinfo, float totalDamageDealt)
         {
-            if (syncDamage)
+            // A staircase the damage destroyed has no map to find its partner on, so the partner takes no damage and stays standing.
+            if (syncDamage && Spawned)
             {
                 Building_Stairs matchingStair = GetMatchingStair();
                 if (matchingStair != null)

@@ -62,6 +62,7 @@ namespace ZLevelsValidation
         private int multiBuildLowerWalks;
         private int multiBuildInitialLogs;
         private int stairsDamageStage;
+        private Building_StairsDown stairsDamagePartner;
         // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
         private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
         // With -zlevelsothercolonistshaul the validation colonist is also kept off hauling, so the haul must be taken by another colonist.
@@ -2022,8 +2023,24 @@ namespace ZLevelsValidation
             }
         }
 
-        // Test only: damage that destroys the lower staircase must not throw. Building_StairsUp.PostApplyDamage looks up the staircase's map after the damage,
-        // and the staircase no longer has one once it is destroyed.
+        // Test only: the stairs need a free cell the colonist can reach now. A fixed offset can land behind a wall. Then the stairs job
+        // fails, and the colonist wanders off.
+        private static IntVec3 FindStairsCellNear(Pawn pawn)
+        {
+            Map map = pawn.Map;
+            var cells = new List<IntVec3> { pawn.Position + new IntVec3(3, 0, 0) };
+            cells.AddRange(GenRadial.RadialCellsAround(pawn.Position, 4f, false).Where(c => c.DistanceToSquared(pawn.Position) >= 9));
+            foreach (IntVec3 cell in cells)
+            {
+                if (!cell.InBounds(map) || !cell.Standable(map) || cell.GetEdifice(map) != null) continue;
+                if (!map.reachability.CanReach(pawn.Position, cell, PathEndMode.OnCell, TraverseParms.For(pawn))) continue;
+                return cell;
+            }
+            throw new InvalidOperationException("No cell 3 to 4 cells from the colonist can be reached for the stairs on " + map);
+        }
+
+        // Test only: damage that destroys the lower staircase must not throw, and must leave the staircase on the surface standing.
+        // Building_Stairs.PostApplyDamage looks up the partner after the damage, and a destroyed staircase no longer has a map to look it up from.
         private void RunStairsDamageTick()
         {
             try
@@ -2033,7 +2050,9 @@ namespace ZLevelsValidation
                     surface = Find.CurrentMap;
                     pawn = FindValidationColonist(surface);
                     RestNeeds(pawn);
-                    var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                    var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, FindStairsCellNear(pawn));
+                    stairsDamagePartner = down;
+                    Record("surface stairs cell", down.Position.ToString());
                     deadline = DateTime.UtcNow.AddMinutes(4);
                     stairsDamageStage = 1;
                     down.GiveJob(pawn, down);
@@ -2047,8 +2066,10 @@ namespace ZLevelsValidation
                 try
                 {
                     stairs.TakeDamage(new DamageInfo(DamageDefOf.Crush, 10000f));
+                    bool surfaceStanding = stairsDamagePartner.Spawned;
                     Record("lower stairs destroyed by damage", stairs.Destroyed ? "yes" : "no");
-                    Record("stairs damage", "PASS");
+                    Record("surface stairs after the hit", surfaceStanding ? "standing" : "gone");
+                    Record("stairs damage", stairs.Destroyed && surfaceStanding ? "PASS" : "FAIL: the lower stairs were not destroyed, or the surface stairs went with them");
                 }
                 catch (Exception exception)
                 {

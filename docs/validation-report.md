@@ -487,7 +487,9 @@ Earlier attempts. Runs `20261031-225614` to `230119` counted the walks as cross-
 
 Runs `20261031-230657` and `230754` fail with `System.NullReferenceException`. The stack runs from `Building_StairsUp.GetMatchingStair()` (`ZLevels/Source/ZLevels/ZLevels/Buildings/Building_StairsUp.cs:139`), through `Building_Stairs.PostApplyDamage` (line 49), to `Thing.TakeDamage`. Once the damage destroys the staircase, `PostApplyDamage` still reads the staircase's map. Run `230754` records that the staircase is not spawned and has no map when the exception fires. Run `225249` reached the same exception during a game update.
 
-Not fixed. The fix needs a decision (roadmap, Decisions for Lucas, item 4). The mod code is unchanged in this commit.
+Fixed 2026-11-01. Decision 4 is no, so a destroyed staircase does not hit its partner. `Building_Stairs.PostApplyDamage` now checks `if (syncDamage && Spawned)`, so a staircase that the damage has removed skips the partner hit. Red: run `20261101-112308` fails with the same exception on the code before the fix. The test now also checks that the surface staircase stands. Green: run `20261101-113033` passes. The lower staircase is destroyed, and the surface staircase is standing. Regression: core validation passes in run `20261101-113126`.
+
+Run `20261101-112402` timed out at stage 0. The colonist wandered after the stairs job, so the lower level was never reached. The stairs cell was a fixed offset of three cells from the colonist, and nothing checked that the colonist could reach it. The harness now keeps that cell when the colonist can reach it. Otherwise it takes another cell three or four cells away that the colonist can reach, and it records the cell (`surface stairs cell`). The cause of run `112402` is not confirmed.
 
 ## Multiple builds below with the logs on the surface (2026-11-01)
 
