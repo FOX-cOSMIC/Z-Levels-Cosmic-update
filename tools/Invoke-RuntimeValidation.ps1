@@ -17,7 +17,7 @@ param(
     [switch]$OtherColonistsWork,
     [switch]$UnreachableZone,
     [switch]$MultiBuild,
-    [switch]$MultiBuildSurfaceLogs,
+    [switch]$MultiBuildLowerLogs,
     [switch]$StairsDamage,
     [switch]$ZLevelsDebug,
     [int]$TimeoutSeconds = 900
@@ -105,7 +105,7 @@ if ($FreeColonists) { $arguments += '-zlevelsfreecolonists' }
 if ($OtherColonistsWork) { $arguments += '-zlevelsothercolonistswork' }
 if ($UnreachableZone) { $arguments += '-zlevelsunreachablezone' }
 if ($MultiBuild) { $arguments += '-zlevelsmultibuild' }
-if ($MultiBuildSurfaceLogs) { $arguments += '-zlevelsmultibuildsurfacelogs' }
+if ($MultiBuildLowerLogs) { $arguments += '-zlevelsmultibuildlowerlogs' }
 if ($StairsDamage) { $arguments += '-zlevelsstairsdamage' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru

@@ -467,9 +467,9 @@ Before the change, `-OtherColonistHauls` failed 3 of 8 non-debug runs, and `-Vau
 
 ## Multiple builds below and a staircase destroyed by damage (2026-10-31)
 
-**Multiple builds below.** Scenario `-zlevelsmultibuild` (runner switch `-MultiBuild`, pass label `multiple builds below`). Three wall sites lie in the lower room, with 20 logs beside them. Surface colonists take no hauling. The surface's haulable items are removed at the start, and any that appear later are removed too. The walls must be built from the lower level alone. The run passes when all three walls stand and no surface item is carried down.
+**Multiple builds below, logs below.** Scenario `-zlevelsmultibuild -zlevelsmultibuildlowerlogs` (runner switch `-MultiBuildLowerLogs`, pass label `multiple builds below`). Runs before 2026-11-01 passed `-MultiBuild` alone for this variant. Three wall sites lie in the lower room, with 20 logs beside them. Surface colonists take no hauling. The surface's haulable items are removed at the start, and any that appear later are removed too. The walls must be built from the lower level alone. The run passes when all three walls stand and no surface item is carried down.
 
-**Control.** `-zlevelsmultibuildsurfacelogs` puts the logs on the surface and keeps surface hauling on. The same walls then need a cross-level haul, so the count must rise.
+**Logs on the surface.** Before 2026-11-01 this control was `-zlevelsmultibuildsurfacelogs`, and it failed on purpose. The same case is now the default `-zlevelsmultibuild`, which passes (see the next section).
 
 | Run | Variant | Walls built | Surface items carried down | Walks to lower items | Result |
 |---|---|---|---|---|---|
@@ -488,6 +488,20 @@ Earlier attempts. Runs `20261031-225614` to `230119` counted the walks as cross-
 Runs `20261031-230657` and `230754` fail with `System.NullReferenceException`. The stack runs from `Building_StairsUp.GetMatchingStair()` (`ZLevels/Source/ZLevels/ZLevels/Buildings/Building_StairsUp.cs:139`), through `Building_Stairs.PostApplyDamage` (line 49), to `Thing.TakeDamage`. Once the damage destroys the staircase, `PostApplyDamage` still reads the staircase's map. Run `230754` records that the staircase is not spawned and has no map when the exception fires. Run `225249` reached the same exception during a game update.
 
 Not fixed. The fix needs a decision (roadmap, Decisions for Lucas, item 4). The mod code is unchanged in this commit.
+
+## Multiple builds below with the logs on the surface (2026-11-01)
+
+Scenario `-zlevelsmultibuild` (runner switch `-MultiBuild`, pass label `multiple builds below`). Three wall sites lie in the lower room. Four piles of five logs lie on the surface beside the stairs. Other surface logs are removed at the start, so only the piles can feed the walls. Surface colonists keep their hauling, so the walls need cross-level hauls. Each wall uses five logs. The run passes when all three walls stand and at least 15 logs have left the surface.
+
+| Run | Walls built | Logs that left the surface | Logs left below | Builder | Result |
+|---|---|---|---|---|---|
+| `20261101-105213` | 3 of 3 | 20 | 5 | Mac | PASS |
+| `20261101-105259` | 3 of 3 | 20 | 5 | Elana | PASS |
+| `20261101-105358` | 3 of 3 | 20 | 3 | Max | PASS |
+
+The map count is the measure. The monitor records only ZL haul jobs, and it saw two per run. The four piles left the surface, so two of them moved without a job the monitor recorded. The builder column comes from sampling, so it can be empty.
+
+**Logs below, surface hauling stopped.** Scenario `-zlevelsmultibuild -zlevelsmultibuildlowerlogs`. The logs lie below, and surface items are removed at the start. Run `20261101-105502` passes: 3 of 3 walls, no surface item carried down, and 1277 surface items removed. Earlier runs of this variant are listed under "logs below" above.
 
 ## Evidence
 

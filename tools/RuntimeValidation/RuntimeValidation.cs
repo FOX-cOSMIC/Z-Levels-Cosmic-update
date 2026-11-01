@@ -60,6 +60,7 @@ namespace ZLevelsValidation
         private int multiBuildCrossHauls;
         private int multiBuildLateItems;
         private int multiBuildLowerWalks;
+        private int multiBuildInitialLogs;
         private int stairsDamageStage;
         // Test only: with -zlevelsallcolonistshaul, every colonist keeps its hauling, so several colonists can take the unforced haul.
         private static bool OtherColonistsHaul => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistshaul");
@@ -1830,9 +1831,11 @@ namespace ZLevelsValidation
             return false;
         }
 
-        // Test only: three wall sites below, with no cross-level hauling allowed. Surface colonists take no hauling and surface items are forbidden,
-        // so the walls must get their logs from the lower level. The control (-zlevelsmultibuildsurfacelogs) puts the logs on the surface instead,
-        // so the same walls need cross-level hauls, and the count must rise.
+        // Test only: three wall sites below. By default the logs lie on the surface in four piles, so the walls need cross-level hauls. The test passes when
+        // every site is built and at least as many logs as the walls use (five each) have left the surface. -zlevelsmultibuildlowerlogs is the other variant: the logs lie below, surface hauling
+        // is stopped, and the test passes only if no surface item is carried down.
+        private static bool MultiBuildSurfaceLogs => !GenCommandLine.CommandLineArgPassed("zlevelsmultibuildlowerlogs");
+
         private void RunMultiBuildTick()
         {
             try
@@ -1842,19 +1845,26 @@ namespace ZLevelsValidation
                     surface = Find.CurrentMap;
                     pawn = FindValidationColonist(surface);
                     RestNeeds(pawn);
-                    bool control = GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs");
-                    if (!control)
+                    bool surfaceVariant = MultiBuildSurfaceLogs;
+                    if (!surfaceVariant)
                     {
                         foreach (Pawn colonist in surface.mapPawns.FreeColonistsSpawned) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
                     }
                     var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
-                    if (control)
+                    if (surfaceVariant)
                     {
-                        if (!FindOpenCell(surface, pawn.Position, out IntVec3 surfaceLogCell)) throw new InvalidOperationException("No open cell near the colonist for the surface logs.");
-                        var surfaceLogs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
-                        surfaceLogs.stackCount = 20;
-                        GenSpawn.Spawn(surfaceLogs, surfaceLogCell, surface);
-                        surfaceLogs.SetForbidden(false);
+                        // Other logs on the surface are removed, so only the piles below can feed the walls, and the count of logs that leave the surface is exact.
+                        foreach (Thing log in surface.listerThings.ThingsOfDef(ThingDefOf.WoodLog).ToList()) log.Destroy(DestroyMode.Vanish);
+                        // Four piles of five, so the walls need several cross-level hauls.
+                        if (!FindOpenCells(surface, pawn.Position, 4, out List<IntVec3> pileCells)) throw new InvalidOperationException("No open cells near the colonist for the surface log piles.");
+                        foreach (IntVec3 pileCell in pileCells)
+                        {
+                            var pile = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                            pile.stackCount = 5;
+                            GenSpawn.Spawn(pile, pileCell, surface);
+                            pile.SetForbidden(false);
+                            multiBuildInitialLogs += pile.stackCount;
+                        }
                     }
                     else
                     {
@@ -1886,7 +1896,7 @@ namespace ZLevelsValidation
                     multiBuildSites = sites;
                     ThingDef wallDef = DefDatabase<ThingDef>.GetNamed("Wall");
                     foreach (IntVec3 site in sites) GenConstruct.PlaceBlueprintForBuild(wallDef, site, lower, Rot4.North, Faction.OfPlayer, ThingDefOf.WoodLog);
-                    if (!GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs"))
+                    if (!MultiBuildSurfaceLogs)
                     {
                         var logs = ThingMaker.MakeThing(ThingDefOf.WoodLog);
                         logs.stackCount = 20;
@@ -1899,7 +1909,7 @@ namespace ZLevelsValidation
                 }
                 RestNeeds(pawn);
                 // Items that appear on the surface after the start are removed and counted, so none can be carried down.
-                if (!GenCommandLine.CommandLineArgPassed("zlevelsmultibuildsurfacelogs"))
+                if (!MultiBuildSurfaceLogs)
                 {
                     foreach (Thing thing in surface.listerThings.AllThings.ToList())
                     {
@@ -1941,7 +1951,13 @@ namespace ZLevelsValidation
                 Record("cross-level hauls during the builds", multiBuildCrossHauls + " surface items carried down; " + multiBuildLowerWalks + " walks to items below");
                 Record("builders below", string.Join(", ", multiBuildBuilders));
                 Record("surface items removed", (multiBuildRemovedItems + multiBuildLateItems) + " (" + multiBuildLateItems + " appeared after the start)");
-                Record("multiple builds below", multiBuildCrossHauls > 0 ? "FAIL: " + multiBuildCrossHauls + " cross-level haul(s) during the builds" : "PASS");
+                // The monitor sees only ZL haul jobs. The logs that left the surface are counted from the map, since the walls can be fed another way.
+                int logsOnSurface = surface.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+                int logsBelow = lower.listerThings.ThingsOfDef(ThingDefOf.WoodLog).Sum(log => log.stackCount);
+                int logsOffSurface = multiBuildInitialLogs - logsOnSurface;
+                Record("logs left on the surface, below", logsOnSurface + ", " + logsBelow + " (" + logsOffSurface + " left the surface)");
+                bool passes = MultiBuildSurfaceLogs ? logsOffSurface >= MultiBuildSiteCount * 5 : multiBuildCrossHauls == 0;
+                Record("multiple builds below", passes ? "PASS" : MultiBuildSurfaceLogs ? "FAIL: only " + logsOffSurface + " logs left the surface" : "FAIL: " + multiBuildCrossHauls + " surface item(s) carried down");
                 Root.Shutdown();
             }
             catch (Exception exception)
@@ -1978,17 +1994,18 @@ namespace ZLevelsValidation
             return false;
         }
 
-        // Test only: an open cell two to six cells from the colonist that it can reach, for the surface logs in the control run.
-        private static bool FindOpenCell(Map map, IntVec3 near, out IntVec3 cell)
+        // Test only: open cells two to six cells from the colonist, at least two apart, that it can reach. Used for the surface log piles.
+        private static bool FindOpenCells(Map map, IntVec3 near, int count, out List<IntVec3> cells)
         {
+            cells = new List<IntVec3>();
             foreach (IntVec3 candidate in GenRadial.RadialCellsAround(near, 6f, false))
             {
                 if (candidate.DistanceTo(near) < 2f || !IsOpenCell(map, candidate)) continue;
+                if (cells.Any(cell => cell.DistanceTo(candidate) < 2f)) continue;
                 if (!map.reachability.CanReach(near, candidate, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
-                cell = candidate;
-                return true;
+                cells.Add(candidate);
+                if (cells.Count == count) return true;
             }
-            cell = IntVec3.Invalid;
             return false;
         }
 
