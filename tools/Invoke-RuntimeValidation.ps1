@@ -20,6 +20,8 @@ param(
     [switch]$MultiBuildLowerLogs,
     [switch]$StairsDamage,
     [switch]$ZLevelsDebug,
+    # A ModsConfig.xml whose mods run together with Z-Levels. It is only read. The isolated run gets a copy of its mod list.
+    [string]$ModsConfigSource,
     [int]$TimeoutSeconds = 900
 )
 
@@ -60,10 +62,7 @@ $configuration = @'
 <ModsConfigData>
   <version>1.7.4990 rev1069</version>
   <activeMods>
-    <li>brrainz.harmony</li>
-    <li>ludeon.rimworld</li>
-    <li>zlevels1.1</li>
-    <li>local.zlevels.validation</li>
+__ACTIVE_MODS__
   </activeMods>
   <knownExpansions>
     <li>ludeon.rimworld.royalty</li>
@@ -74,7 +73,30 @@ $configuration = @'
   </knownExpansions>
 </ModsConfigData>
 '@
+# Without -ModsConfigSource the run loads only the validation mods. With it, the run loads the source's mods in their order, then this mod.
+# The source file is read, never written.
+$activeMods = @('brrainz.harmony', 'ludeon.rimworld', 'zlevels1.1', 'local.zlevels.validation')
+if ($ModsConfigSource) {
+    [xml]$source = Get-Content -LiteralPath $ModsConfigSource -Raw -Encoding UTF8
+    $activeMods = @($source.SelectNodes('/ModsConfigData/activeMods/li') | ForEach-Object { $_.InnerText } | Where-Object { $_ -and $_ -notin @('zlevels1.1', 'local.zlevels.validation') })
+    $activeMods += @('zlevels1.1', 'local.zlevels.validation')
+}
+$configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n"))
 $configuration | Set-Content -LiteralPath (Join-Path $configDirectory 'ModsConfig.xml') -Encoding UTF8
+if ($ModsConfigSource) {
+    # A fresh save has no language set, and Readable Numbers throws on that during load. Use the language from the source's Prefs.xml.
+    $sourcePrefs = Join-Path (Split-Path -Parent $ModsConfigSource) 'Prefs.xml'
+    $language = if (Test-Path -LiteralPath $sourcePrefs) { [regex]::Match((Get-Content -LiteralPath $sourcePrefs -Raw -Encoding UTF8), '<langFolderName>([^<]+)</langFolderName>').Groups[1].Value } else { '' }
+    if ($language) {
+        $prefsXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<PrefsData>
+  <langFolderName>$language</langFolderName>
+</PrefsData>
+"@
+        $prefsXml | Set-Content -LiteralPath (Join-Path $configDirectory 'Prefs.xml') -Encoding UTF8
+    }
+}
 if ($Visual) {
     # Unity pauses frames while its window is unfocused; this keeps the hidden window rendering for screenshots.
     $prefs = @'
@@ -109,8 +131,19 @@ if ($MultiBuildLowerLogs) { $arguments += '-zlevelsmultibuildlowerlogs' }
 if ($StairsDamage) { $arguments += '-zlevelsstairsdamage' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
-if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
-    Stop-Process -Id $process.Id
+$gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
+$limit = (Get-Date).AddSeconds($TimeoutSeconds)
+while (!$process.HasExited -and (Get-Date) -lt $limit) {
+    Start-Sleep -Seconds 5
+    # When a mod throws during play-data load, the game resets the mod list and loops on errors. Stop it now instead of waiting out the timeout.
+    if ($ModsConfigSource -and (Test-Path -LiteralPath $gameLog) -and (Select-String -LiteralPath $gameLog -Pattern 'Resetting mods config' -Quiet)) {
+        Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $gameLog -Destination (Join-Path $runDirectory 'Player.log')
+        throw "The game reset the mod list while loading the mods, so the run stopped. See the Player.log in $runDirectory"
+    }
+}
+if (!$process.HasExited) {
+    Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
     throw "Validation timed out; isolated files are in $runDirectory"
 }
 
@@ -127,6 +160,22 @@ if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + 
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 $errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
+if ($ModsConfigSource) {
+    # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
+    # Only error entries count. A Z-Levels frame in an ordinary log line is not an error. An entry runs until the next timestamped line.
+    $ownErrors = @(foreach ($hit in Select-String -LiteralPath (Join-Path $runDirectory 'Player.log') -Pattern ' ERROR ' -Context 0,80) {
+        $post = @($hit.Context.PostContext | ForEach-Object -Begin { $stop = $false } -Process { if ($stop) { return }; if ($_ -match '^\d{4}-\d{2}-\d{2} ') { $stop = $true; return }; $_ })
+        if (((@($hit.Line) + $post) -join "`n") -match 'Z-?Levels') { $hit }
+    })
+    $errors | Set-Content -LiteralPath (Join-Path $runDirectory 'other-mod-errors.txt') -Encoding UTF8
+    if ($ownErrors.Count) {
+        $ownErrors | ForEach-Object { $_.Line }
+        throw "Runtime log contains Z-Levels errors: $runDirectory"
+    }
+    Write-Host "Other mods logged $($errors.Count) error lines. See $(Join-Path $runDirectory 'other-mod-errors.txt')"
+    Write-Host "Runtime validation passed with other mods. Evidence: $runDirectory"
+    return
+}
 $relevantErrors = @($errors | Where-Object {
     $_ -notmatch 'Tried loading mod with the same packageId multiple times:' -or
     $_ -match 'multiple times: (ZLevels1[.]1|local[.]zlevels[.]validation|brrainz[.]harmony|ludeon[.]rimworld)[.]'
