@@ -505,8 +505,21 @@ The map count is the measure. The monitor records only ZL haul jobs, and it saw 
 
 **Logs below, surface hauling stopped.** Scenario `-zlevelsmultibuild -zlevelsmultibuildlowerlogs`. The logs lie below, and surface items are removed at the start. Run `20261101-105502` passes: 3 of 3 walls, no surface item carried down, and 1277 surface items removed. Earlier runs of this variant are listed under "logs below" above.
 
+## Other mods (2026-11-01)
+
+`tools/Invoke-RuntimeValidation.ps1 -ModsConfigSource <ModsConfig.xml>` runs the core validation with the mod list from that file. The source is only read. The run loads the same mods in the same order, with Z-Levels last, in an isolated savedata folder.
+
+Readable Numbers (`7h0m4s.rimworldreadablenumbers`) is left out. It throws `NullReferenceException` in `RnGuiBackend.SetTextLanguage` during play-data load on a fresh save, even with the language set. Runs `20261101-133603` and `135707` stopped there.
+
+Run `20261101-141256` passes `core validation` with 78 mods. Other mods logged these errors:
+- `Aoba.DeadManSwitch.Core` is loaded from two Workshop copies. The game ignores the duplicate.
+- `Milira.MiliraGameComponent_OverallControl.CheckMiliraPermanentEnemyStatus` throws `NullReferenceException` at new game start and at reload. Neither stack has a Z-Levels frame.
+
+No error entry names Z-Levels code. The other-mod errors are in `other-mod-errors.txt` in the run folder.
+
 ## Evidence
 
+- Other-mod run: `.artifacts/runs/20261101-141256/`
 - Build log: `.artifacts/build/release-build-final.log`
 - Final run: `.artifacts/runs/20261028-135603/` (`validation-results.txt`, `Player.log`, `Screenshots/`, `Config/`, `Saves/`)
 - Animal fallback runs: `.artifacts/runs/20261028-041107/`, `20261028-035000/`, `20261028-133324/`
