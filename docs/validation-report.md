@@ -375,7 +375,7 @@ Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Two harness flag
 | 20261031-201557 | `-OtherColonistsWork` (full chain) | PASS | Darby mined and built |
 | 20261031-201704 | `-OtherColonistsWork` (full chain) | PASS | Ash mined and built |
 
-`-FreeColonists` runs the full chain with every colonist's work on. `-OtherColonistsWork` runs the full chain with the validation colonist's hauling, mining, and building off. Other colonists have no work until the unforced haul, and then their work is restored. The chain passes only if a colonist other than the validation colonist came below during the haul, mined the wall, and built the campfire. The records `mined by` and `built by` name who did each job.
+`-FreeColonists` runs the full chain with every colonist's work on. `-OtherColonistsWork` runs the full chain with the validation colonist's hauling, mining, and building off. Other colonists have no work until the unforced haul, and then their work is restored. The chain passes only if a colonist other than the validation colonist carried the logs during the haul, mined the wall, and built the campfire. The records `mined by` and `built by` name who did each job.
 
 Before the hold change, `-OtherColonistsWork` failed five times: `195518` (stage 22, no frame ever started), `200303` and `200858` (stage 21, no colonist mined in four minutes), `200801` (stage 20, no colonist came below during the haul), and `200017` (stage 15, a start check that now applies only to `-AllColonistsHaul`). The only pass before the change was `195406`, where Lumi mined and built.
 
