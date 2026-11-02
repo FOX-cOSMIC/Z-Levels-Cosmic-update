@@ -52,8 +52,60 @@ function Assert-SwitchesRead {
         $readBy = @($Readers[$name])
         if (($readBy -contains 'Every run') -or ($readBy -contains $chosen)) { continue }
         $readerList = @($readBy | ForEach-Object { if ($_ -eq 'Core') { 'the core validation run' } else { '-' + $_ } }) -join ', '
-        throw "The switch -$name is not read by $chosenName, so that run would ignore it. It is read by $readerList. Remove -$name, or run a scenario that reads it. No run was started."
+        # -Visual changes the run even where no screenshot is taken, because it opens the game in a window. The message says that, instead of
+        # saying the switch is ignored.
+        $effect = if ($name -eq 'Visual') { 'would open a window and take no screenshots' } else { 'would ignore it' }
+        throw "The switch -$name is not read by $chosenName, so that run $effect. It is read by $readerList. Remove -$name, or run a scenario that reads it. No run was started."
     }
+}
+# The labels a run must pass. The scenario's own label always counts. A run with a work switch must also record the work label, which the core
+# run writes after its mining and building checks. The haul run ends before those checks and records the label as FAIL. A run with
+# -RimatomicsPlusPlus must show the mod in its game log.
+function Get-RequiredLabels {
+    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus)
+    $labels = @($ScenarioLabel)
+    if ($FreeColonists -or $OtherColonistsWork) { $labels += 'other colonists work recorded' }
+    if ($RimatomicsPlusPlus) { $labels += 'rimatomics++ mod active' }
+    return $labels
+}
+# The problems that fail a run. Any FAIL row fails it. A required label fails it unless a row records PASS for it. A label that the runner
+# observed itself counts by its observed value. No problem means the run passes.
+function Get-GateProblems {
+    param([string[]]$Results, [string[]]$RequiredLabels, [hashtable]$Observed = @{})
+    $problems = @()
+    foreach ($row in @($Results | Where-Object { $_ -match '[|] FAIL:' })) { $problems += 'FAIL row: ' + $row }
+    foreach ($label in $RequiredLabels) {
+        if ($Observed.ContainsKey($label)) {
+            if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
+            continue
+        }
+        $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] PASS$') })
+        if ($passed.Count -eq 0) { $problems += 'required label missing or not PASS: ' + $label }
+    }
+    return $problems
+}
+# The mod check reads the game log. RimWorld writes the mod list when it starts a new game, so the list after that line is the set of mods the
+# game ran with. The check passes only when that list names the mod.
+function Get-RimatomicsObservation {
+    param([string]$LogPath)
+    if (!(Test-Path -LiteralPath $LogPath)) { return 'FAIL: the game log is missing, so the mod list cannot be read' }
+    $lines = @(Get-Content -LiteralPath $LogPath)
+    $start = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match 'Initializing new game with mods:') { $start = $i; break }
+    }
+    if ($start -lt 0) { return 'FAIL: the game log has no new-game mod list' }
+    # An entry can carry a note, such as "(incompatible version)". A note means the game did not load that mod, so the check fails on it.
+    $entries = @()
+    for ($j = $start + 1; $j -lt $lines.Count; $j++) {
+        $item = [regex]::Match($lines[$j], '^\s+-\s+(\S+)(.*)$')
+        if (!$item.Success) { break }
+        $entries += [pscustomobject]@{ Id = $item.Groups[1].Value; Note = $item.Groups[2].Value.Trim() }
+    }
+    $mine = @($entries | Where-Object { $_.Id -match '(?i)^nachotoast\.rimatomicsplusplus(\.steam)?$' })
+    if ($mine.Count -eq 0) { return 'FAIL: nachotoast.rimatomicsplusplus is not in the new-game mod list' }
+    if ($mine[0].Note -ne '') { return 'FAIL: nachotoast.rimatomicsplusplus is listed but not loaded: ' + $mine[0].Note }
+    return 'PASS'
 }
 # The scenario switches. Each one starts its own scenario, and the harness dispatch returns after the first one it finds.
 $scenarioSwitches = [ordered]@{
@@ -317,7 +369,13 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
-if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
+$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus))
+$observed = @{}
+if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
+$gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
+Write-Host ('Required labels for this run: ' + ($requiredLabels -join ', ') + '.')
+foreach ($label in $observed.Keys) { Write-Host "Observed from Player.log: $label = $($observed[$label])." }
+if ($gateProblems.Count -gt 0) {
     # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause.
     # Earlier entries in this log may be unrelated to this run, so the hint says so.
     $playerLog = Join-Path $runDirectory 'Player.log'
@@ -336,6 +394,7 @@ if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + 
             }
         }
     }
+    Write-Host ('Gate problems: ' + ($gateProblems -join '; ') + '.')
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 # The pass gate's line test is the 1369ed4 test. The whole-word ERROR rule belongs to Get-ErrorScan only.

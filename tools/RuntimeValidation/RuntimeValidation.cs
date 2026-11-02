@@ -114,6 +114,10 @@ namespace ZLevelsValidation
         private bool coolingChecksRecorded;
         private DateTime? coolingShotDue;
         private bool coolingShotTaken;
+        // A core screenshot row is written once its file has had three seconds to appear, the same wait the cooling row uses.
+        private string pendingShotRow;
+        private string pendingShotName;
+        private DateTime pendingShotDue;
         // Set when the screenshot row fails, so the cooling link row cannot read PASS beside it.
         private bool coolingScreenshotFailed;
         // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels and cooling link record FAIL.
@@ -271,6 +275,11 @@ namespace ZLevelsValidation
                     return;
                 }
                 Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+                if (pendingShotRow != null && DateTime.UtcNow >= pendingShotDue)
+                {
+                    Record(pendingShotRow, ScreenshotResult(pendingShotName));
+                    pendingShotRow = null;
+                }
                 switch (stage)
                 {
                     case 0:
@@ -394,7 +403,7 @@ namespace ZLevelsValidation
                         if (DateTime.UtcNow < shotDue) return;
                         Record("lower animals before screenshot", AnimalCensus(lower));
                         ScreenshotTaker.TakeNonSteamShot("zlevels-lower-level");
-                        Record("lower level screenshot", "TAKEN");
+                        QueueShotRow("lower level screenshot", "zlevels-lower-level");
                         CameraJumper.TryJump(powerCell, upper, CameraJumper.MovementMode.Cut);
                         shotDue = DateTime.UtcNow.AddSeconds(3);
                         Next(13);
@@ -404,7 +413,7 @@ namespace ZLevelsValidation
                         // The upper level is void except where it is built; the surface transmitter below should show through it.
                         Require(powerCell.GetTerrain(upper) == ZLevelsDefOf.ZL_OutsideTerrain, "upper cell over transmitter is void");
                         ScreenshotTaker.TakeNonSteamShot("zlevels-upper-void");
-                        Record("upper void screenshot", "TAKEN");
+                        QueueShotRow("upper void screenshot", "zlevels-upper-void");
                         CameraJumper.TryJump(surfaceTransmitter.parent.Position, surface, CameraJumper.MovementMode.Cut);
                         shotDue = DateTime.UtcNow.AddSeconds(3);
                         Next(11);
@@ -412,7 +421,7 @@ namespace ZLevelsValidation
                     case 11:
                         if (DateTime.UtcNow < shotDue) return;
                         ScreenshotTaker.TakeNonSteamShot("zlevels-surface");
-                        Record("surface screenshot", "TAKEN");
+                        QueueShotRow("surface screenshot", "zlevels-surface");
                         var hole = surface.Center + new IntVec3(-6, 0, -6);
                         ClearCell(surface, hole);
                         ClearCell(lower, hole);
@@ -429,7 +438,7 @@ namespace ZLevelsValidation
                     case 12:
                         if (DateTime.UtcNow < shotDue) return;
                         ScreenshotTaker.TakeNonSteamShot("zlevels-surface-hole");
-                        Record("surface hole screenshot", "TAKEN");
+                        QueueShotRow("surface hole screenshot", "zlevels-surface-hole");
                         powerSource.Destroy(DestroyMode.Vanish);
                         Next(9);
                         break;
@@ -506,6 +515,7 @@ namespace ZLevelsValidation
                             {
                                 Record("all colonists haul", "PASS");
                             }
+                            if (FreeColonists || OtherColonistsWork) Record("other colonists work recorded", "FAIL: not checked, because the haul run ends before the mining and building checks");
                             Root.Shutdown();
                             break;
                         }
@@ -549,6 +559,8 @@ namespace ZLevelsValidation
                         Record("builds below by itself", "PASS");
                         if (FreeColonists || OtherColonistsWork) Record("built by", string.Join(", ", buildersSeen));
                         if (OtherColonistsWork) Require(buildersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist built");
+                        if (FreeColonists || OtherColonistsWork) Record("other colonists work recorded", "PASS");
+                        if (pendingShotRow != null) { Record(pendingShotRow, ScreenshotResult(pendingShotName)); pendingShotRow = null; }
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -2240,6 +2252,22 @@ namespace ZLevelsValidation
             return null;
         }
 
+        // The result text for a core screenshot row. It runs the same file check as the cooling screenshot row.
+        private static string ScreenshotResult(string name)
+        {
+            string shot = Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots", name + ".png");
+            string problem = PngProblem(shot);
+            return problem == null ? "TAKEN: " + shot : "FAIL: " + problem;
+        }
+
+        // Queues the row for a screenshot that was just taken. The row is written once the file has had time to appear.
+        private void QueueShotRow(string row, string name)
+        {
+            pendingShotRow = row;
+            pendingShotName = name;
+            pendingShotDue = DateTime.UtcNow.AddSeconds(3);
+        }
+
         // True when the file holds the expected bytes at the offset. A file too short to hold them does not match.
         private static bool BytesAt(FileStream stream, long offset, byte[] expected)
         {
@@ -2450,7 +2478,8 @@ namespace ZLevelsValidation
             return string.Join("; inner ", levels).Replace('\r', ' ').Replace('\n', ' ');
         }
 
-        // Describe, or the exception type name when Describe throws. The log names a Describe failure. A row built from this text still names the failure.
+        // Describe, or a fallback when Describe throws. The fallback names the exception type and the Describe failure, so a row built from it
+        // still says what failed. If the log call fails too, that failure goes into the same text, so no failure is dropped.
         private static string DescribeOrTypeName(Exception exception)
         {
             try
@@ -2459,16 +2488,23 @@ namespace ZLevelsValidation
             }
             catch (Exception describeException)
             {
-                // A logger that throws here cannot be recorded anywhere else. The rows still get the type name, so the caller is not stopped.
+                string fallback = exception.GetType().Name + ", because Describe failed with " + describeException.GetType().Name + ": " + OneLine(describeException.Message);
                 try
                 {
-                    Log.Error("Z-Levels validation could not describe " + exception.GetType().Name + ", so its row uses the type name. Describe failed with " + describeException.GetType().Name + ": " + describeException.Message);
+                    Log.Error("Z-Levels validation could not describe the exception in a row. The row says: " + fallback);
                 }
-                catch (Exception)
+                catch (Exception logException)
                 {
+                    fallback += ", and the log also failed with " + logException.GetType().Name + ": " + OneLine(logException.Message);
                 }
-                return exception.GetType().Name;
+                return fallback;
             }
+        }
+
+        // The text on one line, so a row never spans two lines.
+        private static string OneLine(string text)
+        {
+            return (text ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ');
         }
 
         // The ZUtils.TeleportThing method. ZUtils is internal to the mod, so the harness reaches it by name. TeleportThing sets only the map
@@ -3092,7 +3128,7 @@ namespace ZLevelsValidation
             }
             catch (Exception copyException)
             {
-                // DescribeOrTypeName names the inner cause, and it falls back to the type name if Describe throws. The copy row is written either way.
+                // DescribeOrTypeName names the cause, and it names the Describe failure too if Describe throws. The copy row is written either way.
                 string detail = DescribeOrTypeName(copyException);
                 File.AppendAllText(Path.Combine(GenFilePaths.SaveDataFolderPath, "validation-results.txt"),
                     DateTime.UtcNow.ToString("O") + " | log copy | FAIL: could not copy the row to Player.log: " + detail + Environment.NewLine);
