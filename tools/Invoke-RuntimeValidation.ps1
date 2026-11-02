@@ -59,13 +59,15 @@ function Assert-SwitchesRead {
     }
 }
 # The labels a run must pass. Each one names the results it accepts: PASS for most labels, and PASS or TAKEN for a screenshot row, which reads
-# TAKEN with the file it wrote. The scenario's own label always counts. A run with a work switch must also record the work label, which the core
-# run writes after its mining and building checks. The haul run ends before those checks and records the label as FAIL. A run with
-# -RimatomicsPlusPlus must show the mod in its game log. A run with -Visual must write each of its screenshot rows.
+# TAKEN with the file it wrote. The scenario's own label always counts. A -FreeColonists run must record colonist work recorded, and a
+# -OtherColonistsWork run must record other colonists work recorded. The core run writes each after its mining and building checks. A haul
+# run ends before those checks and records the label as FAIL. A run with -RimatomicsPlusPlus must show the mod in its game log. A run with
+# -Visual must write each of its screenshot rows.
 function Get-RequiredLabels {
     param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @())
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
-    if ($FreeColonists -or $OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
+    if ($FreeColonists) { $labels += [pscustomobject]@{ Label = 'colonist work recorded'; Accept = 'PASS' } }
+    if ($OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
     if ($RimatomicsPlusPlus) { $labels += [pscustomobject]@{ Label = 'rimatomics++ mod active'; Accept = 'PASS' } }
     if ($Visual) {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
