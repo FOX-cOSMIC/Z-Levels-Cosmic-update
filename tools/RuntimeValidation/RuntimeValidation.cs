@@ -165,12 +165,9 @@ namespace ZLevelsValidation
             "coolant pipe joins the column",
             "column three cells away stays off the pipe net",
             "column moved to another level and back stays paired",
-            "partner highlight marks the cell",
-            "partner highlight shows the pair",
         };
 
-        // The partner highlight labels. RecordPartnerHighlight and PlacePartnerLowerColumn write them, and each one gets one row. CoolingPairingLabels
-        // also names them, so the pairing check's catch records FAIL on any not yet recorded, and CoolingLabels makes cooling link wait for them.
+        // The partner highlight labels. RecordPartnerHighlight is the only writer, so each one gets one row. CoolingLabels makes cooling link wait for them.
         private const string PartnerMarksLabel = "partner highlight marks the cell";
         private const string PartnerPairsLabel = "partner highlight shows the pair";
         private static readonly string[] CoolingHighlightLabels = { PartnerMarksLabel, PartnerPairsLabel };
@@ -183,6 +180,8 @@ namespace ZLevelsValidation
         private const string PartnerGreenName = "zlevels-partner-green";
         // The highlight cell, offset from the surface centre. It is 4 cells north of the pairing cell and clear of the pairing layout and its pipe.
         private static readonly IntVec3 PartnerOffset = new IntVec3(-12, 0, 4);
+        // Every cooling column the scenario spawns. The outline row expects one outlined cell for each one that still stands on the adjacent level.
+        private static readonly List<Thing> scenarioColumns = new List<Thing>();
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
@@ -1727,6 +1726,7 @@ namespace ZLevelsValidation
             building.SetFaction(Faction.OfPlayer);
             var spawned = (ThingWithComps)GenSpawn.Spawn(building, cell, map);
             if (spawned == null) throw new InvalidOperationException("GenSpawn.Spawn returned no thing for " + definition.defName + " at " + cell);
+            if (definition.defName == "ZL_CoolingColumn") scenarioColumns.Add(spawned);
             return spawned;
         }
 
@@ -2424,12 +2424,12 @@ namespace ZLevelsValidation
         {
             if (CoolingNoColumns)
             {
-                foreach (string label in CoolingHighlightLabels) RecordPartnerRow(label, NoColumnsVariantNotBuilt);
+                foreach (string label in CoolingHighlightLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
                 return;
             }
             if (column == null || surface == null || lower == null)
             {
-                foreach (string label in CoolingHighlightLabels) RecordPartnerRow(label, "FAIL: the cooling column or the lower level is missing");
+                foreach (string label in CoolingHighlightLabels) RecordCooling(label, "FAIL: the cooling column or the lower level is missing");
                 return;
             }
             try
@@ -2445,7 +2445,7 @@ namespace ZLevelsValidation
                 ThingWithComps surfaceBuilding = SpawnBuilding(column, surface, partnerCell, ThingDefOf.Steel);
                 partnerSurfaceComp = RequireCoolingComp(surfaceBuilding, "the surface column at the highlight cell");
                 string reason = UnjoinableReason("the surface column at the highlight cell", partnerSurfaceComp);
-                RecordPartnerRow(PartnerMarksLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, false));
+                RecordCooling(PartnerMarksLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, false));
                 if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots"))
                 {
                     partnerLookStage = 1;
@@ -2472,7 +2472,7 @@ namespace ZLevelsValidation
             var lowerComp = RequireCoolingComp(lowerBuilding, "the lower column at the highlight cell");
             string reason = UnjoinableReason("the surface column at the highlight cell", partnerSurfaceComp)
                 ?? UnjoinableReason("the lower column at the highlight cell", lowerComp);
-            RecordPartnerRow(PartnerPairsLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, true));
+            RecordCooling(PartnerPairsLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, true));
         }
 
         // Reads HighlightTargets by name, so this code compiles before the method exists. Until it does, each row says so. The row passes when the
@@ -2562,31 +2562,51 @@ namespace ZLevelsValidation
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) coolingScreenshotFailed = true;
         }
 
-        // Writes the outline row. It passes when the outline pass drew every target it counted in its last frame for the viewed level. A FAIL also
-        // fails the cooling link row.
+        // Writes the drawn row. It passes when the outline draws a plane for each cell the scenario expects on the adjacent level. A FAIL also fails
+        // the cooling link row.
         private void RecordPartnerDrawn(Map viewed)
         {
-            string result = PartnerDrawnResult(viewed);
+            string result = PartnerDrawnResult(viewed, surface);
             RecordCooling(PartnerDrawnLabel, result);
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) partnerDrawnFailed = true;
         }
 
-        // Reads the outline pass's counts by name, so this code compiles before the hook exists. Until it does, the row names the field that is missing.
-        // The three counts come from the same frame, so the drawn count is compared with the target count that frame found.
-        private static string PartnerDrawnResult(Map viewed)
+        // Reads the outline counts by name, so this code compiles before the hook exists. Until it does, the row names the fields that are missing.
+        // The counts come from the frame that ran for the viewed map. The expected count comes from the columns the scenario spawned, not from the
+        // registry, so a target that the registry drops still fails the row.
+        private static string PartnerDrawnResult(Map viewed, Map adjacent)
         {
             Type hook = Type.GetType("ZLevelsRimatomics.CoolingColumnHighlight, ZLevelsRimatomics");
             if (hook == null) return "FAIL: partner outline not built yet: the type ZLevelsRimatomics.CoolingColumnHighlight is missing";
             FieldInfo lastMap = hook.GetField("LastMap", BindingFlags.Public | BindingFlags.Static);
-            FieldInfo targets = hook.GetField("TargetsLastFrame", BindingFlags.Public | BindingFlags.Static);
-            FieldInfo drawn = hook.GetField("DrawnLastFrame", BindingFlags.Public | BindingFlags.Static);
-            if (lastMap == null || targets == null || drawn == null) return "FAIL: partner outline not built yet: a count field of ZLevelsRimatomics.CoolingColumnHighlight is missing";
+            FieldInfo finished = hook.GetField("FinishedLastFrame", BindingFlags.Public | BindingFlags.Static);
+            FieldInfo planes = hook.GetField("PlanesLastFrame", BindingFlags.Public | BindingFlags.Static);
+            FieldInfo cells = hook.GetField("CellsDrawnLastFrame", BindingFlags.Public | BindingFlags.Static);
+            var missing = new List<string>();
+            if (lastMap == null) missing.Add("LastMap");
+            if (finished == null) missing.Add("FinishedLastFrame");
+            if (planes == null) missing.Add("PlanesLastFrame");
+            if (cells == null) missing.Add("CellsDrawnLastFrame");
+            if (missing.Count > 0) return "FAIL: partner outline not built yet: these fields of CoolingColumnHighlight are missing: " + string.Join(", ", missing);
             if (!object.ReferenceEquals(lastMap.GetValue(null), viewed)) return "FAIL: the outline pass did not run on the viewed level";
-            int targetCount = (int)targets.GetValue(null);
-            if (targetCount < 0) return "FAIL: the outline pass threw before it counted its targets";
-            if (targetCount == 0) return "FAIL: no target cells on the viewed level";
-            int drawnCount = (int)drawn.GetValue(null);
-            return drawnCount == targetCount ? "PASS: " + drawnCount + " cells" : "FAIL: drew " + drawnCount + " of " + targetCount + " cells";
+            if (!(bool)finished.GetValue(null)) return "FAIL: the outline pass threw before it finished";
+            int expected = ExpectedOutlineCells(adjacent);
+            int drawnCells = (int)cells.GetValue(null);
+            int drawnPlanes = (int)planes.GetValue(null);
+            if (expected == 0) return "FAIL: no cooling column stands on the adjacent level, so the outline has nothing to match";
+            if (drawnCells != expected) return "FAIL: drew " + drawnCells + " cells for " + expected + " expected";
+            return "PASS: " + drawnCells + " cells of " + expected + " expected, " + drawnPlanes + " planes";
+        }
+
+        // The cells that hold a cooling column the scenario spawned and that still stands on the adjacent level. Each cell counts once.
+        private static int ExpectedOutlineCells(Map adjacent)
+        {
+            var cells = new HashSet<IntVec3>();
+            foreach (Thing column in scenarioColumns)
+            {
+                if (column.Spawned && column.Map == adjacent) cells.Add(column.Position);
+            }
+            return cells.Count;
         }
 
         // LoopOf is read by name, so a missing or renamed method is a row failure with its cause, not a compile error. When LoopOf cannot
@@ -2859,13 +2879,6 @@ namespace ZLevelsValidation
         {
             Record(label, result);
             coolingResults[label] = result;
-        }
-
-        // Writes a partner row unless the label already has one. The pairing check's catch and its no-columns and missing-definition branches can
-        // write a partner label before the partner check runs, and that earlier row stands, so each label gets one row per run.
-        private void RecordPartnerRow(string label, string result)
-        {
-            if (!coolingResults.ContainsKey(label)) RecordCooling(label, result);
         }
 
         // The final line passes only when every label in CoolingLabels has a PASS. Otherwise it names the labels that do not.

@@ -62,8 +62,8 @@ function Assert-SwitchesRead {
 # TAKEN with the file it wrote. The scenario's own label always counts. A -FreeColonists run must record colonist work recorded, and a
 # -OtherColonistsWork run must record other colonists work recorded. The core run writes each after its mining and building checks. A haul
 # run ends before those checks and records the label as FAIL. A run with -RimatomicsPlusPlus must show the mod in its game log. A run with
-# -Visual must write each of its screenshot rows. A -Visual run with cooling columns has partner targets, so it must also write its outline row as
-# PASS: <N> cells, with N above zero.
+# -Visual must write each of its screenshot rows. A -Visual run with cooling columns must also write its outline row, which reads PASS with the
+# cells drawn and the cells expected, and the two must match. Its two partner screenshots must also carry the outline tint.
 function Get-RequiredLabels {
     param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
@@ -74,8 +74,12 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
-        # The outline row counts the targets it drew, so a -Visual run with cooling columns must show that count above zero.
-        if ($CoolingColumns) { $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS: N cells' } }
+        # The outline row compares the cells drawn with the cells the scenario expects. The two tint checks read the partner screenshots.
+        if ($CoolingColumns) {
+            $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS with matching counts' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight amber tint'; Accept = 'PASS' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight green tint'; Accept = 'PASS' }
+        }
     }
     return $labels
 }
@@ -91,14 +95,62 @@ function Get-GateProblems {
             if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
             continue
         }
-        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. The outline row reads
-        # PASS: <N> cells, and N must be above zero.
-        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS: N cells' { 'PASS: [1-9][0-9]* cells$' } default { 'PASS$' } }
+        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. The outline row reads PASS with the
+        # cells drawn and the cells expected. The two numbers must be equal, and above zero.
+        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with matching counts' { 'PASS: ([1-9][0-9]*) cells of \1 expected, [1-9][0-9]* planes$' } default { 'PASS$' } }
         $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] ' + $accepted) })
         if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
     }
     return $problems
 }
+# The partner outline tint, read from the saved screenshots. Get-OutlineTintSettings holds every threshold and the sampled region, so the calibration
+# sits in one place. The sampled region is the highlight cell: 15 by 15 pixels at x 632 to 646 and y 352 to 366 of a 1280 by 720 screenshot. A
+# cooling column stands in the middle 7 by 7 block (x 636 to 642 and y 356 to 362), so that block is left out. The rest of the cell is sampled.
+# Calibrated on run 20261102-230106, where the amber cell averages RGB 107.6,86.7,16.6 and the green cell 38.6,98.3,33.5. The no-outline runs
+# 20261102-224947 and 20261102-225711 average 56.5,56.6,53.4 for amber and 43.3,53.7,51.8 for green. Each threshold lies between those values.
+function Get-OutlineTintSettings {
+    return @{
+        ImageWidth = 1280; ImageHeight = 720
+        CellLeft = 632; CellTop = 352; CellRight = 646; CellBottom = 366
+        ColumnLeft = 636; ColumnTop = 356; ColumnRight = 642; ColumnBottom = 362
+        AmberRedMinusBlue = 40; AmberRedMin = 70
+        GreenMinusRed = 25; GreenMinusBlue = 25
+    }
+}
+
+# Returns PASS when the sampled cell has the tint for its colour. Otherwise it returns FAIL with the measured average. The average is also written
+# to the console, so a run shows what it measured.
+function Get-OutlineTintResult {
+    param([string]$Path, [ValidateSet('amber', 'green')][string]$Color)
+    if (!(Test-Path -LiteralPath $Path)) { return 'FAIL: no screenshot file at ' + $Path }
+    $settings = Get-OutlineTintSettings
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = New-Object System.Drawing.Bitmap -ArgumentList $Path
+    try {
+        if ($bitmap.Width -ne $settings.ImageWidth -or $bitmap.Height -ne $settings.ImageHeight) {
+            return 'FAIL: the screenshot is ' + $bitmap.Width + ' by ' + $bitmap.Height + ' pixels, not ' + $settings.ImageWidth + ' by ' + $settings.ImageHeight + ', so the sampled region does not apply'
+        }
+        $redTotal = 0; $greenTotal = 0; $blueTotal = 0; $count = 0
+        for ($y = $settings.CellTop; $y -le $settings.CellBottom; $y++) {
+            for ($x = $settings.CellLeft; $x -le $settings.CellRight; $x++) {
+                if ($x -ge $settings.ColumnLeft -and $x -le $settings.ColumnRight -and $y -ge $settings.ColumnTop -and $y -le $settings.ColumnBottom) { continue }
+                $pixel = $bitmap.GetPixel($x, $y)
+                $redTotal += $pixel.R; $greenTotal += $pixel.G; $blueTotal += $pixel.B; $count++
+            }
+        }
+    }
+    finally { $bitmap.Dispose() }
+    $red = $redTotal / $count; $green = $greenTotal / $count; $blue = $blueTotal / $count
+    $average = (@($red, $green, $blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
+    Write-Host ('Partner tint for ' + $Color + ': average RGB ' + $average + ' over ' + $count + ' pixels.')
+    if ($Color -eq 'amber') {
+        if (($red - $blue) -ge $settings.AmberRedMinusBlue -and $red -ge $settings.AmberRedMin) { return 'PASS' }
+        return 'FAIL: the cell averages RGB ' + $average + ', which lacks the amber tint'
+    }
+    if (($green - $red) -ge $settings.GreenMinusRed -and ($green - $blue) -ge $settings.GreenMinusBlue) { return 'PASS' }
+    return 'FAIL: the cell averages RGB ' + $average + ', which lacks the green tint'
+}
+
 # The mod check reads the game log. RimWorld writes the mod list when it starts a new game, so the list after that line is the set of mods the
 # game ran with. The check passes only when that list names the mod.
 function Get-RimatomicsObservation {
@@ -389,9 +441,15 @@ $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column scre
 $requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
+# The partner tint checks read the two partner screenshots of a -Visual cooling run. A screenshot without the outline tint fails the gate.
+if ($Visual -and $Cooling -and -not $CoolingNoColumns) {
+    $shotFolder = Join-Path $runDirectory 'Screenshots'
+    $observed['partner highlight amber tint'] = Get-OutlineTintResult -Path (Join-Path $shotFolder 'zlevels-partner-amber.png') -Color amber
+    $observed['partner highlight green tint'] = Get-OutlineTintResult -Path (Join-Path $shotFolder 'zlevels-partner-green.png') -Color green
+}
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
 Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } elseif ($_.Accept -eq 'PASS or TAKEN') { $_.Label + ' (PASS or TAKEN)' } else { $_.Label + ' (' + $_.Accept + ')' } }) -join ', ') + '.')
-foreach ($label in $observed.Keys) { Write-Host "Observed from Player.log: $label = $($observed[$label])." }
+foreach ($label in $observed.Keys) { Write-Host "Observed by the runner: $label = $($observed[$label])." }
 if ($gateProblems.Count -gt 0) {
     # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause.
     # Earlier entries in this log may be unrelated to this run, so the hint says so.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 using Verse;
@@ -8,7 +9,7 @@ namespace ZLevelsRimatomics
 {
     // Outlines the partner cells of the viewed level: green where the level also holds a usable cooling column, amber where it does not.
     // Map.MapUpdate calls DynamicDrawManager.DrawDynamicThings only for the map in view, inside its draw block, so this postfix runs once per
-    // frame for that map. An exception would reach the game's draw loop, so the postfix catches it and logs the first failure on each map.
+    // frame for that map. An exception would reach the game's draw loop, so the postfix catches it and logs each distinct failure once per map.
     [HarmonyPatch(typeof(DynamicDrawManager), nameof(DynamicDrawManager.DrawDynamicThings))]
     public static class CoolingColumnHighlight
     {
@@ -22,16 +23,16 @@ namespace ZLevelsRimatomics
         private static InvalidOperationException edgeTextureFault;
         private static readonly List<IntVec3> pairedCells = new List<IntVec3>();
         private static readonly List<IntVec3> unpairedCells = new List<IntVec3>();
-        // The map that last logged a failure, and whether any failure has been logged. A failure logs when its map is not the one that logged last,
-        // so a map that fails in every frame logs once, and a failure on another map logs again.
-        private static bool failureLogged;
-        private static Map failedMap;
-        // The outcome of the last frame that ran for a map. The validation harness reads these to prove the outline was drawn. LastMap is the map
-        // that frame ran for. TargetsLastFrame is the number of targets it found, or -1 when it did not reach the count. DrawnLastFrame is the
-        // number of those targets whose outline pass completed.
+        // The failures already logged on each map. A failure is one exception type with one message. The same failure on the same map logs once,
+        // and a different failure on the same map logs again.
+        private static readonly ConditionalWeakTable<Map, HashSet<string>> loggedFailures = new ConditionalWeakTable<Map, HashSet<string>>();
+        // The outcome of the last frame that ran for a map, for the validation harness. LastMap is the map that frame ran for. FinishedLastFrame is
+        // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. CellsDrawnLastFrame counts the cells
+        // that drew at least one plane.
         public static Map LastMap;
-        public static int TargetsLastFrame = -1;
-        public static int DrawnLastFrame;
+        public static bool FinishedLastFrame;
+        public static int PlanesLastFrame;
+        public static int CellsDrawnLastFrame;
 
         // The field-edge texture, as GenDraw.DrawFieldEdges takes it: the main texture of the material that MatLoader loads for Misc/FieldEdge.
         // When the path does not load, MatLoader returns BaseContent.BadMat, the placeholder, and warns on every call. So the failure is kept, and
@@ -52,37 +53,44 @@ namespace ZLevelsRimatomics
             return texture;
         }
 
-        // One plane per open edge, drawn with Graphics.DrawMesh. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced.
+        // One plane per open side, drawn with Graphics.DrawMesh. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced.
         // With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does not use instancing.
-        // An edge shared with another cell of the list is skipped, and so is an edge that leads off the map, as DrawFieldEdges skips them.
-        // Returns the number of cells whose outline was drawn. A cell with no open side of its own lies inside its neighbours' outline, so it counts too.
+        // The sides come from OutlineRule, which skips a side that leads off the map or onto another cell of the list, as DrawFieldEdges does.
+        // Returns the cells that drew at least one plane.
         private static int DrawOutline(List<IntVec3> cells, Color color, Map map)
         {
             if (cells.Count == 0) return 0;
             Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, color, OutlineRenderQueue);
-            int outlined = 0;
+            int drawnCells = 0;
             foreach (IntVec3 cell in cells)
             {
                 Vector3 position = cell.ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
+                int openSides = OutlineRule.OpenSides(cell.x, cell.z,
+                    (x, z) => new IntVec3(x, 0, z).InBounds(map),
+                    (x, z) => cells.Contains(new IntVec3(x, 0, z)));
+                bool drewPlane = false;
                 for (int side = 0; side < 4; side++)
                 {
-                    IntVec3 neighbour = cell + GenAdj.CardinalDirections[side];
-                    if (!neighbour.InBounds(map) || cells.Contains(neighbour)) continue;
+                    if ((openSides & (1 << side)) == 0) continue;
                     Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(side).AsQuat, Vector3.one), material, 0);
+                    PlanesLastFrame++;
+                    drewPlane = true;
                 }
-                outlined++;
+                if (drewPlane) drawnCells++;
             }
-            return outlined;
+            return drawnCells;
         }
 
         public static void Postfix(Map ___map)
         {
+            if (___map == null) return;
             try
             {
-                if (___map == null || ___map.Disposed || ___map != Find.CurrentMap) return;
+                if (___map.Disposed || ___map != Find.CurrentMap) return;
                 LastMap = ___map;
-                TargetsLastFrame = -1;
-                DrawnLastFrame = 0;
+                FinishedLastFrame = false;
+                PlanesLastFrame = 0;
+                CellsDrawnLastFrame = 0;
                 pairedCells.Clear();
                 unpairedCells.Clear();
                 foreach (CoolingTarget target in CoolingLoopRegistry.HighlightTargets(___map))
@@ -90,19 +98,22 @@ namespace ZLevelsRimatomics
                     if (target.Paired) pairedCells.Add(target.Cell);
                     else unpairedCells.Add(target.Cell);
                 }
-                TargetsLastFrame = pairedCells.Count + unpairedCells.Count;
-                DrawnLastFrame += DrawOutline(pairedCells, PairedColor, ___map);
-                DrawnLastFrame += DrawOutline(unpairedCells, UnpairedColor, ___map);
+                CellsDrawnLastFrame += DrawOutline(pairedCells, PairedColor, ___map);
+                CellsDrawnLastFrame += DrawOutline(unpairedCells, UnpairedColor, ___map);
+                FinishedLastFrame = true;
             }
             catch (Exception exception)
             {
-                // Later frames on the same map that fail log nothing. A map that fails after another map logs again, so the log names each map that failed.
-                if (failureLogged && ReferenceEquals(failedMap, ___map)) return;
-                failureLogged = true;
-                failedMap = ___map;
-                string mapName = ___map == null ? "none" : ___map.uniqueID.ToString();
-                Log.Error("Z-Levels partner highlight failed on map " + mapName + ", so no partner outline is drawn: " + exception);
+                LogFailureOnce(___map, exception);
             }
+        }
+
+        // Logs a failure the first time its exception type and message reach a map. The same failure on the same map logs nothing more.
+        private static void LogFailureOnce(Map map, Exception exception)
+        {
+            HashSet<string> logged = loggedFailures.GetValue(map, _ => new HashSet<string>());
+            if (!logged.Add(exception.GetType().FullName + ": " + exception.Message)) return;
+            Log.Error("Z-Levels partner highlight failed on map " + map.uniqueID + ", so no partner outline is drawn: " + exception);
         }
     }
 }
