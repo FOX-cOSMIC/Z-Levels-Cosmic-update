@@ -2131,6 +2131,7 @@ namespace ZLevelsValidation
                 RecordCooling("lower turbine shares the surface tower's loop", "FAIL: column missing");
                 RecordCooling("cooling link breaks when a column is removed", "FAIL: column missing");
                 RecordCooling("cooling link survives reload", "FAIL: column missing");
+                RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
                 RecordCoolingLink();
             }
             catch (Exception exception)
@@ -2152,6 +2153,22 @@ namespace ZLevelsValidation
         {
             var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
             Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
+        }
+
+        // The optional ZLevelsRimatomics assembly is named by string, so this harness compiles before that assembly exists.
+        private static string RimatomicsBridgeResult()
+        {
+            Type bridge = Type.GetType("ZLevelsRimatomics.RimatomicsBridge, ZLevelsRimatomics");
+            if (bridge == null)
+            {
+                return "FAIL: bridge type missing";
+            }
+            FieldInfo active = bridge.GetField("Active", BindingFlags.Public | BindingFlags.Static);
+            if (active == null)
+            {
+                return "FAIL: bridge has no Active field";
+            }
+            return (bool)active.GetValue(null) ? "PASS" : "FAIL: bridge not active";
         }
 
         // Test only: the other colonists' jobs and work priorities, for a timeout message.
