@@ -4,6 +4,7 @@
     <RootNamespace>ZLevelsRimatomics</RootNamespace>
     <AssemblyName>ZLevelsRimatomics</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableSourceLink>false</EnableSourceLink>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <OutputPath>../../../1.7/Assemblies/</OutputPath>
