@@ -62,9 +62,10 @@ function Assert-SwitchesRead {
 # TAKEN with the file it wrote. The scenario's own label always counts. A -FreeColonists run must record colonist work recorded, and a
 # -OtherColonistsWork run must record other colonists work recorded. The core run writes each after its mining and building checks. A haul
 # run ends before those checks and records the label as FAIL. A run with -RimatomicsPlusPlus must show the mod in its game log. A run with
-# -Visual must write each of its screenshot rows.
+# -Visual must write each of its screenshot rows. A -Visual run with cooling columns has partner targets, so it must also write its outline row as
+# PASS: <N> cells, with N above zero.
 function Get-RequiredLabels {
-    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @())
+    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
     if ($FreeColonists) { $labels += [pscustomobject]@{ Label = 'colonist work recorded'; Accept = 'PASS' } }
     if ($OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
@@ -73,6 +74,8 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
+        # The outline row counts the targets it drew, so a -Visual run with cooling columns must show that count above zero.
+        if ($CoolingColumns) { $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS: N cells' } }
     }
     return $labels
 }
@@ -88,8 +91,9 @@ function Get-GateProblems {
             if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
             continue
         }
-        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file.
-        $accepted = if ($required.Accept -eq 'PASS or TAKEN') { '(PASS$|TAKEN: .+$)' } else { 'PASS$' }
+        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. The outline row reads
+        # PASS: <N> cells, and N must be above zero.
+        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS: N cells' { 'PASS: [1-9][0-9]* cells$' } default { 'PASS$' } }
         $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] ' + $accepted) })
         if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
     }
@@ -382,11 +386,11 @@ $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'm
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
-$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels)
+$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
-Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } else { $_.Label + ' (PASS or TAKEN)' } }) -join ', ') + '.')
+Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } elseif ($_.Accept -eq 'PASS or TAKEN') { $_.Label + ' (PASS or TAKEN)' } else { $_.Label + ' (' + $_.Accept + ')' } }) -join ', ') + '.')
 foreach ($label in $observed.Keys) { Write-Host "Observed from Player.log: $label = $($observed[$label])." }
 if ($gateProblems.Count -gt 0) {
     # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause.
