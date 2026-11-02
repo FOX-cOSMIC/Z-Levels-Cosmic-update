@@ -75,6 +75,24 @@ function Get-ErrorScan {
     }
     return [pscustomobject]@{ Entries = $entries; ZLevelsEntries = $zlevelsEntries; FirstZLevelsEntry = $first; FirstZLevelsWarn = $firstWarn }
 }
+# Each validation Record call writes one timestamped row to validation-results.txt, then one "[ZLevels validation] " line to Player.log.
+# This counts both, leaving out the log copy rows, and throws when the counts differ, so a row or a marker that failed to write fails the run.
+# It reads only the two files. Nothing in process is consulted.
+function Assert-ResultsMatchLog {
+    param([string]$ResultsPath, [string]$LogPath)
+    $resultRows = 0
+    foreach ($line in [System.IO.File]::ReadLines($ResultsPath)) {
+        if ($line -match '^\d{4}-\d{2}-\d{2}T\S+ [|] (?!log copy [|] )') { $resultRows++ }
+    }
+    $markerLines = 0
+    foreach ($line in [System.IO.File]::ReadLines($LogPath)) {
+        if ($line.Contains('[ZLevels validation] ')) { $markerLines++ }
+    }
+    if ($resultRows -ne $markerLines) {
+        throw "The results file and the game log disagree. validation-results.txt has $resultRows result rows, not counting log copy rows, and Player.log has $markerLines [ZLevels validation] lines: $(Split-Path -Parent $ResultsPath)"
+    }
+    return [pscustomobject]@{ ResultRows = $resultRows; MarkerLines = $markerLines }
+}
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
 $executable = Join-Path $game 'RimWorld.exe'
@@ -208,13 +226,24 @@ $log = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by L
 if (Test-Path -LiteralPath $log) {
     # The game log is copied as bytes, and the copy must hash the same as its source. A text copy would change the bytes.
     $runLog = Join-Path $runDirectory 'Player.log'
-    Copy-Item -LiteralPath $log -Destination $runLog -Force
-    if ((Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $runLog -Algorithm SHA256).Hash) {
-        throw "The copy of the game log does not match its source: $runDirectory"
+    try {
+        Copy-Item -LiteralPath $log -Destination $runLog -Force
+        if ((Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $runLog -Algorithm SHA256).Hash) {
+            throw "The copy of the game log does not match its source: $runDirectory"
+        }
     }
+    catch {
+        throw "Copying the game log failed. Source: $log. Destination: $runLog. Run folder: $runDirectory. Cause: $($_.Exception.Message)"
+    }
+}
+else {
+    throw "The game log is missing at $log, so this run has no Player.log copy: $runDirectory"
 }
 $resultsPath = Join-Path $runDirectory 'validation-results.txt'
 if (!(Test-Path -LiteralPath $resultsPath)) { throw "Game exited without validation results: $runDirectory" }
+# The result rows and the game log's marker lines must agree. This reads only the two files, so it applies to every run.
+$cross = Assert-ResultsMatchLog -ResultsPath $resultsPath -LogPath (Join-Path $runDirectory 'Player.log')
+Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Player.log: $($cross.MarkerLines)."
 $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
@@ -239,7 +268,8 @@ if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + 
     }
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
-$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -cmatch '\bERROR\b' })
+# The pass gate's line test is the 1369ed4 test. The whole-word ERROR rule belongs to Get-ErrorScan only.
+$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
     # Only error entries count, read by the same scan as the cause hint. A Z-Levels frame in an ordinary log line is not an error.

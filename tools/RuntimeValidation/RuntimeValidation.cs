@@ -2192,8 +2192,18 @@ namespace ZLevelsValidation
                 finished = true;
                 try
                 {
-                    // The cause and the rows come first. The log comes last, so a logger that throws cannot skip them.
-                    // The description is built inside this try, so a Describe that throws cannot skip the shutdown below.
+                    // The link row comes first, with the exception's type name as its cause, so a failure in the steps below cannot skip it.
+                    try
+                    {
+                        Record("cooling link", "FAIL: " + exception.GetType().Name);
+                    }
+                    catch (Exception linkException)
+                    {
+                        // The link row could not be written. The game still shuts down after this block, and the log names this failure.
+                        Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
+                    }
+                    // The description and the owed rows come after the link row. The description is built inside this try, so a Describe that
+                    // throws cannot skip the shutdown below.
                     string cause = Describe(exception);
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
                     var owed = new List<string>(CoolingLabels);
@@ -2202,15 +2212,6 @@ namespace ZLevelsValidation
                     {
                         // A label whose check never ran says why. It does not read as a failure of its own check.
                         if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: not run: " + cause);
-                    }
-                    try
-                    {
-                        Record("cooling link", "FAIL: " + cause);
-                    }
-                    catch (Exception linkException)
-                    {
-                        // The link row could not be written. The game still shuts down after this block, and the log names this failure.
-                        Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
                     }
                     Log.Error("Z-Levels cooling link validation failed: " + exception);
                 }
@@ -2344,13 +2345,14 @@ namespace ZLevelsValidation
             }
             catch (Exception exception)
             {
-                Log.Error("Z-Levels cooling pairing check failed: " + exception);
                 string cause = Describe(exception);
                 foreach (string label in CoolingPairingLabels)
                 {
                     // A label whose check never ran says why. It does not read as a failure of its own check.
                     if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: not run: " + cause);
                 }
+                // The log comes after the rows, so a logger that throws cannot skip them.
+                Log.Error("Z-Levels cooling pairing check failed: " + exception);
             }
         }
 
@@ -3069,7 +3071,8 @@ namespace ZLevelsValidation
             }
             catch (Exception copyException)
             {
-                string detail = (copyException.GetType().Name + ": " + copyException.Message).Replace('\r', ' ').Replace('\n', ' ');
+                // Describe names the inner cause too, and it keeps the row on one line.
+                string detail = Describe(copyException);
                 File.AppendAllText(Path.Combine(GenFilePaths.SaveDataFolderPath, "validation-results.txt"),
                     DateTime.UtcNow.ToString("O") + " | log copy | FAIL: could not copy the row to Player.log: " + detail + Environment.NewLine);
             }
