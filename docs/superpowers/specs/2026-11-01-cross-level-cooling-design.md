@@ -8,7 +8,7 @@ A Rimatomics reactor on one level can be cooled by coolers on another level. Coo
 
 ## Decisions
 
-1. **Mechanism.** Each level gets a cooling column. A column pairs with any column on the level directly above or below it, within 3 cells. Power transmitter columns use the same rule (ADR-0001).
+1. **Mechanism.** Each level gets a cooling column. A column pairs with any column on the level directly above or below it, less than 3 cells apart, the same rule the power transmitter columns use. Power transmitter columns use the same rule (ADR-0001).
 2. **Several in range.** All columns in range join one loop. Build order does not matter.
 3. **What joins.** The whole local cooling network on each side joins the loop. Rimatomics computes the cooling ratio over the joined coolers and turbines. The mod does not change the math.
 4. **Like a pipe.** A cooling column is a Rimatomics coolant pipe. It connects to adjacent coolant pipes on its level and has no capacity limit. The link moves capacity, not water (ADR-0003).
