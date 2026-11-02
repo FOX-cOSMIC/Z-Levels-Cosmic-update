@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using RimWorld;
 using Verse;
 using Verse.AI;
@@ -113,6 +114,9 @@ namespace ZLevelsValidation
         private bool coolingChecksRecorded;
         private DateTime? coolingShotDue;
         private bool coolingShotTaken;
+        // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels and cooling link record FAIL.
+        private static bool CoolingNoColumns => GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns");
+        private const string NoColumnsVariantNotBuilt = "FAIL: no-columns variant not built yet";
         // Every label the final "cooling link" line needs. Each is recorded PASS or FAIL: <reason>. A label that is never recorded blocks the link.
         private static readonly string[] CoolingLabels =
         {
@@ -123,6 +127,7 @@ namespace ZLevelsValidation
             "column one cell away stays unpaired",
             "column out of range stays unpaired",
             "coolant pipe joins the column",
+            "column three cells away stays off the pipe net",
             "lower turbine shares the surface tower's loop",
             "cooling link breaks when a column is removed",
             "cooling link survives reload",
@@ -140,6 +145,7 @@ namespace ZLevelsValidation
             "column one cell away stays unpaired",
             "column out of range stays unpaired",
             "coolant pipe joins the column",
+            "column three cells away stays off the pipe net",
         };
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
@@ -2139,7 +2145,7 @@ namespace ZLevelsValidation
                 {
                     RecordCoolingChecks();
                     coolingChecksRecorded = true;
-                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && PlaceCoolingLook())
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && !CoolingNoColumns && PlaceCoolingLook())
                     {
                         coolingShotDue = DateTime.UtcNow.AddSeconds(3);
                         return;
@@ -2164,12 +2170,21 @@ namespace ZLevelsValidation
             }
             catch (Exception exception)
             {
+                finished = true;
                 Log.Error("Z-Levels cooling link validation failed: " + exception);
-                foreach (string label in CoolingLabels)
+                try
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + exception.Message);
+                    foreach (string label in CoolingLabels)
+                    {
+                        if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + Describe(exception));
+                    }
+                    Record("cooling link", "FAIL: " + Describe(exception));
                 }
-                Record("cooling link", "FAIL: " + exception);
+                catch (Exception recordException)
+                {
+                    // The rows could not be written. The game still shuts down after this block, and the log names this failure.
+                    Log.Error("Z-Levels cooling link rows could not be recorded: " + recordException);
+                }
             }
             finished = true;
             Root.Shutdown();
@@ -2194,6 +2209,11 @@ namespace ZLevelsValidation
         private void RecordCoolingPairing(ThingDef column)
         {
             ThingDef pipeDef = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
+            if (CoolingNoColumns)
+            {
+                foreach (string label in CoolingPairingLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
+                return;
+            }
             if (column == null || pipeDef == null)
             {
                 foreach (string label in CoolingPairingLabels) RecordCooling(label, "FAIL: ZL_CoolingColumn or coolingPipe def is not loaded");
@@ -2202,7 +2222,9 @@ namespace ZLevelsValidation
             try
             {
                 surface = Find.CurrentMap;
-                lower = CreateLevelBelow(Current.Game.GetComponent<ZLevelsManager>(), surface);
+                ZLevelsManager manager = Current.Game?.GetComponent<ZLevelsManager>();
+                if (manager == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
+                lower = CreateLevelBelow(manager, surface);
                 IntVec3 cell = surface.Center + new IntVec3(-12, 0, 0);
                 IntVec3 farCell = cell + new IntVec3(3, 0, 0);
                 if (!cell.InBounds(surface) || !cell.InBounds(lower) || !farCell.InBounds(surface) || !(cell + new IntVec3(0, 0, 1)).InBounds(surface))
@@ -2229,29 +2251,30 @@ namespace ZLevelsValidation
                 }
                 else
                 {
-                    bool paired = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
-                    RecordCooling("cooling columns paired", paired ? "PASS" : "FAIL: the surface column and the lower column do not share a loop");
-                    RecordCooling("column one cell away stays unpaired", OneCellResult(loopOf, lowerComp, nearComp, paired));
-                    RecordCooling("column out of range stays unpaired", OutOfRangeResult(loopOf, lowerComp, farComp, paired));
+                    string pairReason = UnjoinableReason("the surface column", surfaceComp) ?? UnjoinableReason("the lower column", lowerComp);
+                    bool paired = pairReason == null && Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
+                    RecordCooling("cooling columns paired", pairReason != null ? "FAIL: " + pairReason : paired ? "PASS" : "FAIL: the surface column and the lower column do not share a loop");
+                    RecordCooling("column one cell away stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column one cell away", nearComp, 1f, paired));
+                    RecordCooling("column out of range stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column three cells away", farComp, 3f, paired));
                 }
                 // One MapUpdate runs Rimatomics' grid regeneration, which joins the new pipe to its net (Harmony_GridRegen is a prefix on Map.MapUpdate).
                 surface.MapUpdate();
-                // A control for the pipe check. The column 3 cells east touches neither the first column nor the coolingPipe, so it must not share their net.
-                // If it did, the pipe check would pass for a reason other than adjacency. This line is information only, not a label.
-                Record("coolant pipe control", "column 3 cells east shares the column's pipe net: " + SharesPipeNet(surfaceComp, farComp));
                 RecordCooling("coolant pipe joins the column", CoolantPipeResult(surfaceComp, pipeBuilding));
+                // The control for the pipe check. The column three cells east touches neither the first column nor the coolingPipe, so it must
+                // stay off their net. If it joined, the pipe check would pass for a reason other than adjacency.
+                RecordCooling("column three cells away stays off the pipe net", OffPipeNetResult(surfaceComp, farComp));
             }
             catch (Exception exception)
             {
                 Log.Error("Z-Levels cooling pairing check failed: " + exception);
                 foreach (string label in CoolingPairingLabels)
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + exception.Message);
+                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + Describe(exception));
                 }
             }
         }
 
-        // The registry is named by string, so this code compiles before ZLevelsRimatomics.CoolingLoopRegistry exists. When LoopOf cannot
+        // LoopOf is read by name, so a missing or renamed method is a row failure with its cause, not a compile error. When LoopOf cannot
         // be read, the method returns null and problem names the cause.
         private static MethodInfo CoolingLoopOfMethod(out string problem)
         {
@@ -2274,8 +2297,8 @@ namespace ZLevelsValidation
             return comp;
         }
 
-        // LoopOf returns an empty list for a column that is not spawned on a map. A start that is missing from its own loop is a failure of
-        // its own, so it cannot read as "not paired". A TargetInvocationException is unwrapped, so the row names the real cause.
+        // The rows check each column with UnjoinableReason before this runs, so an unusable column is named by its row and cannot read as
+        // "not paired". A TargetInvocationException is unwrapped and rethrown with its stack trace kept.
         private static bool Joined(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn from, ZLevelsRimatomics.CompCoolingColumn member)
         {
             object result;
@@ -2285,33 +2308,51 @@ namespace ZLevelsValidation
             }
             catch (TargetInvocationException wrapped)
             {
-                throw wrapped.InnerException;
+                ExceptionDispatchInfo.Capture(wrapped.InnerException).Throw();
+                return false; // Throw does not return, so this line never runs.
             }
             var loop = (System.Collections.IList)result;
-            if (!loop.Contains(from)) throw new InvalidOperationException("start column not spawned on a map");
+            if (!loop.Contains(from)) throw new InvalidOperationException("the start column is not in its own loop");
             return loop.Contains(member);
         }
 
-        // The second surface column sits 1 cell from the lower column. Only the same cell pairs, so the row passes only when the in-range
-        // pair is joined, both columns have maps, and the column one cell away is outside the loop.
-        private static string OneCellResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, ZLevelsRimatomics.CompCoolingColumn nearComp, bool paired)
+        // The reason a column cannot take part in a loop test, or null when it is spawned on a live map and registered. The role names the
+        // column in the row, so a failure says which column it is and why.
+        private static string UnjoinableReason(string role, ZLevelsRimatomics.CompCoolingColumn column)
         {
-            if (lowerComp.parent.Map == null || nearComp.parent.Map == null) return "FAIL: a column has no map";
-            if (!paired) return "FAIL: the in-range pair is not joined, so an unjoined neighbor proves nothing";
-            float apart = nearComp.parent.Position.DistanceTo(lowerComp.parent.Position);
-            if (apart != 1f) return "FAIL: the test layout puts the column one cell away " + apart + " cells from the lower column, not 1";
-            return Joined(loopOf, lowerComp, nearComp) || Joined(loopOf, nearComp, lowerComp) ? "FAIL: the column one cell away shares the loop" : "PASS";
+            if (!column.parent.Spawned || column.parent.Map == null) return role + " is not spawned on a map";
+            if (column.parent.Map.Disposed) return role + " is on a disposed map";
+            if (ReadField(column, "pipe") == null) return role + " has no pipe, so it is not registered";
+            if (!ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(column)) return role + " is not registered";
+            return null;
         }
 
-        // The third column sits 3 cells from the lower column. An empty far loop shows nothing by itself, so the row passes only when the
-        // in-range pair is joined, both columns have maps, and the far column is outside the loop.
-        private static string OutOfRangeResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, ZLevelsRimatomics.CompCoolingColumn farComp, bool paired)
+        // The row for a column that must stay off the loop. pairReason names an unusable column of the in-range pair, and the column itself must
+        // be usable too. The in-range pair must be joined, so an empty loop proves nothing. The column must sit at the layout distance from the lower column.
+        private static string StaysUnpairedResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, string pairReason, string role, ZLevelsRimatomics.CompCoolingColumn column, float cells, bool paired)
         {
-            if (lowerComp.parent.Map == null || farComp.parent.Map == null) return "FAIL: a column has no map";
-            if (!paired) return "FAIL: the in-range pair is not joined, so an empty far loop proves nothing";
-            float apart = farComp.parent.Position.DistanceTo(lowerComp.parent.Position);
-            if (apart != 3f) return "FAIL: the test layout puts the third column " + apart + " cells from the lower column, not 3";
-            return Joined(loopOf, lowerComp, farComp) || Joined(loopOf, farComp, lowerComp) ? "FAIL: the column 3 cells away shares the loop" : "PASS";
+            string reason = pairReason ?? UnjoinableReason(role, column);
+            if (reason != null) return "FAIL: " + reason;
+            if (!paired) return "FAIL: the in-range pair is not joined, so " + role + " proves nothing";
+            float apart = column.parent.Position.DistanceTo(lowerComp.parent.Position);
+            if (apart != cells) return "FAIL: the test layout puts " + role + " " + apart + " cells from the lower column, not " + cells;
+            return Joined(loopOf, lowerComp, column) || Joined(loopOf, column, lowerComp) ? "FAIL: " + role + " shares the loop" : "PASS";
+        }
+
+        // The column three cells east touches neither the first column nor the coolingPipe. Only "no" passes. Any other answer fails the row,
+        // because it does not show that the column is off the net.
+        private static string OffPipeNetResult(ZLevelsRimatomics.CompCoolingColumn surfaceComp, ZLevelsRimatomics.CompCoolingColumn farComp)
+        {
+            string shares = SharesPipeNet(surfaceComp, farComp);
+            if (shares == "no") return "PASS";
+            if (shares == "yes") return "FAIL: the column three cells away shares the pipe net of the first surface column";
+            return "FAIL: the pipe net could not be read: " + shares;
+        }
+
+        // One line per row: the exception type, then its message. Line breaks become spaces, so a row never spans two lines.
+        private static string Describe(Exception exception)
+        {
+            return (exception.GetType().Name + ": " + exception.Message).Replace('\r', ' ').Replace('\n', ' ');
         }
 
         // Rimatomics types are read by name, so this code compiles without a reference to Rimatomics. The column's pipe field must be set,
@@ -2410,6 +2451,11 @@ namespace ZLevelsValidation
         // The final line passes only when every label in CoolingLabels has a PASS. Otherwise it names the labels that do not.
         private void RecordCoolingLink()
         {
+            if (CoolingNoColumns)
+            {
+                Record("cooling link", NoColumnsVariantNotBuilt);
+                return;
+            }
             var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
             Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
         }
