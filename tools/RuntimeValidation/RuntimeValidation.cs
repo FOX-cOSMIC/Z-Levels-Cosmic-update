@@ -2450,15 +2450,23 @@ namespace ZLevelsValidation
             return string.Join("; inner ", levels).Replace('\r', ' ').Replace('\n', ' ');
         }
 
-        // Describe, or the exception type name when Describe throws. A row built from this text still names the failure.
+        // Describe, or the exception type name when Describe throws. The log names a Describe failure. A row built from this text still names the failure.
         private static string DescribeOrTypeName(Exception exception)
         {
             try
             {
                 return Describe(exception);
             }
-            catch (Exception)
+            catch (Exception describeException)
             {
+                // A logger that throws here cannot be recorded anywhere else. The rows still get the type name, so the caller is not stopped.
+                try
+                {
+                    Log.Error("Z-Levels validation could not describe " + exception.GetType().Name + ", so its row uses the type name. Describe failed with " + describeException.GetType().Name + ": " + describeException.Message);
+                }
+                catch (Exception)
+                {
+                }
                 return exception.GetType().Name;
             }
         }
@@ -3084,8 +3092,8 @@ namespace ZLevelsValidation
             }
             catch (Exception copyException)
             {
-                // Describe names the inner cause too, and it keeps the row on one line.
-                string detail = Describe(copyException);
+                // DescribeOrTypeName names the inner cause, and it falls back to the type name if Describe throws. The copy row is written either way.
+                string detail = DescribeOrTypeName(copyException);
                 File.AppendAllText(Path.Combine(GenFilePaths.SaveDataFolderPath, "validation-results.txt"),
                     DateTime.UtcNow.ToString("O") + " | log copy | FAIL: could not copy the row to Player.log: " + detail + Environment.NewLine);
             }

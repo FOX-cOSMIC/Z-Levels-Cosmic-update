@@ -29,17 +29,33 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# A run starts one scenario. The harness runs the first scenario switch it finds, and the required-label chain takes its label from the first
-# switch it finds, so a second scenario switch would check one scenario while another runs. Modifiers such as -Visual are not listed.
-function Assert-OneScenarioSwitch {
-    param([System.Collections.IDictionary]$Switches)
-    $set = @($Switches.Keys | Where-Object { [bool]$Switches[$_] } | ForEach-Object { '-' + $_ })
-    if ($set.Count -gt 1) {
-        throw "A run takes one scenario switch, but these are set: $($set -join ', '). Start a separate run for each scenario. No run was started."
+# A run starts one scenario, or the core validation run when no scenario switch is set. A switch that the chosen run does not read would be
+# ignored, so the check refuses it before anything starts. The reads are in $switchReaders, which lists them from RuntimeValidation.cs.
+function Assert-SwitchesRead {
+    param(
+        [System.Collections.IDictionary]$Scenarios,
+        [System.Collections.IDictionary]$Modifiers,
+        [System.Collections.IDictionary]$Readers
+    )
+    $started = @($Scenarios.Keys | Where-Object { [bool]$Scenarios[$_] })
+    if ($started.Count -gt 1) {
+        throw "A run takes one scenario switch, but these are set: $(($started | ForEach-Object { '-' + $_ }) -join ', '). Start a separate run for each scenario. No run was started."
     }
-    return $set
+    $chosen = if ($started.Count -eq 1) { $started[0] } else { 'Core' }
+    $chosenName = if ($started.Count -eq 1) { '-' + $chosen } else { 'the core validation run' }
+    $set = @($Modifiers.Keys | Where-Object { [bool]$Modifiers[$_] })
+    # AllColonistsHaul and OtherColonistHauls each set a required label, and the run checks one label. Two of them would leave one label unchecked.
+    if (@($set | Where-Object { $_ -in @('AllColonistsHaul', 'OtherColonistHauls') }).Count -gt 1) {
+        throw "-AllColonistsHaul and -OtherColonistHauls each set a required label, and a run checks one label. Run them separately. No run was started."
+    }
+    foreach ($name in $set) {
+        $readBy = @($Readers[$name])
+        if (($readBy -contains 'Every run') -or ($readBy -contains $chosen)) { continue }
+        $readerList = @($readBy | ForEach-Object { if ($_ -eq 'Core') { 'the core validation run' } else { '-' + $_ } }) -join ', '
+        throw "The switch -$name is not read by $chosenName, so that run would ignore it. It is read by $readerList. Remove -$name, or run a scenario that reads it. No run was started."
+    }
 }
-# The scenario switches. Each one starts a scenario in the harness dispatch, and each one sets a required label in the chain below.
+# The scenario switches. Each one starts its own scenario, and the harness dispatch returns after the first one it finds.
 $scenarioSwitches = [ordered]@{
     InfestationGuard = $InfestationGuard
     StaleLookup = $StaleLookup
@@ -50,15 +66,35 @@ $scenarioSwitches = [ordered]@{
     VaultSave = $VaultSave
     VaultInfestation = $VaultInfestation
     Supply = $Supply
-    AllColonistsHaul = $AllColonistsHaul
-    OtherColonistHauls = $OtherColonistHauls
     UnreachableZone = $UnreachableZone
     MultiBuild = $MultiBuild
     StairsDamage = $StairsDamage
     Cooling = $Cooling
     CoolingNoColumns = $CoolingNoColumns
 }
-$null = Assert-OneScenarioSwitch -Switches $scenarioSwitches
+# The other switches. Each one is read only by the runs listed for it in $switchReaders. 'Core' is the run with no scenario switch.
+$modifierSwitches = [ordered]@{
+    Visual = $Visual
+    AllColonistsHaul = $AllColonistsHaul
+    OtherColonistHauls = $OtherColonistHauls
+    FreeColonists = $FreeColonists
+    OtherColonistsWork = $OtherColonistsWork
+    MultiBuildLowerLogs = $MultiBuildLowerLogs
+    RimatomicsPlusPlus = $RimatomicsPlusPlus
+    ZLevelsDebug = $ZLevelsDebug
+}
+# The reads, from RuntimeValidation.cs. 'Every run' marks a switch that the launch, the mod list, or a check before the dispatch applies to every run.
+$switchReaders = [ordered]@{
+    Visual = @('Core', 'Cooling', 'CoolingNoColumns')
+    AllColonistsHaul = @('Core')
+    OtherColonistHauls = @('Core')
+    FreeColonists = @('Core')
+    OtherColonistsWork = @('Core')
+    MultiBuildLowerLogs = @('MultiBuild')
+    RimatomicsPlusPlus = @('Every run')
+    ZLevelsDebug = @('Every run')
+}
+$null = Assert-SwitchesRead -Scenarios $scenarioSwitches -Modifiers $modifierSwitches -Readers $switchReaders
 # One streaming pass over the game log, for the cause hint and the Z-Levels gate. An ERROR entry starts at any line with the whole word ERROR,
 # matched case-sensitively, timestamped or not. It ends at the next timestamped line or at the next ERROR line. Only the entry count, the count
 # of entries that mention Z-Levels, the first of those entries, and the first Z-Levels WARN line are kept. The log is read as a stream.
