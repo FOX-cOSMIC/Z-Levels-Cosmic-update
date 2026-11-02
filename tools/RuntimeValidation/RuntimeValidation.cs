@@ -74,6 +74,8 @@ namespace ZLevelsValidation
         private static bool OtherColonistsWork => GenCommandLine.CommandLineArgPassed("zlevelsothercolonistswork");
         // Colonists seen below during the unforced haul, by name.
         private readonly HashSet<string> belowDuringWait = new HashSet<string>();
+        // Colonists seen carrying the harness's logs during the unforced haul. A haul switch needs one that is not the validation colonist.
+        private readonly HashSet<string> haulersSeen = new HashSet<string>();
 
         // State for the vault enter-and-build check. It is not saved.
         private int vaultStage;
@@ -498,17 +500,19 @@ namespace ZLevelsValidation
                                 if (!belowAtStart.Contains(below.LabelShort)) enteredBelow.Add(below.LabelShort);
                             }
                         }
+                        if (AllColonistsHaul || FreeColonists || OtherColonistsWork) RecordHaulers();
                         if (!UnforcedWoodInZone()) return;
                         Require(wentDownForWood, "colonist went down to the wood");
                         Record("unforced cross-level haul", "PASS");
+                        if (AllColonistsHaul || FreeColonists || OtherColonistsWork) Record("hauled by", string.Join(", ", haulersSeen));
                         if (OtherColonistsWork) Require(enteredBelow.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist went below during the haul");
                         if (AllColonistsHaul)
                         {
                             finished = true;
                             Record("colonists below during the haul", string.Join(", ", belowDuringWait));
+                            Require(haulersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist carried the logs");
                             if (OtherColonistsHaul)
                             {
-                                Require(belowDuringWait.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist went below");
                                 Record("other colonist hauls across levels", "PASS");
                             }
                             else
@@ -533,7 +537,7 @@ namespace ZLevelsValidation
                         Require(wentDownForWall, "colonist went down to the wall");
                         Record("mines below by itself", "PASS");
                         if (FreeColonists || OtherColonistsWork) Record("mined by", string.Join(", ", minersSeen));
-                        if (OtherColonistsWork) Require(minersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist mined");
+                        if (FreeColonists || OtherColonistsWork) Require(minersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist mined");
                         ReleaseForbiddenWood();
                         PlaceCampfire(lower);
                         deadline = DateTime.UtcNow.AddMinutes(4);
@@ -558,7 +562,7 @@ namespace ZLevelsValidation
                         if (campfire == null || campfire.def != DefDatabase<ThingDef>.GetNamed("Campfire")) return;
                         Record("builds below by itself", "PASS");
                         if (FreeColonists || OtherColonistsWork) Record("built by", string.Join(", ", buildersSeen));
-                        if (OtherColonistsWork) Require(buildersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist built");
+                        if (FreeColonists || OtherColonistsWork) Require(buildersSeen.Any(name => name != pawn.LabelShort), "a colonist other than the validation colonist built");
                         if (FreeColonists || OtherColonistsWork) Record("other colonists work recorded", "PASS");
                         if (pendingShotRow != null) { Record(pendingShotRow, ScreenshotResult(pendingShotName)); pendingShotRow = null; }
                         finished = true;
@@ -2698,6 +2702,17 @@ namespace ZLevelsValidation
                 + " C" + c.workSettings?.GetPriority(WorkTypeDefOf.Construction)));
         }
 
+        // Test only: names of the colonists carrying the harness's logs during the unforced haul, on either level. Each frame of the wait adds
+        // the carriers it sees. An all-colonists or other-colonist haul needs one that is not the validation colonist.
+        private void RecordHaulers()
+        {
+            if (unforcedWood == null) return;
+            foreach (Pawn colonist in surface.mapPawns.FreeColonistsSpawned.Concat(lower.mapPawns.FreeColonistsSpawned))
+            {
+                if (colonist.carryTracker != null && colonist.carryTracker.CarriedThing == unforcedWood) haulersSeen.Add(colonist.LabelShort);
+            }
+        }
+
         // Test only: names of the colonists mining the wall, collected while the designation waits. Needs -zlevelsfreecolonists.
         private void RecordMiners()
         {
@@ -2798,6 +2813,7 @@ namespace ZLevelsValidation
             RestoreWork(pawn);
             if (OtherColonistsHaul || OtherColonistsWork) pawn.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
             belowDuringWait.Clear();
+            haulersSeen.Clear();
             enteredBelow.Clear();
             belowAtStart.Clear();
             foreach (Pawn below in lower.mapPawns.FreeColonistsSpawned) belowAtStart.Add(below.LabelShort);
@@ -2825,7 +2841,7 @@ namespace ZLevelsValidation
                     if (colonist != pawn && !AllColonistsHaul && !FreeColonists && !OtherColonistsWork) colonist.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
                 }
             }
-            // The all-colonists variant counts any colonist who goes below as proof, so none may already be there.
+            // The all-colonists variant starts from a clean lower level, so none may already be there. Proof of the haul is a colonist who carries the logs (RecordHaulers).
             if (AllColonistsHaul) Require(lower.mapPawns.FreeColonistsSpawned.Count == 0, "no colonist below before the unforced haul: " + string.Join(", ", lower.mapPawns.FreeColonistsSpawned.Select(p => p.LabelShort + " on " + p.Map + " job " + (p.CurJob != null ? p.CurJob.def.defName : "none") + " at " + p.Position)));
             if (AllColonistsHaul || OtherColonistsWork) foreach (Pawn other in OtherColonists().ToList()) RestoreWork(other);
             if (OtherColonistsWork)

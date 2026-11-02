@@ -58,29 +58,38 @@ function Assert-SwitchesRead {
         throw "The switch -$name is not read by $chosenName, so that run $effect. It is read by $readerList. Remove -$name, or run a scenario that reads it. No run was started."
     }
 }
-# The labels a run must pass. The scenario's own label always counts. A run with a work switch must also record the work label, which the core
+# The labels a run must pass. Each one names the results it accepts: PASS for most labels, and PASS or TAKEN for a screenshot row, which reads
+# TAKEN with the file it wrote. The scenario's own label always counts. A run with a work switch must also record the work label, which the core
 # run writes after its mining and building checks. The haul run ends before those checks and records the label as FAIL. A run with
-# -RimatomicsPlusPlus must show the mod in its game log.
+# -RimatomicsPlusPlus must show the mod in its game log. A run with -Visual must write each of its screenshot rows.
 function Get-RequiredLabels {
-    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus)
-    $labels = @($ScenarioLabel)
-    if ($FreeColonists -or $OtherColonistsWork) { $labels += 'other colonists work recorded' }
-    if ($RimatomicsPlusPlus) { $labels += 'rimatomics++ mod active' }
+    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @())
+    $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
+    if ($FreeColonists -or $OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
+    if ($RimatomicsPlusPlus) { $labels += [pscustomobject]@{ Label = 'rimatomics++ mod active'; Accept = 'PASS' } }
+    if ($Visual) {
+        # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
+        if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
+        foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
+    }
     return $labels
 }
-# The problems that fail a run. Any FAIL row fails it. A required label fails it unless a row records PASS for it. A label that the runner
-# observed itself counts by its observed value. No problem means the run passes.
+# The problems that fail a run. Any FAIL row fails it. A required label fails it unless a row records one of the results it accepts. A label
+# that the runner observed itself counts by its observed value. No problem means the run passes.
 function Get-GateProblems {
-    param([string[]]$Results, [string[]]$RequiredLabels, [hashtable]$Observed = @{})
+    param([string[]]$Results, $RequiredLabels, [hashtable]$Observed = @{})
     $problems = @()
     foreach ($row in @($Results | Where-Object { $_ -match '[|] FAIL:' })) { $problems += 'FAIL row: ' + $row }
-    foreach ($label in $RequiredLabels) {
+    foreach ($required in $RequiredLabels) {
+        $label = $required.Label
         if ($Observed.ContainsKey($label)) {
             if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
             continue
         }
-        $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] PASS$') })
-        if ($passed.Count -eq 0) { $problems += 'required label missing or not PASS: ' + $label }
+        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file.
+        $accepted = if ($required.Accept -eq 'PASS or TAKEN') { '(PASS$|TAKEN: .+$)' } else { 'PASS$' }
+        $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] ' + $accepted) })
+        if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
     }
     return $problems
 }
@@ -369,11 +378,13 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
-$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus))
+# The screenshot rows a -Visual run writes: four in the core run, and one in the cooling runs.
+$screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
+$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels)
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
-Write-Host ('Required labels for this run: ' + ($requiredLabels -join ', ') + '.')
+Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } else { $_.Label + ' (PASS or TAKEN)' } }) -join ', ') + '.')
 foreach ($label in $observed.Keys) { Write-Host "Observed from Player.log: $label = $($observed[$label])." }
 if ($gateProblems.Count -gt 0) {
     # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause.
