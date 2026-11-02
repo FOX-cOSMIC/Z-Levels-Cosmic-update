@@ -120,8 +120,8 @@ namespace ZLevelsValidation
             "cooling column costs",
             "cooling column holds roof",
             "cooling columns paired",
+            "column one cell away stays unpaired",
             "column out of range stays unpaired",
-            "all in-range columns share one loop",
             "coolant pipe joins the column",
             "lower turbine shares the surface tower's loop",
             "cooling link breaks when a column is removed",
@@ -137,8 +137,8 @@ namespace ZLevelsValidation
         private static readonly string[] CoolingPairingLabels =
         {
             "cooling columns paired",
+            "column one cell away stays unpaired",
             "column out of range stays unpaired",
-            "all in-range columns share one loop",
             "coolant pipe joins the column",
         };
 
@@ -2190,7 +2190,7 @@ namespace ZLevelsValidation
         }
 
         // The pairing and pipe labels. The scenario generates the lower level, then places a surface column, a lower column under it,
-        // a second surface column 2 cells east, a third 3 cells east, and a coolant pipe north of the first surface column.
+        // a second surface column 1 cell east, a third 3 cells east, and a coolant pipe north of the first surface column.
         private void RecordCoolingPairing(ThingDef column)
         {
             ThingDef pipeDef = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
@@ -2211,18 +2211,18 @@ namespace ZLevelsValidation
                 }
                 ThingWithComps surfaceBuilding = SpawnBuilding(column, surface, cell, ThingDefOf.Steel);
                 ThingWithComps lowerBuilding = SpawnBuilding(column, lower, cell, ThingDefOf.Steel);
-                ThingWithComps nearBuilding = SpawnBuilding(column, surface, cell + new IntVec3(2, 0, 0), ThingDefOf.Steel);
+                ThingWithComps nearBuilding = SpawnBuilding(column, surface, cell + new IntVec3(1, 0, 0), ThingDefOf.Steel);
                 ThingWithComps farBuilding = SpawnBuilding(column, surface, farCell, ThingDefOf.Steel);
                 ThingWithComps pipeBuilding = SpawnBuilding(pipeDef, surface, cell + new IntVec3(0, 0, 1));
                 var surfaceComp = RequireCoolingComp(surfaceBuilding, "the surface column");
                 var lowerComp = RequireCoolingComp(lowerBuilding, "the lower column");
-                var nearComp = RequireCoolingComp(nearBuilding, "the column 2 cells east");
+                var nearComp = RequireCoolingComp(nearBuilding, "the column 1 cell east");
                 var farComp = RequireCoolingComp(farBuilding, "the column 3 cells east");
 
                 MethodInfo loopOf = CoolingLoopOfMethod(out string problem);
                 if (loopOf == null)
                 {
-                    foreach (string label in new[] { "cooling columns paired", "column out of range stays unpaired", "all in-range columns share one loop" })
+                    foreach (string label in new[] { "cooling columns paired", "column one cell away stays unpaired", "column out of range stays unpaired" })
                     {
                         RecordCooling(label, "FAIL: " + problem);
                     }
@@ -2231,16 +2231,14 @@ namespace ZLevelsValidation
                 {
                     bool paired = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
                     RecordCooling("cooling columns paired", paired ? "PASS" : "FAIL: the surface column and the lower column do not share a loop");
+                    RecordCooling("column one cell away stays unpaired", OneCellResult(loopOf, lowerComp, nearComp, paired));
                     RecordCooling("column out of range stays unpaired", OutOfRangeResult(loopOf, lowerComp, farComp, paired));
-                    bool inRange = Joined(loopOf, lowerComp, nearComp) && Joined(loopOf, nearComp, lowerComp)
-                        && Joined(loopOf, surfaceComp, nearComp) && Joined(loopOf, nearComp, surfaceComp);
-                    RecordCooling("all in-range columns share one loop", inRange ? "PASS" : "FAIL: the in-range columns do not share one loop");
                 }
                 // One MapUpdate runs Rimatomics' grid regeneration, which joins the new pipe to its net (Harmony_GridRegen is a prefix on Map.MapUpdate).
                 surface.MapUpdate();
-                // A control for the pipe check. The column 2 cells east is not adjacent to the first column, so it must not share its net.
+                // A control for the pipe check. The column 3 cells east touches neither the first column nor the coolingPipe, so it must not share their net.
                 // If it did, the pipe check would pass for a reason other than adjacency. This line is information only, not a label.
-                Record("coolant pipe control", "column 2 cells east shares the column's pipe net: " + SharesPipeNet(surfaceComp, nearComp));
+                Record("coolant pipe control", "column 3 cells east shares the column's pipe net: " + SharesPipeNet(surfaceComp, farComp));
                 RecordCooling("coolant pipe joins the column", CoolantPipeResult(surfaceComp, pipeBuilding));
             }
             catch (Exception exception)
@@ -2292,6 +2290,17 @@ namespace ZLevelsValidation
             var loop = (System.Collections.IList)result;
             if (!loop.Contains(from)) throw new InvalidOperationException("start column not spawned on a map");
             return loop.Contains(member);
+        }
+
+        // The second surface column sits 1 cell from the lower column. Only the same cell pairs, so the row passes only when the in-range
+        // pair is joined, both columns have maps, and the column one cell away is outside the loop.
+        private static string OneCellResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, ZLevelsRimatomics.CompCoolingColumn nearComp, bool paired)
+        {
+            if (lowerComp.parent.Map == null || nearComp.parent.Map == null) return "FAIL: a column has no map";
+            if (!paired) return "FAIL: the in-range pair is not joined, so an unjoined neighbor proves nothing";
+            float apart = nearComp.parent.Position.DistanceTo(lowerComp.parent.Position);
+            if (apart != 1f) return "FAIL: the test layout puts the column one cell away " + apart + " cells from the lower column, not 1";
+            return Joined(loopOf, lowerComp, nearComp) || Joined(loopOf, nearComp, lowerComp) ? "FAIL: the column one cell away shares the loop" : "PASS";
         }
 
         // The third column sits 3 cells from the lower column. An empty far loop shows nothing by itself, so the row passes only when the

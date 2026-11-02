@@ -23,7 +23,7 @@ namespace ZLevelsRimatomics
             columns.Remove(column);
         }
 
-        // The rule of ConnectedPowerNets.RegisterTransmitter: b sits on the level directly below or above a, and the two are less than 3 cells apart.
+        // b sits on the level directly below or above a, on the same cell as a (ADR-0005). ConnectedPowerNets keeps its wider rule for power.
         // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree. It returns false when either column is not usable.
         // It throws when both are usable but the game has no ZLevelsManager, because a live game always has one.
         public static bool Paired(CompCoolingColumn a, CompCoolingColumn b)
@@ -31,7 +31,7 @@ namespace ZLevelsRimatomics
             if (!Usable(a) || !Usable(b)) return false;
             ZLevelsManager tracker = Current.Game?.GetComponent<ZLevelsManager>();
             if (tracker == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
-            return SitsWithin3OnAdjacentLevel(tracker, a, b) && SitsWithin3OnAdjacentLevel(tracker, b, a);
+            return SitsOnSameCellOfAdjacentLevel(tracker, a, b) && SitsOnSameCellOfAdjacentLevel(tracker, b, a);
         }
 
         // The connected group of paired columns that contains start, found by a breadth-first search at call time. The group includes start
@@ -59,12 +59,12 @@ namespace ZLevelsRimatomics
             return column != null && column.parent != null && column.parent.Spawned && column.parent.Map != null && !column.parent.Map.Disposed;
         }
 
-        private static bool SitsWithin3OnAdjacentLevel(ZLevelsManager tracker, CompCoolingColumn a, CompCoolingColumn b)
+        private static bool SitsOnSameCellOfAdjacentLevel(ZLevelsManager tracker, CompCoolingColumn a, CompCoolingColumn b)
         {
             Map lower = tracker.GetLowerLevel(a.parent.Tile, a.parent.Map);
             Map upper = tracker.GetUpperLevel(a.parent.Tile, a.parent.Map);
             if (b.parent.Map != lower && b.parent.Map != upper) return false;
-            return a.parent.Position.DistanceTo(b.parent.Position) < 3;
+            return a.parent.Position == b.parent.Position;
         }
     }
 }
