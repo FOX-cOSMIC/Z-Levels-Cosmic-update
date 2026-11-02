@@ -110,6 +110,9 @@ namespace ZLevelsValidation
 
         // State for the cross-level cooling checks. It is not saved.
         private readonly Dictionary<string, string> coolingResults = new Dictionary<string, string>();
+        private bool coolingChecksRecorded;
+        private DateTime? coolingShotDue;
+        private bool coolingShotTaken;
         // Every label the final "cooling link" line needs. Each is recorded PASS or FAIL: <reason>. A label that is never recorded blocks the link.
         private static readonly string[] CoolingLabels =
         {
@@ -231,7 +234,7 @@ namespace ZLevelsValidation
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelscooling") || GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns"))
                 {
-                    finished = true;
+                    // RunCoolingLinkTick sets finished when it is done. The look check runs over several frames.
                     RunCoolingLinkTick();
                     return;
                 }
@@ -2115,23 +2118,38 @@ namespace ZLevelsValidation
             }
         }
 
-        // Cross-level cooling, Task 1. No column exists yet, so each check that needs one records FAIL: column missing.
-        // Later tasks replace each of those records with its real check. The scenario runs once, after the stairs stage, then shuts the game down.
+        // Cross-level cooling. The first frame records the column's def checks, the bridge check, and the labels that later tasks still stub.
+        // With -Visual (zlevelsscreenshots) it then places a column and a coolant pipe, waits for the view to render, and takes a screenshot.
+        // The scenario sets finished and shuts the game down after its last record.
         private void RunCoolingLinkTick()
         {
             try
             {
-                RecordCooling("cooling column defined", DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn") != null ? "PASS" : "FAIL: column missing");
-                RecordCooling("cooling column costs", "FAIL: column missing");
-                RecordCooling("cooling column holds roof", "FAIL: column missing");
-                RecordCooling("cooling columns paired", "FAIL: column missing");
-                RecordCooling("column out of range stays unpaired", "FAIL: column missing");
-                RecordCooling("all in-range columns share one loop", "FAIL: column missing");
-                RecordCooling("coolant pipe joins the column", "FAIL: column missing");
-                RecordCooling("lower turbine shares the surface tower's loop", "FAIL: column missing");
-                RecordCooling("cooling link breaks when a column is removed", "FAIL: column missing");
-                RecordCooling("cooling link survives reload", "FAIL: column missing");
-                RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
+                if (!coolingChecksRecorded)
+                {
+                    RecordCoolingChecks();
+                    coolingChecksRecorded = true;
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && PlaceCoolingLook())
+                    {
+                        coolingShotDue = DateTime.UtcNow.AddSeconds(3);
+                        return;
+                    }
+                }
+                else if (coolingShotDue.HasValue)
+                {
+                    if (DateTime.UtcNow < coolingShotDue.Value) return;
+                    if (!coolingShotTaken)
+                    {
+                        // RimWorld writes the file after this frame, so the game keeps running for three more seconds before the file check.
+                        ScreenshotTaker.TakeNonSteamShot("zlevels-cooling-column");
+                        coolingShotTaken = true;
+                        coolingShotDue = DateTime.UtcNow.AddSeconds(3);
+                        return;
+                    }
+                    string shot = Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots", "zlevels-cooling-column.png");
+                    Record("cooling column screenshot", File.Exists(shot) ? "TAKEN: " + shot : "FAIL: no file at " + shot);
+                    coolingShotDue = null;
+                }
                 RecordCoolingLink();
             }
             catch (Exception exception)
@@ -2139,7 +2157,75 @@ namespace ZLevelsValidation
                 Record("cooling link", "FAIL: " + exception);
                 Log.Error("Z-Levels cooling link validation failed: " + exception);
             }
+            finished = true;
             Root.Shutdown();
+        }
+
+        // Each label that a later task replaces records FAIL: column missing until that task adds its real check.
+        private void RecordCoolingChecks()
+        {
+            ThingDef column = DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn");
+            RecordCooling("cooling column defined", column != null ? "PASS" : "FAIL: column missing");
+            RecordCooling("cooling column costs", column != null ? CoolingColumnCostResult(column) : "FAIL: column missing");
+            RecordCooling("cooling column holds roof", column != null ? CoolingColumnRoofResult(column) : "FAIL: column missing");
+            RecordCooling("cooling columns paired", "FAIL: column missing");
+            RecordCooling("column out of range stays unpaired", "FAIL: column missing");
+            RecordCooling("all in-range columns share one loop", "FAIL: column missing");
+            RecordCooling("coolant pipe joins the column", "FAIL: column missing");
+            RecordCooling("lower turbine shares the surface tower's loop", "FAIL: column missing");
+            RecordCooling("cooling link breaks when a column is removed", "FAIL: column missing");
+            RecordCooling("cooling link survives reload", "FAIL: column missing");
+            RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
+        }
+
+        // The column costs what the power column costs: no Steel in CostList, a CostStuffCount of 60, and WorkToBuild of 750.
+        private static string CoolingColumnCostResult(ThingDef column)
+        {
+            if (column.CostList != null && column.CostList.Any(cost => cost.thingDef == ThingDefOf.Steel)) return "FAIL: Steel is in CostList";
+            if (column.CostStuffCount != 60) return "FAIL: CostStuffCount is " + column.CostStuffCount;
+            float work = column.GetStatValueAbstract(StatDefOf.WorkToBuild);
+            return work == 750f ? "PASS" : "FAIL: WorkToBuild is " + work;
+        }
+
+        // The column holds a roof and counts as an edifice, as the power column does.
+        private static string CoolingColumnRoofResult(ThingDef column)
+        {
+            if (!column.holdsRoof) return "FAIL: holdsRoof is false";
+            return column.building != null && column.building.isEdifice ? "PASS" : "FAIL: building isEdifice is false";
+        }
+
+        // The look check: one column with a coolant pipe beside it, on the start map, with the camera on the column.
+        // Returns false after a FAIL record when either def is missing.
+        private static bool PlaceCoolingLook()
+        {
+            ThingDef column = DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn");
+            ThingDef pipe = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
+            if (column == null || pipe == null)
+            {
+                Record("cooling column screenshot", "FAIL: column or coolant pipe def missing");
+                return false;
+            }
+            Map map = Find.CurrentMap;
+            IntVec3 cell = map.Center;
+            foreach (IntVec3 near in CellRect.CenteredOn(cell, 4))
+            {
+                if (near.InBounds(map)) map.fogGrid.Unfog(near);
+            }
+            ThingWithComps placedColumn = SpawnBuilding(column, map, cell, ThingDefOf.Steel);
+            ThingWithComps placedPipe = SpawnBuilding(pipe, map, cell + new IntVec3(1, 0, 0));
+            Record("cooling look placed", "column " + DescribeLookThing(placedColumn) + "; pipe " + DescribeLookThing(placedPipe)
+                + "; terrain under column " + cell.GetTerrain(map).defName + "; roofed " + cell.Roofed(map) + "; fogged " + cell.Fogged(map));
+            CameraJumper.TryJump(cell, map, CameraJumper.MovementMode.Cut);
+            return true;
+        }
+
+        // The facts a look check needs: where a thing is, whether it spawned, how it draws, and the texture path its def names.
+        private static string DescribeLookThing(Thing thing)
+        {
+            return thing.def.defName + " at " + thing.Position + ", spawned " + thing.Spawned + ", drawer " + thing.def.drawerType
+                + ", graphic " + (thing.Graphic == null ? "none" : thing.Graphic.GetType().Name)
+                + ", texPath " + (thing.def.graphicData == null ? "none" : thing.def.graphicData.texPath)
+                + ", draw position " + thing.DrawPos;
         }
 
         private void RecordCooling(string label, string result)
@@ -2155,7 +2241,7 @@ namespace ZLevelsValidation
             Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
         }
 
-        // The optional ZLevelsRimatomics assembly is named by string, so this harness compiles before that assembly exists.
+        // The bridge type is named as a string, so this code compiles without a compile-time reference to ZLevelsRimatomics.
         private static string RimatomicsBridgeResult()
         {
             Type bridge = Type.GetType("ZLevelsRimatomics.RimatomicsBridge, ZLevelsRimatomics");

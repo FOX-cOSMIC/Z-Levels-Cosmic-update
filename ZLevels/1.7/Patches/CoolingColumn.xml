@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <!-- PatchOperationFindMod matches the mod's display name (ModLister.HasActiveModWithName), not its package id. -->
+  <Operation Class="PatchOperationFindMod">
+    <mods>
+      <li>Dubs Rimatomics</li>
+    </mods>
+    <match Class="PatchOperationAdd">
+      <xpath>/Defs</xpath>
+      <value>
+        <ThingDef ParentName="RimatomicsPipeBase" Class="Rimatomics.RimatomicsThingDef">
+          <defName>ZL_CoolingColumn</defName>
+          <label>cooling column</label>
+          <description>A coolant column that holds a roof, for carrying cooling across levels.</description>
+          <!-- RealtimeOnly: Thing.DrawAt draws the graphic in real time only for RealtimeOnly. MapMeshAndRealTime depends on Print, which Building_Pipe leaves empty. -->
+          <drawerType>RealtimeOnly</drawerType>
+          <altitudeLayer>Building</altitudeLayer>
+          <building>
+            <isEdifice>true</isEdifice>
+          </building>
+          <holdsRoof>true</holdsRoof>
+          <passability>PassThroughOnly</passability>
+          <pathCost>0</pathCost>
+          <statBases>
+            <MaxHitPoints>160</MaxHitPoints>
+            <WorkToBuild>750</WorkToBuild>
+          </statBases>
+          <stuffCategories>
+            <li>Metallic</li>
+          </stuffCategories>
+          <costStuffCount>60</costStuffCount>
+          <costList Inherit="false" />
+          <graphicData>
+            <texPath>Building/CoolingColumn</texPath>
+            <!-- The inherited Basic link wraps the texture in a 4x4 link atlas. This single image has no usable atlas tile, so the column drew nothing. -->
+            <linkType>None</linkType>
+          </graphicData>
+          <comps>
+            <li Class="Rimatomics.CompProperties_Pipe">
+              <mode>Cooling</mode>
+            </li>
+            <li Class="ZLevelsRimatomics.CompProperties_CoolingColumn" />
+          </comps>
+        </ThingDef>
+      </value>
+    </match>
+  </Operation>
+</Patch>
