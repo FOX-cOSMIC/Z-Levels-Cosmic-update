@@ -79,6 +79,8 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 ## Components
 
 - `ThingComp.PostSpawnSetup(bool respawningAfterLoad)` is `public virtual` (`Verse.ThingComp` decompile, line 31). `ThingComp.parent` is a public `ThingWithComps` field (line 12).
+- `ThingComp.PostDeSpawn(Map map, DestroyMode mode = DestroyMode.Vanish)` is `public virtual` (`Verse.ThingComp` decompile, line 39). An override can omit the default value.
+- `ThingWithComps.AllComps` is a public `List<ThingComp>` property (`Verse.ThingWithComps` decompile, line 33).
 - `ThingWithComps.GetComp<T>()` is declared as `public T GetComp<T>() where T : ThingComp` (`Verse.ThingWithComps` decompile, line 126).
 - `CompProperties.compClass` is a public `Type` field with default `typeof(ThingComp)` (`Verse.CompProperties` decompile, line 12).
 
@@ -92,3 +94,17 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 
 - `PatchOperationFindMod` applies its match when `ModLister.HasActiveModWithName` returns true for any name in `mods` (`Verse.PatchOperationFindMod` decompile, line 19).
 - `ModLister.HasActiveModWithName` compares each active mod's `Name` with the given string. It does not compare the package id (`Verse.ModLister` decompile, lines 209-213). A patch that names `dubwise.rimatomics` did not match in run `20261102-104504`. A patch that names `Dubs Rimatomics` matched in run `20261102-104625`.
+
+## Things, maps and positions
+
+- `Thing.Spawned` is a public `bool` property (`Verse.Thing` decompile, line 194). `Thing.Map` is a public `Map` property (line 233). `Thing.Position` is a public `IntVec3` property (line 261). `Thing.Tile` is a public `PlanetTile` property (line 536).
+- `Map.Tile` is a public `PlanetTile` property (`Verse.Map` decompile, line 384). `Map.Center` is a public `IntVec3` property (line 264).
+- `Map.MapUpdate()` is a public `void` method (`Verse.Map` decompile, line 1148).
+- `IntVec3Utility.DistanceTo(this IntVec3 a, IntVec3 b)` returns a `float` (`Verse.IntVec3Utility` decompile, line 13). It returns the horizontal length of `a - b`. `IntVec3.LengthHorizontal` computes that length as `GenMath.Sqrt(x * x + z * z)` (`Verse.IntVec3` decompile, line 50). Two cells 3 apart along one axis have a distance of exactly 3.
+- `Current.Game` is a public static `Game` property (`Verse.Current` decompile, line 43). `Game.GetComponent<T>()` is declared as `public T GetComponent<T>() where T : GameComponent` (`Verse.Game` decompile, line 683).
+- `DestroyMode` is a public enum with `byte` as its underlying type, in namespace `Verse` (`Verse.DestroyMode` decompile, line 3). Its first member is `Vanish` (line 5).
+
+## Optional assembly access
+
+- `ZUtils` is an `internal static class` in namespace `ZLevels` (`ZLevels/Source/ZLevels/ZLevels/ZUtils.cs`, line 16). No `InternalsVisibleTo` attribute exists in the repository, so `ZLevelsRimatomics` cannot name `ZUtils`.
+- `ZUtils.ZTracker` caches the manager it finds. `ZUtils.ResetZTracker()` clears the cache (`ZUtils.cs`, lines 18 and 45). `CoolingLoopRegistry.Paired` calls `Current.Game.GetComponent<ZLevelsManager>()` instead.
