@@ -29,6 +29,36 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# A run starts one scenario. The harness runs the first scenario switch it finds, and the required-label chain takes its label from the first
+# switch it finds, so a second scenario switch would check one scenario while another runs. Modifiers such as -Visual are not listed.
+function Assert-OneScenarioSwitch {
+    param([System.Collections.IDictionary]$Switches)
+    $set = @($Switches.Keys | Where-Object { [bool]$Switches[$_] } | ForEach-Object { '-' + $_ })
+    if ($set.Count -gt 1) {
+        throw "A run takes one scenario switch, but these are set: $($set -join ', '). Start a separate run for each scenario. No run was started."
+    }
+    return $set
+}
+# The scenario switches. Each one starts a scenario in the harness dispatch, and each one sets a required label in the chain below.
+$scenarioSwitches = [ordered]@{
+    InfestationGuard = $InfestationGuard
+    StaleLookup = $StaleLookup
+    VaultPlacement = $VaultPlacement
+    VaultPocket = $VaultPocket
+    VaultEnter = $VaultEnter
+    VaultLoad = $VaultLoad
+    VaultSave = $VaultSave
+    VaultInfestation = $VaultInfestation
+    Supply = $Supply
+    AllColonistsHaul = $AllColonistsHaul
+    OtherColonistHauls = $OtherColonistHauls
+    UnreachableZone = $UnreachableZone
+    MultiBuild = $MultiBuild
+    StairsDamage = $StairsDamage
+    Cooling = $Cooling
+    CoolingNoColumns = $CoolingNoColumns
+}
+$null = Assert-OneScenarioSwitch -Switches $scenarioSwitches
 # One streaming pass over the game log, for the cause hint and the Z-Levels gate. An ERROR entry starts at any line with the whole word ERROR,
 # matched case-sensitively, timestamped or not. It ends at the next timestamped line or at the next ERROR line. Only the entry count, the count
 # of entries that mention Z-Levels, the first of those entries, and the first Z-Levels WARN line are kept. The log is read as a stream.
@@ -89,6 +119,10 @@ function Assert-ResultsMatchLog {
         if ($line.Contains('[ZLevels validation] ')) { $markerLines++ }
     }
     if ($resultRows -ne $markerLines) {
+        # A log copy row says that a Record call could not write its marker. The rows print before the throw, so the cause is on screen beside the counts.
+        foreach ($line in [System.IO.File]::ReadLines($ResultsPath)) {
+            if ($line -match '^\S+ [|] log copy [|] ') { Write-Host $line }
+        }
         throw "The results file and the game log disagree. validation-results.txt has $resultRows result rows, not counting log copy rows, and Player.log has $markerLines [ZLevels validation] lines: $(Split-Path -Parent $ResultsPath)"
     }
     return [pscustomobject]@{ ResultRows = $resultRows; MarkerLines = $markerLines }

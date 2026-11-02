@@ -2192,19 +2192,18 @@ namespace ZLevelsValidation
                 finished = true;
                 try
                 {
-                    // The link row comes first, with the exception's type name as its cause, so a failure in the steps below cannot skip it.
+                    // The description comes first. DescribeOrTypeName does not throw, so the link row below is always written.
+                    string cause = DescribeOrTypeName(exception);
+                    // The link row carries the same text as the owed rows. It comes before them, so a failure in the owed rows cannot skip it.
                     try
                     {
-                        Record("cooling link", "FAIL: " + exception.GetType().Name);
+                        Record("cooling link", "FAIL: " + cause);
                     }
                     catch (Exception linkException)
                     {
                         // The link row could not be written. The game still shuts down after this block, and the log names this failure.
                         Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
                     }
-                    // The description and the owed rows come after the link row. The description is built inside this try, so a Describe that
-                    // throws cannot skip the shutdown below.
-                    string cause = Describe(exception);
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
                     var owed = new List<string>(CoolingLabels);
                     if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.Add(CoolingScreenshotLabel);
@@ -2345,7 +2344,8 @@ namespace ZLevelsValidation
             }
             catch (Exception exception)
             {
-                string cause = Describe(exception);
+                // DescribeOrTypeName does not throw. If Describe fails, the rows below name the exception type, so every label still gets a row.
+                string cause = DescribeOrTypeName(exception);
                 foreach (string label in CoolingPairingLabels)
                 {
                     // A label whose check never ran says why. It does not read as a failure of its own check.
@@ -2448,6 +2448,19 @@ namespace ZLevelsValidation
                 levels.Add(level.GetType().Name + ": " + level.Message);
             }
             return string.Join("; inner ", levels).Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+        // Describe, or the exception type name when Describe throws. A row built from this text still names the failure.
+        private static string DescribeOrTypeName(Exception exception)
+        {
+            try
+            {
+                return Describe(exception);
+            }
+            catch (Exception)
+            {
+                return exception.GetType().Name;
+            }
         }
 
         // The ZUtils.TeleportThing method. ZUtils is internal to the mod, so the harness reaches it by name. TeleportThing sets only the map
