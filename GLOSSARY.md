@@ -23,7 +23,7 @@ _Avoid_: ladder, ramp
 ## Cross-level links
 
 **Pairing**:
-A link between two columns on adjacent levels that stand close together.
+A link between two columns on adjacent levels. Cooling columns pair only when they stand on the same cell (ADR-0005).
 _Avoid_: linking, connection
 
 **Power transmitter column**:
@@ -33,6 +33,10 @@ _Avoid_: pylon, power pole
 **Cooling column**:
 A vertical coolant pipe that pairs with a cooling column on an adjacent level, so the two levels share one cooling loop.
 _Avoid_: cooling transmitter, cooling tower
+
+**Partner highlight**:
+The outline on one level that marks a cell where a cooling column on an adjacent level pairs.
+_Avoid_: link line, beam, connection line
 
 ## Cooling
 

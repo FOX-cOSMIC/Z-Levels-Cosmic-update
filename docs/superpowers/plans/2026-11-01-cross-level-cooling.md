@@ -27,7 +27,7 @@
 1. Rimatomics absent: the run loads with no error naming `ZLevelsRimatomics`. Pinned by Task 2, step 4.
 2. Save and reload keep the loop. Pinned by Task 5, step 1.
 3. Removing a column splits the loop, and the lower turbine stops counting the surface tower. Pinned by Task 5, step 1.
-4. Several columns in range join one loop, and a column 3 cells away does not. Pinned by Task 4, step 1.
+4. A cooling column joins a loop only from the same cell on an adjacent level. A column one cell away or three cells away does not join. Pinned by Task 4, step 1.
 5. Dubs Rimatomics and Rimatomics++ active together. Pinned by Task 7, step 2.
 
 ## Verified facts
@@ -58,6 +58,7 @@ Read from the installed code. Dubs Rimatomics was decompiled with `ilspycmd` int
 - Create `ZLevels/Source/ZLevels/ZLevelsRimatomics/RimatomicsBridge.cs`: the activation check.
 - Create `ZLevels/Source/ZLevels/ZLevelsRimatomics/CompProperties_CoolingColumn.cs` and `CompCoolingColumn.cs`.
 - Create `ZLevels/Source/ZLevels/ZLevelsRimatomics/CoolingLoopRegistry.cs`: pairing and loops.
+- Create `ZLevels/Source/ZLevels/ZLevelsRimatomics/CoolingColumnHighlight.cs`: the partner highlight (Task 4b).
 - Create `ZLevels/Source/ZLevels/ZLevelsRimatomics/Patch_CoolingNet.cs`: the one Tick prefix.
 - Create `ZLevels/1.7/Patches/CoolingColumn.xml`: the column def, inside `PatchOperationFindMod`.
 - Create `tools/art/make_cooling_column_art.py` and the texture it writes. Task 3, step 1 picks the texture path.
@@ -78,7 +79,7 @@ Read from the installed code. Dubs Rimatomics was decompiled with `ilspycmd` int
 
 **Interfaces:**
 - Consumes: the stage pattern in `GameComponentUpdate`, `Record(label, result)`, and `GenCommandLine.CommandLineArgPassed("zlevelscooling")`. The stairs scenario reads its switch the same way.
-- Produces these labels, each recorded as `PASS` or `FAIL: <reason>`: `cooling column defined`, `cooling column costs`, `cooling column holds roof`, `cooling columns paired`, `column out of range stays unpaired`, `all in-range columns share one loop`, `coolant pipe joins the column`, `lower turbine shares the surface tower's loop`, `cooling link breaks when a column is removed`, `cooling link survives reload`, `rimatomics bridge active` (Task 2), the reactor checks (Task 6), and the final `cooling link`. `cooling link` is `PASS` only when every earlier label is `PASS`.
+- Produces these labels, each recorded as `PASS` or `FAIL: <reason>`: `cooling column defined`, `cooling column costs`, `cooling column holds roof`, `cooling columns paired`, `column out of range stays unpaired`, `column one cell away stays unpaired`, `coolant pipe joins the column`, `lower turbine shares the surface tower's loop`, `cooling link breaks when a column is removed`, `cooling link survives reload`, `rimatomics bridge active` (Task 2), the reactor checks (Task 6), and the final `cooling link`. `cooling link` is `PASS` only when every earlier label is `PASS`.
 
 - [ ] **Step 1: Write `RunCoolingLinkTick`.** Run it after the stairs stage. Each check that needs the column records `FAIL: column missing` until the column exists.
 - [ ] **Step 2: Wire the switches in the runner.** Add `[switch]$Cooling`, `[switch]$CoolingNoColumns`, and `[switch]$RimatomicsPlusPlus` to the `param` block. Add `if ($Cooling) { $arguments += '-zlevelscooling' }` and the matching line for `CoolingNoColumns` with `-zlevelscoolingnocolumns`. After the `$activeMods` block (line 83), put `dubwise.rimatomics` before `zlevels1.1` when `$Cooling` or `$CoolingNoColumns` is set, unless the list already holds it. Add `nachotoast.rimatomicsplusplus` when `$RimatomicsPlusPlus` is set, under the same rule. In the `$requiredPass` chain (line 157), add `elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' }` before the `else`.
@@ -134,14 +135,30 @@ Read from the installed code. Dubs Rimatomics was decompiled with `ilspycmd` int
 - Produces `ZLevelsRimatomics.CompProperties_CoolingColumn : CompProperties`, with `compClass` `CompCoolingColumn`.
 - Produces `ZLevelsRimatomics.CompCoolingColumn : ThingComp`. It has the public field `CompPipe pipe`, set from `parent.GetComp<CompPipe>()` in `PostSpawnSetup(bool respawningAfterLoad)`. `PostSpawnSetup` calls `CoolingLoopRegistry.Register(this)`. `PostDeSpawn(Map map, DestroyMode mode)` calls `CoolingLoopRegistry.Deregister(this)` and then the base method.
 - Produces `CoolingLoopRegistry` (static). `Register` and `Deregister` only add or remove the column in its list. `bool Paired(CompCoolingColumn a, CompCoolingColumn b)`. `List<CompCoolingColumn> LoopOf(CompCoolingColumn start)` returns the connected group of paired columns, found by a breadth-first search at call time.
-- The pairing predicate matches `ConnectedPowerNets.RegisterTransmitter`. `b` sits on the map that `ZUtils.ZTracker.GetLowerLevel(a.parent.Tile, a.parent.Map)` or `GetUpperLevel(...)` returns, and `a.parent.Position.DistanceTo(b.parent.Position) < 3`. `Paired(a, b)` and `Paired(b, a)` must agree.
+- The pairing predicate for cooling is `Paired(a, b)`. `b` sits on the map that `ZUtils.ZTracker.GetLowerLevel(a.parent.Tile, a.parent.Map)` or `GetUpperLevel(...)` returns, and `b.parent.Position` equals `a.parent.Position` (same cell). `Paired(a, b)` and `Paired(b, a)` must agree. `ConnectedPowerNets.RegisterTransmitter` keeps its wider rule for power, and cooling does not reuse it (ADR-0005).
 - Pairing runs at query time, not at register time. A column loaded before its neighbor's map exists still pairs.
 
-- [ ] **Step 1: Add the checks.** `cooling columns paired`: a surface column and the lower column share `LoopOf`. `column out of range stays unpaired`: a third column exactly 3 cells from the lower column is not in its loop. `all in-range columns share one loop`: a second surface column 2 cells from the lower column is in it. `coolant pipe joins the column`: a `coolingPipe` placed next to the column has the same `pipeNetRef` as the column, checked after one `MapUpdate`.
-- [ ] **Step 2: Run it red.** Run `-Cooling`. Expected: the four checks FAIL.
-- [ ] **Step 3: Implement** the props, the comp, and the registry.
+- [ ] **Step 1: Change the checks and the layout.** `cooling columns paired`: a surface column and the lower column on the same cell share `LoopOf`. `column one cell away stays unpaired`: a second surface column one cell east of the lower column is not in its loop. `column out of range stays unpaired`: a third surface column three cells east of the lower column is not in its loop. `coolant pipe joins the column`: a `coolingPipe` placed next to the column has the same `pipeNetRef` as the column, checked after one `MapUpdate`.
+- [ ] **Step 2: Run it red.** Run `-Cooling` on the current code, which still pairs at one cell. Expected: `column one cell away stays unpaired` FAILs. Record the run folder.
+- [ ] **Step 3: Implement the same-cell rule** in `CoolingLoopRegistry.Paired`. Do not change `ConnectedPowerNets.cs`.
 - [ ] **Step 4: Run it green for these checks.** Run `-Cooling`. Expected: the four checks PASS. The final `cooling link` line still shows FAIL.
-- [ ] **Step 5: Commit.** Message: "Pair cooling columns across adjacent levels".
+- [ ] **Step 5: Commit.** Message: "Pair cooling columns on the same cell only".
+
+## Task 4b: Partner highlight on the adjacent level
+
+**Files:** create `ZLevels/Source/ZLevels/ZLevelsRimatomics/CoolingColumnHighlight.cs`. Modify `RuntimeValidation.cs`.
+
+**Interfaces:**
+- Produces `CoolingLoopRegistry.HighlightTargets(Map viewed)`, which returns `List<CoolingTarget>`. `CoolingTarget` is a struct with `IntVec3 Cell` and `bool Paired`. A target is each cell where a usable cooling column stands on the map directly above or below `viewed`. `Paired` is true when `viewed` also holds a usable cooling column on that cell.
+- Produces a draw hook that outlines each target on the map being viewed: green when `Paired` is true, amber when it is false. It draws nothing on any other map.
+- Pick the hook and the outline call from the 1.7 decompile, for example `GenDraw.DrawFieldEdges`. Record each confirmed name in `docs/game-api-findings.md`.
+- Add both labels below to the Task 1 label list and to `CoolingLabels`, so `cooling link` waits for them.
+
+- [ ] **Step 1: Add the checks.** `partner highlight marks the cell`: with a surface column and no lower column, `HighlightTargets(lower)` holds the surface column's cell with `Paired` false. `partner highlight shows the pair`: after the lower column stands on that cell, the same target holds `Paired` true.
+- [ ] **Step 2: Run it red.** Run `-Cooling`. Expected: both labels FAIL with `highlight not built yet`.
+- [ ] **Step 3: Implement** `HighlightTargets` and the draw hook.
+- [ ] **Step 4: Run it green, then look.** Run `-Cooling`. Expected: both labels PASS. Run `-Cooling -Visual`, which adds a look that views the lower level and takes a screenshot. Expected: an amber outline on the empty cell, then green once the lower column stands there. Record the screenshot paths. The controller reads them.
+- [ ] **Step 5: Commit.** Message: "Highlight the partner cell on the adjacent level".
 
 ## Task 5: Merge the loops into the Rimatomics nets
 
@@ -155,7 +172,7 @@ Read from the installed code. Dubs Rimatomics was decompiled with `ilspycmd` int
 - One prefix covers every path. `CoolingNet.InitNet()` ends by calling `Tick()`, and `RebuildPipeGrid` calls `InitNet()` on each new net. The lists are rebuilt each tick, so a removed column leaves nothing behind after one tick.
 - Rimatomics computes `CoolingLoopRatio` from these lists. This task changes membership only.
 
-- [ ] **Step 1: Add the checks.** `lower turbine shares the surface tower's loop`: the lower turbine's `CoolingNet.Coolers` holds the surface `CoolingTower`. `cooling link breaks when a column is removed`: remove both surface columns, which are in range of the lower column. Within two ticks, the tower must be gone from the lower turbine's `Coolers`, and the lower net's `Turbines` must still hold its own turbine. `cooling link survives reload`: the same membership check, after the save and reload step the core validation already uses for its level and cell check.
+- [ ] **Step 1: Add the checks.** `lower turbine shares the surface tower's loop`: the lower turbine's `CoolingNet.Coolers` holds the surface `CoolingTower`. `cooling link breaks when a column is removed`: remove the surface column on the lower column's cell. Within two ticks, the tower must be gone from the lower turbine's `Coolers`, and the lower net's `Turbines` must still hold its own turbine. `cooling link survives reload`: the same membership check, after the save and reload step the core validation already uses for its level and cell check.
 - [ ] **Step 2: Run it red.** Run `-Cooling`. Expected: the three checks FAIL.
 - [ ] **Step 3: Implement** `Patch_CoolingNet.cs`.
 - [ ] **Step 4: Run it green.** Run `-Cooling`. Expected: the three checks PASS. The final `cooling link` line still shows FAIL until Task 6.
@@ -190,5 +207,5 @@ The switch `-CoolingNoColumns`, added in Task 1, runs the same scenario without 
 ## Task 8: Documentation and roadmap
 
 - [ ] **Step 1: Roadmap.** In `docs/roadmap.md`, under "Later", the "Tubes between levels" item says that cooling is done, with its run IDs. Other resources stay in Later. Leave "Decisions for Lucas" as it is.
-- [ ] **Step 2: Validation report.** Add a "Cross-level cooling" section. It holds the red and green runs, the research notes from Task 6, and the untested cases. The untested cases are water flow (not simulated, by decision), the Remove Cooling designator (not run), the look result from Task 3, and any Rimatomics++ failure.
+- [ ] **Step 2: Validation report.** Add a "Cross-level cooling" section. It holds the red and green runs, the research notes from Task 6, and the untested cases. The untested cases are water flow (not simulated, by decision), the Remove Cooling designator (not run), the look result from Task 3, the partner highlight look from Task 4b, and any Rimatomics++ failure.
 - [ ] **Step 3: Commit.** Message: "Record the cross-level cooling runs".
