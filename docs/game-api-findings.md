@@ -98,6 +98,7 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 ## Things, maps and positions
 
 - `Thing.Spawned` is a public `bool` property (`Verse.Thing` decompile, line 194). `Thing.Map` is a public `Map` property (line 233). `Thing.Position` is a public `IntVec3` property (line 261). `Thing.Tile` is a public `PlanetTile` property (line 536).
+- `Def.defName` is a public `string` field (`Verse.Def` decompile, line 12). It defaults to `"UnnamedDef"`. The cooling column logs use `parent.def.defName` to name the column.
 - `Map.Tile` is a public `PlanetTile` property (`Verse.Map` decompile, line 384). `Map.Center` is a public `IntVec3` property (line 264).
 - `Map.MapUpdate()` is a public `void` method (`Verse.Map` decompile, line 1148).
 - `IntVec3Utility.DistanceTo(this IntVec3 a, IntVec3 b)` returns a `float` (`Verse.IntVec3Utility` decompile, line 13). It returns the horizontal length of `a - b`. `IntVec3.LengthHorizontal` computes that length as `GenMath.Sqrt(x * x + z * z)` (`Verse.IntVec3` decompile, line 50). Two cells 3 apart along one axis have a distance of exactly 3.

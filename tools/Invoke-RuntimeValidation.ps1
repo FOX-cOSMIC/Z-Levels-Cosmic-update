@@ -168,6 +168,10 @@ $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
+    # The first Z-Levels error in the run's copy of the game log, so a failing run names its cause without opening Player.log.
+    $playerLog = Join-Path $runDirectory 'Player.log'
+    $firstZLevelsError = if (Test-Path -LiteralPath $playerLog) { Select-String -LiteralPath $playerLog -Pattern ' ERROR .*Z-?Levels' | Select-Object -First 1 }
+    if ($firstZLevelsError) { Write-Host "First Z-Levels ERROR line: $($firstZLevelsError.Line)" } else { Write-Host 'No Z-Levels ERROR line in Player.log.' }
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 $errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })

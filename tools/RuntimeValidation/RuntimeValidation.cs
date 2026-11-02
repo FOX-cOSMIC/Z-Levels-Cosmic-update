@@ -128,6 +128,7 @@ namespace ZLevelsValidation
             "column out of range stays unpaired",
             "coolant pipe joins the column",
             "column three cells away stays off the pipe net",
+            "column moved to another level and back stays paired",
             "lower turbine shares the surface tower's loop",
             "cooling link breaks when a column is removed",
             "cooling link survives reload",
@@ -146,6 +147,7 @@ namespace ZLevelsValidation
             "column out of range stays unpaired",
             "coolant pipe joins the column",
             "column three cells away stays off the pipe net",
+            "column moved to another level and back stays paired",
         };
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
@@ -552,9 +554,9 @@ namespace ZLevelsValidation
             catch (Exception exception)
             {
                 finished = true;
-                Record("stage " + stage, "FAIL: " + exception);
                 Log.Error("Z-Levels runtime validation failed: " + exception);
                 Root.Shutdown();
+                Record("stage " + stage, "FAIL: " + exception);
             }
         }
 
@@ -2145,7 +2147,11 @@ namespace ZLevelsValidation
                 {
                     RecordCoolingChecks();
                     coolingChecksRecorded = true;
-                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && !CoolingNoColumns && PlaceCoolingLook())
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && CoolingNoColumns)
+                    {
+                        Record("cooling column screenshot", "FAIL: no columns placed");
+                    }
+                    else if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && PlaceCoolingLook())
                     {
                         coolingShotDue = DateTime.UtcNow.AddSeconds(3);
                         return;
@@ -2172,18 +2178,18 @@ namespace ZLevelsValidation
             {
                 finished = true;
                 Log.Error("Z-Levels cooling link validation failed: " + exception);
+                foreach (string label in CoolingLabels)
+                {
+                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + Describe(exception));
+                }
                 try
                 {
-                    foreach (string label in CoolingLabels)
-                    {
-                        if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + Describe(exception));
-                    }
                     Record("cooling link", "FAIL: " + Describe(exception));
                 }
-                catch (Exception recordException)
+                catch (Exception linkException)
                 {
-                    // The rows could not be written. The game still shuts down after this block, and the log names this failure.
-                    Log.Error("Z-Levels cooling link rows could not be recorded: " + recordException);
+                    // The link row could not be written. The game still shuts down after this block, and the log names this failure.
+                    Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
                 }
             }
             finished = true;
@@ -2201,6 +2207,12 @@ namespace ZLevelsValidation
             RecordCooling("lower turbine shares the surface tower's loop", "FAIL: loop merge into the Rimatomics nets is not built yet");
             RecordCooling("cooling link breaks when a column is removed", "FAIL: loop split on column removal is not built yet");
             RecordCooling("cooling link survives reload", "FAIL: loop check after reload is not built yet");
+            // The reactor labels. Task 6 replaces these rows with the reactor checks.
+            RecordCooling("reactor runs on the lower level", "FAIL: not built yet");
+            RecordCooling("loop ratio at or below 1", "FAIL: not built yet");
+            RecordCooling("no cooling alert", "FAIL: not built yet");
+            RecordCooling("no meltdown", "FAIL: not built yet");
+            RecordCooling("surface colonist not irradiated", "FAIL: not built yet");
             RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
         }
 
@@ -2263,6 +2275,8 @@ namespace ZLevelsValidation
                 // The control for the pipe check. The column three cells east touches neither the first column nor the coolingPipe, so it must
                 // stay off their net. If it joined, the pipe check would pass for a reason other than adjacency.
                 RecordCooling("column three cells away stays off the pipe net", OffPipeNetResult(surfaceComp, farComp));
+                // The round trip moves the surface column, so it runs after every row that reads the column's first position.
+                RecordCooling("column moved to another level and back stays paired", loopOf == null ? "FAIL: " + problem : MovedAndBackResult(loopOf, surface, lower, cell, column, surfaceBuilding, surfaceComp, lowerComp));
             }
             catch (Exception exception)
             {
@@ -2349,10 +2363,41 @@ namespace ZLevelsValidation
             return "FAIL: the pipe net could not be read: " + shares;
         }
 
-        // One line per row: the exception type, then its message. Line breaks become spaces, so a row never spans two lines.
+        // One line per row: the exception type and its message, then the inner exception's type and message when there is one. Line breaks
+        // become spaces, so a row never spans two lines.
         private static string Describe(Exception exception)
         {
-            return (exception.GetType().Name + ": " + exception.Message).Replace('\r', ' ').Replace('\n', ' ');
+            string text = exception.GetType().Name + ": " + exception.Message;
+            if (exception.InnerException != null) text += "; inner " + exception.InnerException.GetType().Name + ": " + exception.InnerException.Message;
+            return text.Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+        // The ZUtils.TeleportThing method. ZUtils is internal to the mod, so the harness reaches it by name. TeleportThing sets only the map
+        // index and the position, so the column keeps its spawn state and its registry entry.
+        private static MethodInfo TeleportThingMethod()
+        {
+            Type zutils = typeof(ZLevelsManager).Assembly.GetType("ZLevels.ZUtils", true);
+            return zutils.GetMethod("TeleportThing", BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("ZLevels.ZUtils.TeleportThing is missing");
+        }
+
+        // The surface column moves to a free cell on the lower level, an extra cooling column registers on the surface, and the surface column
+        // moves back. The move must keep the surface column's entry, so the pair holds afterwards. The row fails when either column is unusable.
+        private static string MovedAndBackResult(MethodInfo loopOf, Map surface, Map lower, IntVec3 cell, ThingDef column, ThingWithComps surfaceBuilding,
+            ZLevelsRimatomics.CompCoolingColumn surfaceComp, ZLevelsRimatomics.CompCoolingColumn lowerComp)
+        {
+            IntVec3 away = cell + new IntVec3(0, 0, -2);
+            if (!away.InBounds(lower) || !away.InBounds(surface)) throw new InvalidOperationException("the round-trip cell is off the map");
+            MethodInfo teleport = TeleportThingMethod();
+            ClearCell(lower, away);
+            lower.terrainGrid.SetTerrain(away, TerrainDefOf.Concrete);
+            teleport.Invoke(null, new object[] { surfaceBuilding, lower, away });
+            SpawnBuilding(column, surface, away, ThingDefOf.Steel);
+            teleport.Invoke(null, new object[] { surfaceBuilding, surface, cell });
+            string reason = UnjoinableReason("the surface column", surfaceComp) ?? UnjoinableReason("the lower column", lowerComp);
+            if (reason != null) return "FAIL: " + reason + " after the round trip";
+            bool joined = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
+            return joined ? "PASS" : "FAIL: the surface column and the lower column do not share a loop after the round trip";
         }
 
         // Rimatomics types are read by name, so this code compiles without a reference to Rimatomics. The column's pipe field must be set,
@@ -2438,6 +2483,19 @@ namespace ZLevelsValidation
                 + ", graphic " + (thing.Graphic == null ? "none" : thing.Graphic.GetType().Name)
                 + ", texPath " + (thing.def.graphicData == null ? "none" : thing.def.graphicData.texPath)
                 + ", draw position " + thing.DrawPos;
+        }
+
+        // One row write from the failure path. A write that fails is logged, and the caller goes on to the next row, so one failed write cannot stop the rest.
+        private void RecordRowSafely(string label, string result)
+        {
+            try
+            {
+                RecordCooling(label, result);
+            }
+            catch (Exception rowException)
+            {
+                Log.Error("Z-Levels cooling row \"" + label + "\" could not be recorded: " + rowException);
+            }
         }
 
         // The row is written first. A label's result is stored only after the row is written, so a failed write leaves the label

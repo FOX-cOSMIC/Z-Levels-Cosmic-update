@@ -6,34 +6,47 @@ using ZLevels;
 namespace ZLevelsRimatomics
 {
     // Pairs cooling columns across adjacent levels. A column joins the registry when it spawns with a Rimatomics pipe, and it leaves when
-    // it despawns. Each entry keeps the game and the map that its column registered on, and an entry is usable only while the column is
-    // still spawned on that map in that game. Loops are found by a breadth-first search at call time, so a column loaded before its
+    // it despawns. Each entry keeps the game that its column registered in. ZUtils.TeleportThing moves a column to another map without a
+    // spawn or a despawn, so an entry holds no map. Loops are found by a breadth-first search at call time, so a column loaded before its
     // neighbor's map exists still pairs.
     public static class CoolingLoopRegistry
     {
         private sealed class Entry
         {
-            public Entry(CompCoolingColumn column, Verse.Game game, Map map)
+            public Entry(CompCoolingColumn column, Verse.Game game)
             {
                 Column = column;
                 Game = game;
-                Map = map;
             }
 
             public CompCoolingColumn Column { get; }
             public Verse.Game Game { get; }
-            public Map Map { get; }
         }
 
         private static readonly List<Entry> entries = new List<Entry>();
 
-        // Drops every entry that is no longer usable, and any earlier entry for this column. Then the column is added with the current game
-        // and the map it spawned on. A column that is not spawned on a map is not added.
+        // Drops only the entries that are no longer usable for good. Then the column is listed under the current game, unless an entry already
+        // holds it. A column that cannot register logs an error before it returns, so no return is silent.
         public static void Register(CompCoolingColumn column)
         {
-            entries.RemoveAll(entry => !Usable(entry) || entry.Column == column);
-            if (column == null || column.parent == null || !column.parent.Spawned || column.parent.Map == null) return;
-            entries.Add(new Entry(column, Current.Game, column.parent.Map));
+            entries.RemoveAll(entry => !Usable(entry));
+            if (column == null)
+            {
+                Log.Error("Z-Levels cooling column registration received no column");
+                return;
+            }
+            string name = column.parent?.def?.defName ?? "cooling column";
+            if (column.parent == null || !column.parent.Spawned || column.parent.Map == null)
+            {
+                Log.Error("Z-Levels cooling column " + name + " is not registered: it has no map");
+                return;
+            }
+            if (Current.Game == null)
+            {
+                Log.Error("Z-Levels cooling column " + name + " is not registered: there is no current game");
+                return;
+            }
+            if (!entries.Exists(entry => entry.Column == column)) entries.Add(new Entry(column, Current.Game));
         }
 
         public static void Deregister(CompCoolingColumn column)
@@ -76,14 +89,14 @@ namespace ZLevelsRimatomics
             return loop;
         }
 
-        // Thing.Spawned is false, and Thing.Map is null, once Notify_MyMapRemoved has set mapIndexOrState below zero. The Disposed check
-        // covers a map that is disposed while its things still report as spawned. The stored map and game catch a column left over from an
-        // earlier game, or a column that now stands on another map, which Thing.Map alone does not catch.
+        // A column is usable when it is spawned, its map is not disposed, and it registered in the current game. The map is read at each call,
+        // so a column that TeleportThing moved to another map is still usable. Thing.Spawned and Thing.Map catch a column whose map was removed,
+        // and the game check catches a column left over from an earlier game.
         private static bool Usable(Entry entry)
         {
             CompCoolingColumn column = entry.Column;
             if (column == null || column.parent == null || !column.parent.Spawned || column.parent.Map == null) return false;
-            return !column.parent.Map.Disposed && column.parent.Map == entry.Map && entry.Game == Current.Game;
+            return !column.parent.Map.Disposed && entry.Game == Current.Game;
         }
 
         private static bool SitsOnSameCellOfAdjacentLevel(ZLevelsManager tracker, CompCoolingColumn a, CompCoolingColumn b)
