@@ -21,6 +21,8 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `Thing.DrawPos` is `public virtual Vector3 DrawPos => this.TrueCenter();` (`Verse.Thing` decompile, line 624). A Harmony patch on the base getter does not reach an override. `Mote` overrides it, so ZLevels patches `Mote.DrawPos` separately (`RenderPatches.cs`).
 - `Thing.DrawNowAt(Vector3 drawLoc, bool flip = false)` (`Verse.Thing` decompile, line 1303).
 - `Thing.Draw()` is not present in 1.7. Use `DrawNowAt`.
+- `Thing.DrawAt` draws the graphic in real time only when `drawerType` is `RealtimeOnly`, or when the thing is not spawned (`Verse.Thing` decompile, line 1326). A `MapMeshAndRealTime` thing draws its graphic through `Print` instead.
+- `Verse.Building` declares no `DrawAt` or `Print` override (`Verse.Building` decompile, no matches).
 
 ## Float menus
 
@@ -66,3 +68,27 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - A pawn on an unwalkable cell moves only when it starts a path. `Pawn_PathFollower.StartPath` calls `TryRecoverFromUnwalkablePosition()` (decompile, line 164). That method moves the pawn to the first walkable cell in `GenRadial.RadialPattern`. It logs `Teleporting to` when `error` is true (lines 529-555). None of the 53 run logs contains that line or the `Could not find walkable position` error that follows it.
 - Natural rock is a mineable building. `Limestone` sets `mineableThing` to `ChunkLimestone`, and `Granite` sets it to `ChunkGranite` (`Data/Core/Defs/ThingDefs_Misc/Various_Stone.xml`). On the lower level, a rock cell has terrain `<stone>_Rough`, roof `RoofRockThick`, and a `<stone>` thing. A carved floor has terrain `<stone>_RoughHewn` and no rock thing (runs `20261028-134416` and `20261028-135603`).
 - `ZLevelsManager.CreateLowerLevel(origin, playerStartSpot)` stores the start spot it receives (`ZLevels/Source/ZLevels/ZLevels/ZLevelsManager.cs:1557-1563`). Only `GenStep_FindLocationUnderground` reads the property. It only copies it to `MapGenerator.PlayerStartSpot` (`ZLevels/Source/ZLevels/ZLevels/GenSteps/GenStep_FindLocationUnderground.cs:21`).
+
+## Costs and stats
+
+- `BuildableDef.CostList` and `BuildableDef.CostStuffCount` return the values from `costListForDifficulty` when it is set and applies. Otherwise they return `costList` and `costStuffCount` (`Verse.BuildableDef` decompile, lines 190-211).
+- `RimWorld.StatExtension.GetStatValueAbstract` is declared as `public static float GetStatValueAbstract(this BuildableDef def, StatDef stat, ThingDef stuff = null)` (`RimWorld.StatExtension` decompile, line 17).
+- `BuildingProperties.isEdifice` is a public `bool` with default `true` (`RimWorld.BuildingProperties` decompile, line 12).
+- `ThingDef.holdsRoof` is a public `bool` (`Verse.ThingDef` decompile, line 304). `ThingDef.drawerType` is a public `DrawerType` with default `RealtimeOnly` (line 189).
+
+## Components
+
+- `ThingComp.PostSpawnSetup(bool respawningAfterLoad)` is `public virtual` (`Verse.ThingComp` decompile, line 31). `ThingComp.parent` is a public `ThingWithComps` field (line 12).
+- `ThingWithComps.GetComp<T>()` is declared as `public T GetComp<T>() where T : ThingComp` (`Verse.ThingWithComps` decompile, line 126).
+- `CompProperties.compClass` is a public `Type` field with default `typeof(ThingComp)` (`Verse.CompProperties` decompile, line 12).
+
+## Linked graphics
+
+- `GraphicData` wraps its graphic with `GraphicUtility.WrapLinked` when `Linked` is true, which is when `linkType` is not `None` (`Verse.GraphicData` decompile, lines 92 and 178-180). `WrapLinked` returns a `Graphic_Linked` for `Basic` (`Verse.GraphicUtility` decompile, lines 45-50).
+- `Graphic_Linked.LinkedDrawMatFrom` adds 1, 2, 4, and 8 for the four entries of `GenAdj.CardinalDirections`, in order, where `ShouldLinkWith` is true for that neighbour. The sum picks one of 16 tiles (`Verse.Graphic_Linked` decompile, lines 49-63). The order comes from `Verse.GenAdj` decompile, lines 51-54.
+- Each atlas tile covers 0.1875 of the texture in each direction. The tile offsets step by 0.25 across a 4 by 4 grid (`Verse.MaterialAtlasPool` decompile, lines 16-20). A tile therefore never shows the whole texture.
+
+## Mod patches
+
+- `PatchOperationFindMod` applies its match when `ModLister.HasActiveModWithName` returns true for any name in `mods` (`Verse.PatchOperationFindMod` decompile, line 19).
+- `ModLister.HasActiveModWithName` compares each active mod's `Name`, which is the display name, with the given string. It does not compare the package id (`Verse.ModLister` decompile, lines 209-213). A patch that names `dubwise.rimatomics` did not match in run `20261102-104504`.
