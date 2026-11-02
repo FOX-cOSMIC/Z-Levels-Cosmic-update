@@ -32,7 +32,7 @@
           <costList Inherit="false" />
           <graphicData>
             <texPath>Building/CoolingColumn</texPath>
-            <!-- The inherited Basic link wraps the texture in a 4x4 link atlas. This single image has no usable atlas tile, so the column drew nothing. -->
+            <!-- Run 20261102-112616, with RealtimeOnly and the inherited Basic link, showed no column at the column cell. Its placement record reports Graphic_Linked. Run 20261102-110012, with RealtimeOnly and linkType None, showed the column. -->
             <linkType>None</linkType>
           </graphicData>
           <comps>
