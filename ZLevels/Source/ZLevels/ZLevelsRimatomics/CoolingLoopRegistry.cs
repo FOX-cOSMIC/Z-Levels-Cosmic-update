@@ -5,6 +5,19 @@ using ZLevels;
 
 namespace ZLevelsRimatomics
 {
+    // One cell that the partner highlight outlines on the viewed level. Paired is true when the viewed level also holds a usable cooling column there.
+    public struct CoolingTarget
+    {
+        public readonly IntVec3 Cell;
+        public readonly bool Paired;
+
+        public CoolingTarget(IntVec3 cell, bool paired)
+        {
+            Cell = cell;
+            Paired = paired;
+        }
+    }
+
     // Pairs cooling columns across adjacent levels. A column joins the registry when it spawns with a Rimatomics pipe, and it leaves when
     // it despawns. Register also prunes the entries that are dead for good: a column that is no longer spawned, a disposed map, or another game.
     // Each entry keeps the game that its column registered in. A column is usable only while it stands in its map's thing grid
@@ -99,6 +112,41 @@ namespace ZLevelsRimatomics
                 }
             }
             return loop;
+        }
+
+        // The cells the partner highlight outlines on the viewed level: each cell where a usable cooling column stands on the level directly above or
+        // below it. Paired is true when the viewed level also holds a usable column on that cell. Each cell is listed once. It throws when the game
+        // has no ZLevelsManager, as Paired does.
+        public static List<CoolingTarget> HighlightTargets(Map viewed)
+        {
+            var targets = new List<CoolingTarget>();
+            if (viewed == null || viewed.Disposed || Current.Game == null) return targets;
+            ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+            if (tracker == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
+            Map lower = tracker.GetLowerLevel(viewed.Tile, viewed);
+            Map upper = tracker.GetUpperLevel(viewed.Tile, viewed);
+            foreach (Entry entry in entries)
+            {
+                if (!Usable(entry)) continue;
+                Thing thing = entry.Column.parent;
+                if (thing.Map != lower && thing.Map != upper) continue;
+                IntVec3 cell = thing.Position;
+                if (targets.Exists(target => target.Cell == cell)) continue;
+                targets.Add(new CoolingTarget(cell, HasUsableColumnAt(viewed, cell)));
+            }
+            return targets;
+        }
+
+        // True when a usable registered column stands on the cell of the map.
+        private static bool HasUsableColumnAt(Map map, IntVec3 cell)
+        {
+            foreach (Entry entry in entries)
+            {
+                if (!Usable(entry)) continue;
+                Thing thing = entry.Column.parent;
+                if (thing.Map == map && thing.Position == cell) return true;
+            }
+            return false;
         }
 
         // Removes each entry that is dead for good. Each removal logs one warning that names the column and the reason, so a column that leaves

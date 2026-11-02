@@ -23,6 +23,17 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `Thing.Draw()` is not present in 1.7. Use `DrawNowAt`.
 - `Thing.DrawAt` draws the graphic in real time only when `drawerType` is `RealtimeOnly`, or when the thing is not spawned (`Verse.Thing` decompile, line 1326). A `MapMeshAndRealTime` thing draws its graphic through `Print` instead (`Verse.Thing` decompile, line 1333).
 - `Verse.Building` declares no `DrawAt` or `Print` override (`Verse.Building` decompile, no matches).
+- `DynamicDrawManager.DrawDynamicThings()` is `public void` (`Verse.DynamicDrawManager` decompile, line 182). The map it draws is the private field `map` (line 145), which a Harmony postfix reads as `___map`. ZLevels already patches this method (`RenderPatches.cs`, line 103).
+- `Map.MapUpdate()` calls `dynamicDrawManager.DrawDynamicThings()` at line 1177. That call sits inside the block that starts at line 1162 with `if (drawingMap && Find.CurrentMap == this)`. A postfix on the method therefore runs once per frame, for the map in view (`Verse.Map` decompile, lines 1162-1177).
+- `GenDraw.DrawFieldEdges(List<IntVec3> cells, Color color, float? altOffset = null, HashSet<IntVec3> ignoreBorderCells = null, int renderQueue = 2900)` is `public static void` (`Verse.GenDraw` decompile, line 487). It draws on `Find.CurrentMap` (line 489) with `Graphics.DrawMeshInstanced` (line 534) and an instancing-enabled material (line 492). Its outline material is `Misc/FieldEdge` (line 66).
+- The partner highlight does not call `DrawFieldEdges`. It draws one plane per open edge with `Graphics.DrawMesh(MeshPool.plane10, matrix, material, 0)`, the form that `GenDraw.DrawLineBetween` uses (`Verse.GenDraw` decompile, line 192). With the instanced `DrawFieldEdges` call, two of five look runs lost the GPU device. The failures reported `VK_ERROR_DEVICE_LOST` in runs `20261102-215009` and `20261102-215926`. Five look runs with the per-edge draw had no device loss: `20261102-220522`, `20261102-220809`, `20261102-220916`, `20261102-221026`, and `20261102-221353`. The cause is unknown.
+- `MaterialPool.MatFrom(string texPath, Shader shader, Color color, int renderQueue)` cannot find `Misc/FieldEdge` by path (`Verse.MaterialPool` decompile, line 64). Each failing call logs `Could not load Texture2D at 'Misc/FieldEdge' in any active mod or in base resources.` and then `MatFrom with null sourceTex.` A call on every frame floods the log (run `20261102-220338`). `MatLoader.LoadMat("Misc/FieldEdge")` returns the material (`Verse.MatLoader` decompile, line 60). `MaterialPool.MatFrom(Texture2D srcTex, Shader shader, Color color, int renderQueue)` (line 40) takes the `mainTexture` of that material.
+- `GenAdj.CardinalDirections` is `public static IntVec3[]` (`Verse.GenAdj` decompile, line 9).
+
+## Light
+
+- `TorchLamp` (`Data/Core/Defs/ThingDefs_Buildings/Buildings_Furniture.xml`, line 1153) has a `CompProperties_Glower` with `glowRadius` 10. Its parent `TorchBase` (line 1067) adds a wood-fuelled `CompProperties_Refuelable` that starts full (`initialFuelPercent` 1, line 1108). It needs no power network.
+- The lower level is unlit, and rock limits the glow. The torch lit only its own cell while rock surrounded it (run `20261102-215753`). With the cells within two of the highlight cell cleared, it lit them (run `20261102-220522`).
 
 ## Float menus
 

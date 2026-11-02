@@ -119,7 +119,13 @@ namespace ZLevelsValidation
         private DateTime pendingShotDue;
         // Set when the screenshot row fails, so the cooling link row cannot read PASS beside it.
         private bool coolingScreenshotFailed;
-        // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels and cooling link record FAIL.
+        // State for the partner highlight rows and look. It is not saved. partnerLookStage is 0 when the look is not running.
+        private IntVec3 partnerCell = IntVec3.Invalid;
+        private ThingDef partnerColumn;
+        private ZLevelsRimatomics.CompCoolingColumn partnerSurfaceComp;
+        private int partnerLookStage;
+        private DateTime partnerShotDue;
+        // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels, its partner highlight labels, and cooling link record FAIL.
         private static bool CoolingNoColumns => GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns");
         private const string NoColumnsVariantNotBuilt = "FAIL: no-columns variant not built yet";
         // The screenshot row. The first frame of the cooling tick records it, and the outer catch of that tick writes it when the tick throws.
@@ -136,6 +142,8 @@ namespace ZLevelsValidation
             "coolant pipe joins the column",
             "column three cells away stays off the pipe net",
             "column moved to another level and back stays paired",
+            "partner highlight marks the cell",
+            "partner highlight shows the pair",
             "lower turbine shares the surface tower's loop",
             "cooling link breaks when a column is removed",
             "cooling link survives reload",
@@ -156,6 +164,18 @@ namespace ZLevelsValidation
             "column three cells away stays off the pipe net",
             "column moved to another level and back stays paired",
         };
+
+        // The partner highlight labels. They need the pairing setup, so a pairing failure records FAIL on each one that is not yet recorded.
+        private const string PartnerMarksLabel = "partner highlight marks the cell";
+        private const string PartnerPairsLabel = "partner highlight shows the pair";
+        private static readonly string[] CoolingHighlightLabels = { PartnerMarksLabel, PartnerPairsLabel };
+        // The two screenshot rows of the partner look. The runner's cooling list names them, so the gate requires them in a -Visual run.
+        private const string PartnerAmberLabel = "partner highlight amber screenshot";
+        private const string PartnerGreenLabel = "partner highlight green screenshot";
+        private const string PartnerAmberName = "zlevels-partner-amber";
+        private const string PartnerGreenName = "zlevels-partner-green";
+        // The highlight cell, offset from the surface centre. It is 4 cells north of the pairing cell and clear of the pairing layout and its pipe.
+        private static readonly IntVec3 PartnerOffset = new IntVec3(-12, 0, 4);
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
@@ -2156,6 +2176,7 @@ namespace ZLevelsValidation
 
         // Cross-level cooling. The first frame records the column's def checks, the bridge check, and the labels that later tasks still stub.
         // With -Visual (zlevelsscreenshots) it then places a column and a coolant pipe, waits for the view to render, and takes a screenshot.
+        // The partner look then views the lower level on the highlight cell and takes two screenshots, amber and then green.
         // The scenario sets finished and shuts the game down after its last record.
         private void RunCoolingLinkTick()
         {
@@ -2199,6 +2220,8 @@ namespace ZLevelsValidation
                     if (shotProblem != null) coolingScreenshotFailed = true;
                     coolingShotDue = null;
                 }
+                // The partner look follows the cooling column look. It holds the link row until its two screenshots are checked.
+                if (partnerLookStage != 0 && !AdvancePartnerLook()) return;
                 RecordCoolingLink();
             }
             catch (Exception exception)
@@ -2220,7 +2243,7 @@ namespace ZLevelsValidation
                     }
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
                     var owed = new List<string>(CoolingLabels);
-                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.Add(CoolingScreenshotLabel);
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.AddRange(new[] { CoolingScreenshotLabel, PartnerAmberLabel, PartnerGreenLabel });
                     foreach (string label in owed)
                     {
                         // A label whose check never ran says why. It does not read as a failure of its own check.
@@ -2298,6 +2321,7 @@ namespace ZLevelsValidation
             RecordCooling("cooling column costs", column != null ? CoolingColumnCostResult(column) : "FAIL: column missing");
             RecordCooling("cooling column holds roof", column != null ? CoolingColumnRoofResult(column) : "FAIL: column missing");
             RecordCoolingPairing(column);
+            RecordPartnerHighlight(column);
             RecordCooling("lower turbine shares the surface tower's loop", "FAIL: loop merge into the Rimatomics nets is not built yet");
             RecordCooling("cooling link breaks when a column is removed", "FAIL: loop split on column removal is not built yet");
             RecordCooling("cooling link survives reload", "FAIL: loop check after reload is not built yet");
@@ -2384,6 +2408,149 @@ namespace ZLevelsValidation
                 // The log comes after the rows, so a logger that throws cannot skip them.
                 Log.Error("Z-Levels cooling pairing check failed: " + exception);
             }
+        }
+
+        // The partner highlight rows. The surface column on the highlight cell stands with no lower column, so HighlightTargets reads that cell
+        // unpaired. Then the lower column stands on it, and HighlightTargets reads it paired. In a -Visual run the lower column waits for the
+        // amber shot, so the two screenshots show both states. Otherwise it stands at once.
+        private void RecordPartnerHighlight(ThingDef column)
+        {
+            if (CoolingNoColumns)
+            {
+                foreach (string label in CoolingHighlightLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
+                return;
+            }
+            if (column == null || surface == null || lower == null)
+            {
+                foreach (string label in CoolingHighlightLabels) RecordCooling(label, "FAIL: the cooling column or the lower level is missing");
+                return;
+            }
+            try
+            {
+                partnerColumn = column;
+                partnerCell = surface.Center + PartnerOffset;
+                if (!partnerCell.InBounds(surface) || !partnerCell.InBounds(lower)) throw new InvalidOperationException("the highlight cell is off the map");
+                // The lower cell is cleared, as SpawnBuilding clears the surface cell, so the amber shot shows an empty cell. Both cells are unfogged.
+                ClearCell(lower, partnerCell);
+                lower.terrainGrid.SetTerrain(partnerCell, TerrainDefOf.Concrete);
+                UnfogAround(lower, partnerCell, 3f);
+                UnfogAround(surface, partnerCell, 3f);
+                ThingWithComps surfaceBuilding = SpawnBuilding(column, surface, partnerCell, ThingDefOf.Steel);
+                partnerSurfaceComp = RequireCoolingComp(surfaceBuilding, "the surface column at the highlight cell");
+                string reason = UnjoinableReason("the surface column at the highlight cell", partnerSurfaceComp);
+                RecordCooling(PartnerMarksLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, false));
+                if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots"))
+                {
+                    partnerLookStage = 1;
+                    return;
+                }
+                PlacePartnerLowerColumn();
+            }
+            catch (Exception exception)
+            {
+                // A label whose check never ran says why, as in the pairing check. The log comes after the rows, so a logger that throws cannot skip them.
+                string cause = DescribeOrTypeName(exception);
+                foreach (string label in CoolingHighlightLabels)
+                {
+                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: not run: " + cause);
+                }
+                Log.Error("Z-Levels partner highlight check failed: " + exception);
+            }
+        }
+
+        // Stands the lower column on the highlight cell, then reads the highlight there. The cell must now be paired.
+        private void PlacePartnerLowerColumn()
+        {
+            ThingWithComps lowerBuilding = SpawnBuilding(partnerColumn, lower, partnerCell, ThingDefOf.Steel);
+            var lowerComp = RequireCoolingComp(lowerBuilding, "the lower column at the highlight cell");
+            string reason = UnjoinableReason("the surface column at the highlight cell", partnerSurfaceComp)
+                ?? UnjoinableReason("the lower column at the highlight cell", lowerComp);
+            RecordCooling(PartnerPairsLabel, reason != null ? "FAIL: " + reason : HighlightResult(lower, partnerCell, true));
+        }
+
+        // Reads HighlightTargets by name, so this code compiles before the method exists. Until it does, each row says so. The row passes when the
+        // target on the cell has the paired state that the row expects.
+        private static string HighlightResult(Map viewed, IntVec3 cell, bool paired)
+        {
+            Type registry = Type.GetType("ZLevelsRimatomics.CoolingLoopRegistry, ZLevelsRimatomics");
+            MethodInfo targets = registry?.GetMethod("HighlightTargets", BindingFlags.Public | BindingFlags.Static);
+            if (targets == null) return "FAIL: highlight not built yet";
+            object result;
+            try
+            {
+                result = targets.Invoke(null, new object[] { viewed });
+            }
+            catch (TargetInvocationException wrapped)
+            {
+                ExceptionDispatchInfo.Capture(wrapped.InnerException).Throw();
+                return null; // Throw does not return, so this line never runs.
+            }
+            foreach (object target in (System.Collections.IEnumerable)result)
+            {
+                if ((IntVec3)ReadField(target, "Cell") != cell) continue;
+                bool isPaired = (bool)ReadField(target, "Paired");
+                if (isPaired == paired) return "PASS";
+                return "FAIL: the target on the highlight cell is " + (isPaired ? "paired" : "unpaired") + ", not " + (paired ? "paired" : "unpaired");
+            }
+            return "FAIL: no target on the highlight cell";
+        }
+
+        // The partner look, in -Visual runs only. Stage 1 views the lower level on the highlight cell. Stage 2 takes the amber shot once the view has had
+        // three seconds to render. Stage 3 writes the amber row, stands the lower column, and reads the pair. Stage 4 takes the green shot, and stage 5
+        // writes the green row. It returns true when the look is over, so the link row can be written.
+        private bool AdvancePartnerLook()
+        {
+            switch (partnerLookStage)
+            {
+                case 1:
+                    // The lower level is unlit, and rock stops a torch's glow. So the cells round the highlight cell are cleared, and a torch lamp,
+                    // which needs no power, lights them. An outline is dimmed in the dark, so the look needs the light.
+                    foreach (IntVec3 near in CellRect.CenteredOn(partnerCell, 2))
+                    {
+                        if (!near.InBounds(lower)) continue;
+                        ClearCell(lower, near);
+                        lower.terrainGrid.SetTerrain(near, TerrainDefOf.Concrete);
+                    }
+                    SpawnBuilding(DefDatabase<ThingDef>.GetNamed("TorchLamp"), lower, partnerCell + new IntVec3(-2, 0, -2));
+                    CameraJumper.TryJump(partnerCell, lower, CameraJumper.MovementMode.Cut);
+                    partnerShotDue = DateTime.UtcNow.AddSeconds(3);
+                    partnerLookStage = 2;
+                    return false;
+                case 2:
+                    if (DateTime.UtcNow < partnerShotDue) return false;
+                    ScreenshotTaker.TakeNonSteamShot(PartnerAmberName);
+                    partnerShotDue = DateTime.UtcNow.AddSeconds(3);
+                    partnerLookStage = 3;
+                    return false;
+                case 3:
+                    if (DateTime.UtcNow < partnerShotDue) return false;
+                    RecordShotRow(PartnerAmberLabel, PartnerAmberName);
+                    PlacePartnerLowerColumn();
+                    partnerShotDue = DateTime.UtcNow.AddSeconds(3);
+                    partnerLookStage = 4;
+                    return false;
+                case 4:
+                    if (DateTime.UtcNow < partnerShotDue) return false;
+                    ScreenshotTaker.TakeNonSteamShot(PartnerGreenName);
+                    partnerShotDue = DateTime.UtcNow.AddSeconds(3);
+                    partnerLookStage = 5;
+                    return false;
+                case 5:
+                    if (DateTime.UtcNow < partnerShotDue) return false;
+                    RecordShotRow(PartnerGreenLabel, PartnerGreenName);
+                    partnerLookStage = 0;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        // Writes the row for a screenshot that was just taken. A FAIL row also fails the cooling link row.
+        private void RecordShotRow(string label, string name)
+        {
+            string result = ScreenshotResult(name);
+            RecordCooling(label, result);
+            if (result.StartsWith("FAIL", StringComparison.Ordinal)) coolingScreenshotFailed = true;
         }
 
         // LoopOf is read by name, so a missing or renamed method is a row failure with its cause, not a compile error. When LoopOf cannot
