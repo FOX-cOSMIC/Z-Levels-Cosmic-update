@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Verse;
 using ZLevels;
@@ -5,14 +6,15 @@ using ZLevels;
 namespace ZLevelsRimatomics
 {
     // Pairs cooling columns across adjacent levels. Each loop is found by a breadth-first search at call time, so a column loaded
-    // before its neighbour's map exists still pairs. The list is static and can hold stale entries, so every query skips a column
-    // that is not spawned or has no map.
+    // before its neighbor's map exists still pairs. The list is static, and the game does not always call PostDeSpawn when a map is
+    // removed, so an entry can outlive its map. Usable rejects such an entry, and Register drops every unusable entry before it adds one.
     public static class CoolingLoopRegistry
     {
         private static readonly List<CompCoolingColumn> columns = new List<CompCoolingColumn>();
 
         public static void Register(CompCoolingColumn column)
         {
+            columns.RemoveAll(entry => !Usable(entry));
             if (column != null && !columns.Contains(column)) columns.Add(column);
         }
 
@@ -22,15 +24,18 @@ namespace ZLevelsRimatomics
         }
 
         // The rule of ConnectedPowerNets.RegisterTransmitter: b sits on the level directly below or above a, and the two are less than 3 cells apart.
-        // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree.
+        // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree. It returns false when either column is not usable.
+        // It throws when both are usable but the game has no ZLevelsManager, because a live game always has one.
         public static bool Paired(CompCoolingColumn a, CompCoolingColumn b)
         {
+            if (!Usable(a) || !Usable(b)) return false;
             ZLevelsManager tracker = Current.Game?.GetComponent<ZLevelsManager>();
-            if (tracker == null || !Usable(a) || !Usable(b)) return false;
+            if (tracker == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
             return SitsWithin3OnAdjacentLevel(tracker, a, b) && SitsWithin3OnAdjacentLevel(tracker, b, a);
         }
 
-        // The connected group of paired columns that contains start. The group includes start when start is usable.
+        // The connected group of paired columns that contains start, found by a breadth-first search at call time. The group includes start
+        // when start is usable. An unusable start returns an empty list, so a caller that reads the loop must check that start is in it.
         public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start)
         {
             var loop = new List<CompCoolingColumn>();
@@ -47,9 +52,11 @@ namespace ZLevelsRimatomics
             return loop;
         }
 
+        // Thing.Spawned is false, and Thing.Map is null, once Notify_MyMapRemoved has set mapIndexOrState below zero. The Disposed check
+        // covers a map that is disposed while its things still report as spawned.
         private static bool Usable(CompCoolingColumn column)
         {
-            return column != null && column.parent != null && column.parent.Spawned && column.parent.Map != null;
+            return column != null && column.parent != null && column.parent.Spawned && column.parent.Map != null && !column.parent.Map.Disposed;
         }
 
         private static bool SitsWithin3OnAdjacentLevel(ZLevelsManager tracker, CompCoolingColumn a, CompCoolingColumn b)

@@ -103,8 +103,18 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `IntVec3Utility.DistanceTo(this IntVec3 a, IntVec3 b)` returns a `float` (`Verse.IntVec3Utility` decompile, line 13). It returns the horizontal length of `a - b`. `IntVec3.LengthHorizontal` computes that length as `GenMath.Sqrt(x * x + z * z)` (`Verse.IntVec3` decompile, line 50). Two cells 3 apart along one axis have a distance of exactly 3.
 - `Current.Game` is a public static `Game` property (`Verse.Current` decompile, line 43). `Game.GetComponent<T>()` is declared as `public T GetComponent<T>() where T : GameComponent` (`Verse.Game` decompile, line 683).
 - `DestroyMode` is a public enum with `byte` as its underlying type, in namespace `Verse` (`Verse.DestroyMode` decompile, line 3). Its first member is `Vanish` (line 5).
+- `Map.Disposed` is a public `bool` property with a private setter (`Verse.Map` decompile, line 335).
+- `Thing.def` is a public `ThingDef` field (`Verse.Thing` decompile, line 17).
+- `Thing.Map` returns null when `mapIndexOrState` is below zero (`Verse.Thing` decompile, lines 233 to 241).
+- `Thing.Spawned` returns false when `mapIndexOrState` is below zero or `Find.Maps` is null (`Verse.Thing` decompile, lines 194 to 198).
+- `Thing.Notify_MyMapRemoved()` sets `mapIndexOrState` to -3 for a thing that no pawn holds (`Verse.Thing` decompile, lines 1123 to 1135).
 
 ## Optional assembly access
 
 - `ZUtils` is an `internal static class` in namespace `ZLevels` (`ZLevels/Source/ZLevels/ZLevels/ZUtils.cs`, line 16). No `InternalsVisibleTo` attribute exists in the repository, so `ZLevelsRimatomics` cannot name `ZUtils`.
 - `ZUtils.ZTracker` caches the manager it finds. `ZUtils.ResetZTracker()` clears the cache (`ZUtils.cs`, lines 18 and 45). `CoolingLoopRegistry.Paired` calls `Current.Game.GetComponent<ZLevelsManager>()` instead.
+
+## Logging and spawning
+
+- `Log.Error(string text)` is a public static method (`Verse.Log` decompile, line 152).
+- `GenSpawn.Spawn(Thing newThing, IntVec3 loc, Map map, WipeMode wipeMode = WipeMode.Vanish)` returns `Thing` (`Verse.GenSpawn` decompile, line 26). It forwards to the overload at line 86, which returns null when the map is null (line 91) or the cell is out of bounds (line 107). Each case logs an error first.

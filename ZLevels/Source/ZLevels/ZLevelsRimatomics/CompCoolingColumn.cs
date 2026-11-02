@@ -12,6 +12,12 @@ namespace ZLevelsRimatomics
         {
             base.PostSpawnSetup(respawningAfterLoad);
             pipe = parent.GetComp<Rimatomics.CompPipe>();
+            if (pipe == null)
+            {
+                // Without a pipe the column cannot join a net, so it stays out of the registry.
+                Log.Error("Z-Levels cooling column " + parent.def.defName + " has no Rimatomics pipe comp, so it does not join a loop.");
+                return;
+            }
             CoolingLoopRegistry.Register(this);
         }
 

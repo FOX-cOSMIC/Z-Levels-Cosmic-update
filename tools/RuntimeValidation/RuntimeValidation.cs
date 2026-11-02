@@ -1672,7 +1672,9 @@ namespace ZLevelsValidation
             }
             var building = (ThingWithComps)ThingMaker.MakeThing(definition, stuff);
             building.SetFaction(Faction.OfPlayer);
-            return (ThingWithComps)GenSpawn.Spawn(building, cell, map);
+            var spawned = (ThingWithComps)GenSpawn.Spawn(building, cell, map);
+            if (spawned == null) throw new InvalidOperationException("GenSpawn.Spawn returned no thing for " + definition.defName + " at " + cell);
+            return spawned;
         }
 
         private static void ConnectWithConduit(Map map, IntVec3 from, Thing target)
@@ -2162,8 +2164,12 @@ namespace ZLevelsValidation
             }
             catch (Exception exception)
             {
-                Record("cooling link", "FAIL: " + exception);
                 Log.Error("Z-Levels cooling link validation failed: " + exception);
+                foreach (string label in CoolingLabels)
+                {
+                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + exception.Message);
+                }
+                Record("cooling link", "FAIL: " + exception);
             }
             finished = true;
             Root.Shutdown();
@@ -2208,28 +2214,24 @@ namespace ZLevelsValidation
                 ThingWithComps nearBuilding = SpawnBuilding(column, surface, cell + new IntVec3(2, 0, 0), ThingDefOf.Steel);
                 ThingWithComps farBuilding = SpawnBuilding(column, surface, farCell, ThingDefOf.Steel);
                 ThingWithComps pipeBuilding = SpawnBuilding(pipeDef, surface, cell + new IntVec3(0, 0, 1));
-                var surfaceComp = surfaceBuilding.GetComp<ZLevelsRimatomics.CompCoolingColumn>();
-                var lowerComp = lowerBuilding.GetComp<ZLevelsRimatomics.CompCoolingColumn>();
-                var nearComp = nearBuilding.GetComp<ZLevelsRimatomics.CompCoolingColumn>();
-                var farComp = farBuilding.GetComp<ZLevelsRimatomics.CompCoolingColumn>();
+                var surfaceComp = RequireCoolingComp(surfaceBuilding, "the surface column");
+                var lowerComp = RequireCoolingComp(lowerBuilding, "the lower column");
+                var nearComp = RequireCoolingComp(nearBuilding, "the column 2 cells east");
+                var farComp = RequireCoolingComp(farBuilding, "the column 3 cells east");
 
-                MethodInfo loopOf = CoolingLoopOfMethod();
+                MethodInfo loopOf = CoolingLoopOfMethod(out string problem);
                 if (loopOf == null)
                 {
                     foreach (string label in new[] { "cooling columns paired", "column out of range stays unpaired", "all in-range columns share one loop" })
                     {
-                        RecordCooling(label, "FAIL: CoolingLoopRegistry is not built yet");
+                        RecordCooling(label, "FAIL: " + problem);
                     }
                 }
                 else
                 {
                     bool paired = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
                     RecordCooling("cooling columns paired", paired ? "PASS" : "FAIL: the surface column and the lower column do not share a loop");
-                    float apart = farComp.parent.Position.DistanceTo(lowerComp.parent.Position);
-                    string outOfRange = "PASS";
-                    if (apart != 3f) outOfRange = "FAIL: the test layout puts the third column " + apart + " cells from the lower column, not 3";
-                    else if (Joined(loopOf, lowerComp, farComp) || Joined(loopOf, farComp, lowerComp)) outOfRange = "FAIL: the column 3 cells away shares the loop";
-                    RecordCooling("column out of range stays unpaired", outOfRange);
+                    RecordCooling("column out of range stays unpaired", OutOfRangeResult(loopOf, lowerComp, farComp, paired));
                     bool inRange = Joined(loopOf, lowerComp, nearComp) && Joined(loopOf, nearComp, lowerComp)
                         && Joined(loopOf, surfaceComp, nearComp) && Joined(loopOf, nearComp, surfaceComp);
                     RecordCooling("all in-range columns share one loop", inRange ? "PASS" : "FAIL: the in-range columns do not share one loop");
@@ -2238,56 +2240,104 @@ namespace ZLevelsValidation
                 surface.MapUpdate();
                 // A control for the pipe check. The column 2 cells east is not adjacent to the first column, so it must not share its net.
                 // If it did, the pipe check would pass for a reason other than adjacency. This line is information only, not a label.
-                object nearNet = PipeNetOf(ColumnPipe(nearComp));
-                string shared = nearNet == null ? "no net" : object.ReferenceEquals(nearNet, PipeNetOf(ColumnPipe(surfaceComp))) ? "yes" : "no";
-                Record("coolant pipe control", "column 2 cells east shares the column's pipe net: " + shared);
+                Record("coolant pipe control", "column 2 cells east shares the column's pipe net: " + SharesPipeNet(surfaceComp, nearComp));
                 RecordCooling("coolant pipe joins the column", CoolantPipeResult(surfaceComp, pipeBuilding));
             }
             catch (Exception exception)
             {
+                Log.Error("Z-Levels cooling pairing check failed: " + exception);
                 foreach (string label in CoolingPairingLabels)
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + exception);
+                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + exception.Message);
                 }
             }
         }
 
-        // The registry is named by string, so this code compiles before ZLevelsRimatomics.CoolingLoopRegistry exists. Null means it does not exist yet.
-        private static MethodInfo CoolingLoopOfMethod()
+        // The registry is named by string, so this code compiles before ZLevelsRimatomics.CoolingLoopRegistry exists. When LoopOf cannot
+        // be read, the method returns null and problem names the cause.
+        private static MethodInfo CoolingLoopOfMethod(out string problem)
         {
             Type registry = Type.GetType("ZLevelsRimatomics.CoolingLoopRegistry, ZLevelsRimatomics");
-            return registry?.GetMethod("LoopOf", BindingFlags.Public | BindingFlags.Static);
+            if (registry == null)
+            {
+                problem = "type ZLevelsRimatomics.CoolingLoopRegistry is not resolved";
+                return null;
+            }
+            MethodInfo loopOf = registry.GetMethod("LoopOf", BindingFlags.Public | BindingFlags.Static);
+            problem = loopOf == null ? "CoolingLoopRegistry.LoopOf is missing or not public static" : null;
+            return loopOf;
         }
 
+        // A spawned building with no CompCoolingColumn is a setup failure, so it is named here rather than left as a null reference.
+        private static ZLevelsRimatomics.CompCoolingColumn RequireCoolingComp(ThingWithComps building, string role)
+        {
+            var comp = building.GetComp<ZLevelsRimatomics.CompCoolingColumn>();
+            if (comp == null) throw new InvalidOperationException(role + " has no CompCoolingColumn");
+            return comp;
+        }
+
+        // LoopOf returns an empty list for a column that is not spawned on a map. A start that is missing from its own loop is a failure of
+        // its own, so it cannot read as "not paired". A TargetInvocationException is unwrapped, so the row names the real cause.
         private static bool Joined(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn from, ZLevelsRimatomics.CompCoolingColumn member)
         {
-            return ((System.Collections.IList)loopOf.Invoke(null, new object[] { from })).Contains(member);
+            object result;
+            try
+            {
+                result = loopOf.Invoke(null, new object[] { from });
+            }
+            catch (TargetInvocationException wrapped)
+            {
+                throw wrapped.InnerException;
+            }
+            var loop = (System.Collections.IList)result;
+            if (!loop.Contains(from)) throw new InvalidOperationException("start column not spawned on a map");
+            return loop.Contains(member);
+        }
+
+        // The third column sits 3 cells from the lower column. An empty far loop shows nothing by itself, so the row passes only when the
+        // in-range pair is joined, both columns have maps, and the far column is outside the loop.
+        private static string OutOfRangeResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, ZLevelsRimatomics.CompCoolingColumn farComp, bool paired)
+        {
+            if (lowerComp.parent.Map == null || farComp.parent.Map == null) return "FAIL: a column has no map";
+            if (!paired) return "FAIL: the in-range pair is not joined, so an empty far loop proves nothing";
+            float apart = farComp.parent.Position.DistanceTo(lowerComp.parent.Position);
+            if (apart != 3f) return "FAIL: the test layout puts the third column " + apart + " cells from the lower column, not 3";
+            return Joined(loopOf, lowerComp, farComp) || Joined(loopOf, farComp, lowerComp) ? "FAIL: the column 3 cells away shares the loop" : "PASS";
         }
 
         // Rimatomics types are read by name, so this code compiles without a reference to Rimatomics. The column's pipe field must be set,
         // and the column and the coolingPipe must hold the same pipe net.
         private static string CoolantPipeResult(ZLevelsRimatomics.CompCoolingColumn column, ThingWithComps pipe)
         {
-            if (ColumnPipe(column) == null) return "FAIL: the column's pipe field is null";
+            if (ReadField(column, "pipe") == null) return "FAIL: the column's pipe field is null";
             object pipePipe = pipe.AllComps.FirstOrDefault(comp => comp.GetType().FullName == "Rimatomics.CompPipe");
             if (pipePipe == null) return "FAIL: the coolingPipe has no Rimatomics pipe comp";
-            object columnNet = PipeNetOf(ColumnPipe(column));
-            object pipeNet = PipeNetOf(pipePipe);
+            object columnNet = ReadField(ReadField(column, "pipe"), "pipeNetRef");
+            object pipeNet = ReadField(pipePipe, "pipeNetRef");
             if (columnNet == null) return "FAIL: the column has no pipe net after one MapUpdate";
             if (pipeNet == null) return "FAIL: the coolingPipe has no pipe net after one MapUpdate";
             return object.ReferenceEquals(columnNet, pipeNet) ? "PASS" : "FAIL: the column and the coolingPipe are in different pipe nets";
         }
 
-        // The column's pipe field, read by name: its type is Rimatomics.CompPipe, which this code does not name.
-        private static object ColumnPipe(ZLevelsRimatomics.CompCoolingColumn column)
+        // The control result for two columns. A column with no pipe component reports "no component", and a pipe with no net reports "no net".
+        private static string SharesPipeNet(ZLevelsRimatomics.CompCoolingColumn first, ZLevelsRimatomics.CompCoolingColumn second)
         {
-            return typeof(ZLevelsRimatomics.CompCoolingColumn).GetField("pipe", BindingFlags.Public | BindingFlags.Instance).GetValue(column);
+            object firstPipe = ReadField(first, "pipe");
+            object secondPipe = ReadField(second, "pipe");
+            if (firstPipe == null || secondPipe == null) return "no component";
+            object firstNet = ReadField(firstPipe, "pipeNetRef");
+            object secondNet = ReadField(secondPipe, "pipeNetRef");
+            if (firstNet == null || secondNet == null) return "no net";
+            return object.ReferenceEquals(firstNet, secondNet) ? "yes" : "no";
         }
 
-        // The pipeNetRef field, not the CompPipe.net property: the property calls RegenGrids when the field is null. Null in, null out.
-        private static object PipeNetOf(object pipeComp)
+        // Reads a public instance field by name. The cooling column and the Rimatomics pipe are named by string, so a rename throws here
+        // with the type and the field, instead of a null reference.
+        private static object ReadField(object instance, string fieldName)
         {
-            return pipeComp == null ? null : pipeComp.GetType().GetField("pipeNetRef", BindingFlags.Public | BindingFlags.Instance).GetValue(pipeComp);
+            FieldInfo field = instance.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.Instance);
+            if (field == null) throw new MissingFieldException(instance.GetType().FullName, fieldName);
+            return field.GetValue(instance);
         }
 
         // The column costs what the power column costs: no Steel in CostList, a CostStuffCount of 60, and WorkToBuild of 750.
@@ -2340,10 +2390,12 @@ namespace ZLevelsValidation
                 + ", draw position " + thing.DrawPos;
         }
 
+        // The row is written first. A label's result is stored only after the row is written, so a failed write leaves the label
+        // unrecorded, and the catch that runs later reports it.
         private void RecordCooling(string label, string result)
         {
-            coolingResults[label] = result;
             Record(label, result);
+            coolingResults[label] = result;
         }
 
         // The final line passes only when every label in CoolingLabels has a PASS. Otherwise it names the labels that do not.
