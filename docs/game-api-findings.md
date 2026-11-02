@@ -21,7 +21,7 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `Thing.DrawPos` is `public virtual Vector3 DrawPos => this.TrueCenter();` (`Verse.Thing` decompile, line 624). A Harmony patch on the base getter does not reach an override. `Mote` overrides it, so ZLevels patches `Mote.DrawPos` separately (`RenderPatches.cs`).
 - `Thing.DrawNowAt(Vector3 drawLoc, bool flip = false)` (`Verse.Thing` decompile, line 1303).
 - `Thing.Draw()` is not present in 1.7. Use `DrawNowAt`.
-- `Thing.DrawAt` draws the graphic in real time only when `drawerType` is `RealtimeOnly`, or when the thing is not spawned (`Verse.Thing` decompile, line 1326). A `MapMeshAndRealTime` thing draws its graphic through `Print` instead.
+- `Thing.DrawAt` draws the graphic in real time only when `drawerType` is `RealtimeOnly`, or when the thing is not spawned (`Verse.Thing` decompile, line 1326). A `MapMeshAndRealTime` thing draws its graphic through `Print` instead (`Verse.Thing` decompile, line 1333).
 - `Verse.Building` declares no `DrawAt` or `Print` override (`Verse.Building` decompile, no matches).
 
 ## Float menus
@@ -71,7 +71,7 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 
 ## Costs and stats
 
-- `BuildableDef.CostList` and `BuildableDef.CostStuffCount` return the values from `costListForDifficulty` when it is set and applies. Otherwise they return `costList` and `costStuffCount` (`Verse.BuildableDef` decompile, lines 190-211).
+- `BuildableDef.CostList` and `BuildableDef.CostStuffCount` return the values from `costListForDifficulty` when it is set and applies. Otherwise they return `costList` and `costStuffCount` (`Verse.BuildableDef` decompile, lines 190-212).
 - `RimWorld.StatExtension.GetStatValueAbstract` is declared as `public static float GetStatValueAbstract(this BuildableDef def, StatDef stat, ThingDef stuff = null)` (`RimWorld.StatExtension` decompile, line 17).
 - `BuildingProperties.isEdifice` is a public `bool` with default `true` (`RimWorld.BuildingProperties` decompile, line 12).
 - `ThingDef.holdsRoof` is a public `bool` (`Verse.ThingDef` decompile, line 304). `ThingDef.drawerType` is a public `DrawerType` with default `RealtimeOnly` (line 189).
@@ -91,4 +91,4 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 ## Mod patches
 
 - `PatchOperationFindMod` applies its match when `ModLister.HasActiveModWithName` returns true for any name in `mods` (`Verse.PatchOperationFindMod` decompile, line 19).
-- `ModLister.HasActiveModWithName` compares each active mod's `Name`, which is the display name, with the given string. It does not compare the package id (`Verse.ModLister` decompile, lines 209-213). A patch that names `dubwise.rimatomics` did not match in run `20261102-104504`.
+- `ModLister.HasActiveModWithName` compares each active mod's `Name` with the given string. It does not compare the package id (`Verse.ModLister` decompile, lines 209-213). A patch that names `dubwise.rimatomics` did not match in run `20261102-104504`. A patch that names `Dubs Rimatomics` matched in run `20261102-104625`.
