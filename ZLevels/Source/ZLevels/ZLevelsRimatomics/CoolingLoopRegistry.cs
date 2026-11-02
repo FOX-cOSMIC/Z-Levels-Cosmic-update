@@ -109,8 +109,10 @@ namespace ZLevelsRimatomics
             {
                 string reason = DeadReason(entries[i]);
                 if (reason == null) continue;
-                Log.Warning("Z-Levels cooling column " + Describe(entries[i].Column) + " left the cooling registry: " + reason + ".");
+                // The entry leaves the registry before the warning is logged, so a logger that throws cannot leave the entry behind.
+                string column = Describe(entries[i].Column);
                 entries.RemoveAt(i);
+                Log.Warning("Z-Levels cooling column " + column + " left the cooling registry: " + reason + ".");
             }
         }
 

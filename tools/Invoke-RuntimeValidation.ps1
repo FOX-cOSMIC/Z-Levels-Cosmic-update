@@ -29,21 +29,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# One streaming pass over the game log, for the cause hint and the Z-Levels gate. An ERROR entry starts at any line that contains ' ERROR ',
-# timestamped or not. It ends at the next timestamped line or at the next ERROR line. Only the entry count, the count of entries that mention
-# Z-Levels, and the first of those entries are kept. The log is read as a stream, so a large log is not loaded into memory.
+# One streaming pass over the game log, for the cause hint and the Z-Levels gate. An ERROR entry starts at any line with the whole word ERROR,
+# matched case-sensitively, timestamped or not. It ends at the next timestamped line or at the next ERROR line. Only the entry count, the count
+# of entries that mention Z-Levels, the first of those entries, and the first Z-Levels WARN line are kept. The log is read as a stream.
 function Get-ErrorScan {
     param([string]$LogPath)
-    $errorTag = [regex]::new(' ERROR ', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $errorTag = [regex]::new('\bERROR\b')
+    # A WARN line has WARN in the level field after its timestamp, the place ERROR occupies in a timestamped line.
+    $warnTag = [regex]::new('^\d{4}-\d{2}-\d{2} \S+\s+WARN\b')
     $stamp = [regex]::new('^\d{4}-\d{2}-\d{2} ')
     $zlevels = [regex]::new('Z-?Levels', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $entries = 0
     $zlevelsEntries = 0
     $first = $null
+    $firstWarn = $null
     $lines = New-Object System.Collections.Generic.List[string]
     $inEntry = $false
     $entryHasZLevels = $false
     foreach ($line in [System.IO.File]::ReadLines($LogPath)) {
+        if ($null -eq $firstWarn -and $warnTag.IsMatch($line) -and $zlevels.IsMatch($line)) { $firstWarn = $line }
         $startsEntry = $errorTag.IsMatch($line)
         if ($inEntry -and ($startsEntry -or $stamp.IsMatch($line))) {
             $entries++
@@ -69,7 +73,7 @@ function Get-ErrorScan {
             if ($null -eq $first) { $first = $lines -join "`n" }
         }
     }
-    return [pscustomobject]@{ Entries = $entries; ZLevelsEntries = $zlevelsEntries; FirstZLevelsEntry = $first }
+    return [pscustomobject]@{ Entries = $entries; ZLevelsEntries = $zlevelsEntries; FirstZLevelsEntry = $first; FirstZLevelsWarn = $firstWarn }
 }
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
@@ -202,7 +206,12 @@ if (!$process.HasExited) {
 
 $log = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
 if (Test-Path -LiteralPath $log) {
-    Get-Content -LiteralPath $log | Set-Content -LiteralPath (Join-Path $runDirectory 'Player.log') -Encoding UTF8
+    # The game log is copied as bytes, and the copy must hash the same as its source. A text copy would change the bytes.
+    $runLog = Join-Path $runDirectory 'Player.log'
+    Copy-Item -LiteralPath $log -Destination $runLog -Force
+    if ((Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $runLog -Algorithm SHA256).Hash) {
+        throw "The copy of the game log does not match its source: $runDirectory"
+    }
 }
 $resultsPath = Join-Path $runDirectory 'validation-results.txt'
 if (!(Test-Path -LiteralPath $resultsPath)) { throw "Game exited without validation results: $runDirectory" }
@@ -223,11 +232,14 @@ if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + 
         }
         else {
             Write-Host 'No ERROR entry in Player.log names Z-Levels.'
+            if ($scan.FirstZLevelsWarn) {
+                Write-Host "First Z-Levels WARN line in Player.log. Earlier lines in this log may be unrelated to this run.`n$($scan.FirstZLevelsWarn)"
+            }
         }
     }
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
-$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
+$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -cmatch '\bERROR\b' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
     # Only error entries count, read by the same scan as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
