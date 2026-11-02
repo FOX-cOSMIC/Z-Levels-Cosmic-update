@@ -19,6 +19,9 @@ param(
     [switch]$MultiBuild,
     [switch]$MultiBuildLowerLogs,
     [switch]$StairsDamage,
+    [switch]$Cooling,
+    [switch]$CoolingNoColumns,
+    [switch]$RimatomicsPlusPlus,
     [switch]$ZLevelsDebug,
     # A ModsConfig.xml whose mods run together with Z-Levels. It is only read. The isolated run gets a copy of its mod list.
     [string]$ModsConfigSource,
@@ -81,6 +84,12 @@ if ($ModsConfigSource) {
     $activeMods = @($source.SelectNodes('/ModsConfigData/activeMods/li') | ForEach-Object { $_.InnerText } | Where-Object { $_ -and $_ -notin @('zlevels1.1', 'local.zlevels.validation') })
     $activeMods += @('zlevels1.1', 'local.zlevels.validation')
 }
+# The cooling runs need Dubs Rimatomics. Rimatomics++ depends on it, so -RimatomicsPlusPlus adds it too. Each mod goes before Z-Levels, unless the list already has it.
+$rimatomicsMods = @()
+if ($Cooling -or $CoolingNoColumns -or $RimatomicsPlusPlus) { $rimatomicsMods += 'dubwise.rimatomics' }
+if ($RimatomicsPlusPlus) { $rimatomicsMods += 'nachotoast.rimatomicsplusplus' }
+$rimatomicsMods = @($rimatomicsMods | Where-Object { $activeMods -notcontains $_ })
+$activeMods = @($activeMods | ForEach-Object { if ($_ -eq 'zlevels1.1') { $rimatomicsMods }; $_ })
 $configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n"))
 $configuration | Set-Content -LiteralPath (Join-Path $configDirectory 'ModsConfig.xml') -Encoding UTF8
 if ($ModsConfigSource) {
@@ -129,6 +138,8 @@ if ($UnreachableZone) { $arguments += '-zlevelsunreachablezone' }
 if ($MultiBuild) { $arguments += '-zlevelsmultibuild' }
 if ($MultiBuildLowerLogs) { $arguments += '-zlevelsmultibuildlowerlogs' }
 if ($StairsDamage) { $arguments += '-zlevelsstairsdamage' }
+if ($Cooling) { $arguments += '-zlevelscooling' }
+if ($CoolingNoColumns) { $arguments += '-zlevelscoolingnocolumns' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
@@ -154,7 +165,7 @@ if (Test-Path -LiteralPath $log) {
 $resultsPath = Join-Path $runDirectory 'validation-results.txt'
 if (!(Test-Path -LiteralPath $resultsPath)) { throw "Game exited without validation results: $runDirectory" }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } else { 'core validation' }
+$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
     throw "Runtime scenarios did not all pass: $runDirectory"

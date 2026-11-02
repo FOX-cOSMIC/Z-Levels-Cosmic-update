@@ -108,6 +108,29 @@ namespace ZLevelsValidation
         private float wealthTotalBefore;
         private float wealthStorytellerBefore;
 
+        // State for the cross-level cooling checks. It is not saved.
+        private readonly Dictionary<string, string> coolingResults = new Dictionary<string, string>();
+        // Every label the final "cooling link" line needs. Each is recorded PASS or FAIL: <reason>. A label that is never recorded blocks the link.
+        private static readonly string[] CoolingLabels =
+        {
+            "cooling column defined",
+            "cooling column costs",
+            "cooling column holds roof",
+            "cooling columns paired",
+            "column out of range stays unpaired",
+            "all in-range columns share one loop",
+            "coolant pipe joins the column",
+            "lower turbine shares the surface tower's loop",
+            "cooling link breaks when a column is removed",
+            "cooling link survives reload",
+            "rimatomics bridge active",
+            "reactor runs on the lower level",
+            "loop ratio at or below 1",
+            "no cooling alert",
+            "no meltdown",
+            "surface colonist not irradiated",
+        };
+
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
         private readonly List<string> campfireTrailLatest = new List<string>();
@@ -204,6 +227,12 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairsdamage"))
                 {
                     RunStairsDamageTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscooling") || GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns"))
+                {
+                    finished = true;
+                    RunCoolingLinkTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
@@ -2084,6 +2113,45 @@ namespace ZLevelsValidation
                 Record("stairs damage", "FAIL: " + exception);
                 Root.Shutdown();
             }
+        }
+
+        // Cross-level cooling, Task 1. No column exists yet, so each check that needs one records FAIL: column missing.
+        // Later tasks replace each of those records with its real check. The scenario runs once, after the stairs stage, then shuts the game down.
+        private void RunCoolingLinkTick()
+        {
+            try
+            {
+                RecordCooling("cooling column defined", DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn") != null ? "PASS" : "FAIL: column missing");
+                RecordCooling("cooling column costs", "FAIL: column missing");
+                RecordCooling("cooling column holds roof", "FAIL: column missing");
+                RecordCooling("cooling columns paired", "FAIL: column missing");
+                RecordCooling("column out of range stays unpaired", "FAIL: column missing");
+                RecordCooling("all in-range columns share one loop", "FAIL: column missing");
+                RecordCooling("coolant pipe joins the column", "FAIL: column missing");
+                RecordCooling("lower turbine shares the surface tower's loop", "FAIL: column missing");
+                RecordCooling("cooling link breaks when a column is removed", "FAIL: column missing");
+                RecordCooling("cooling link survives reload", "FAIL: column missing");
+                RecordCoolingLink();
+            }
+            catch (Exception exception)
+            {
+                Record("cooling link", "FAIL: " + exception);
+                Log.Error("Z-Levels cooling link validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        private void RecordCooling(string label, string result)
+        {
+            coolingResults[label] = result;
+            Record(label, result);
+        }
+
+        // The final line passes only when every label in CoolingLabels has a PASS. Otherwise it names the labels that do not.
+        private void RecordCoolingLink()
+        {
+            var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
+            Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
         }
 
         // Test only: the other colonists' jobs and work priorities, for a timeout message.
