@@ -2,7 +2,7 @@ using Verse;
 
 namespace ZLevelsRimatomics
 {
-    // One cooling column. Task 3 holds only its coolant pipe comp. Task 4 adds the pairing and the loop registration.
+    // One cooling column. It is a Rimatomics coolant pipe, and it joins the loops that CoolingLoopRegistry pairs.
     public class CompCoolingColumn : ThingComp
     {
         // The Rimatomics pipe comp on this column. A reference-type field, so this class loads without Rimatomics.
@@ -12,6 +12,13 @@ namespace ZLevelsRimatomics
         {
             base.PostSpawnSetup(respawningAfterLoad);
             pipe = parent.GetComp<Rimatomics.CompPipe>();
+            CoolingLoopRegistry.Register(this);
+        }
+
+        public override void PostDeSpawn(Map map, DestroyMode mode)
+        {
+            CoolingLoopRegistry.Deregister(this);
+            base.PostDeSpawn(map, mode);
         }
     }
 }
