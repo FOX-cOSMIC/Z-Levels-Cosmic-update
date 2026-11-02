@@ -106,49 +106,85 @@ function Get-GateProblems {
 # The partner outline tint, read from the saved screenshots. Get-OutlineTintSettings holds every threshold and the sampled region, so the calibration
 # sits in one place. The sampled region is the highlight cell: 15 by 15 pixels at x 632 to 646 and y 352 to 366 of a 1280 by 720 screenshot. A
 # cooling column stands in the middle 7 by 7 block (x 636 to 642 and y 356 to 362), so that block is left out. The rest of the cell is sampled.
+# The tint is measured against a baseline: the same ring BaselineShiftX pixels to the right, two cells east of the highlight cell. The look clears
+# and lights the cells within two cells of the highlight cell, and no outline reaches the baseline, so the baseline shows the flat ground. A cell
+# passes only when its tint exceeds the baseline by the margin, so a flat warm or flat green surface fails.
 # Calibrated on run 20261102-230106, where the amber cell averages RGB 107.6,86.7,16.6 and the green cell 38.6,98.3,33.5. The no-outline runs
-# 20261102-224947 and 20261102-225711 average 56.5,56.6,53.4 for amber and 43.3,53.7,51.8 for green. Each threshold lies between those values.
+# 20261102-224947 and 20261102-225711 average 56.5,56.6,53.4 for amber and 43.3,53.7,51.8 for green. The baseline averages 46.3,48.1 in red and
+# green in every run, with or without an outline, so no outline reaches it. Its blue runs from 34 to 47 with the light, as the target's blue does.
 function Get-OutlineTintSettings {
     return @{
         ImageWidth = 1280; ImageHeight = 720
         CellLeft = 632; CellTop = 352; CellRight = 646; CellBottom = 366
         ColumnLeft = 636; ColumnTop = 356; ColumnRight = 642; ColumnBottom = 362
+        BaselineShiftX = 30
         AmberRedMinusBlue = 40; AmberRedMin = 70
         GreenMinusRed = 25; GreenMinusBlue = 25
     }
 }
 
-# Returns PASS when the sampled cell has the tint for its colour. Otherwise it returns FAIL with the measured average. The average is also written
-# to the console, so a run shows what it measured.
+# A PNG starts with an eight byte signature and ends with its IEND chunk. A file without both is cut short, or it is not a PNG.
+function Test-CompletePng {
+    param($Bytes)
+    $signature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    $trailer = [byte[]](0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82)
+    if ($Bytes.Length -lt ($signature.Length + $trailer.Length)) { return $false }
+    for ($i = 0; $i -lt $signature.Length; $i++) { if ($Bytes[$i] -ne $signature[$i]) { return $false } }
+    $offset = $Bytes.Length - $trailer.Length
+    for ($i = 0; $i -lt $trailer.Length; $i++) { if ($Bytes[$offset + $i] -ne $trailer[$i]) { return $false } }
+    return $true
+}
+
+# Averages the ring of the cell that lies ShiftX pixels to the right of the highlight cell. The ring is the cell without its middle 7 by 7 block.
+function Get-RingAverage {
+    param($Bitmap, $Settings, [int]$ShiftX)
+    $redTotal = 0; $greenTotal = 0; $blueTotal = 0; $count = 0
+    for ($y = $Settings.CellTop; $y -le $Settings.CellBottom; $y++) {
+        for ($x = ($Settings.CellLeft + $ShiftX); $x -le ($Settings.CellRight + $ShiftX); $x++) {
+            if ($x -ge ($Settings.ColumnLeft + $ShiftX) -and $x -le ($Settings.ColumnRight + $ShiftX) -and $y -ge $Settings.ColumnTop -and $y -le $Settings.ColumnBottom) { continue }
+            $pixel = $Bitmap.GetPixel($x, $y)
+            $redTotal += $pixel.R; $greenTotal += $pixel.G; $blueTotal += $pixel.B; $count++
+        }
+    }
+    return [pscustomobject]@{ Red = $redTotal / $count; Green = $greenTotal / $count; Blue = $blueTotal / $count; Count = $count }
+}
+
+# Returns PASS when the highlight cell has the tint for its colour, measured against its baseline. Otherwise it returns FAIL with the measured averages.
+# A file that is not a complete PNG, or that the decoder rejects, returns FAIL and names the file, so the gate and the summary still run.
 function Get-OutlineTintResult {
     param([string]$Path, [ValidateSet('amber', 'green')][string]$Color)
     if (!(Test-Path -LiteralPath $Path)) { return 'FAIL: no screenshot file at ' + $Path }
     $settings = Get-OutlineTintSettings
     Add-Type -AssemblyName System.Drawing
-    $bitmap = New-Object System.Drawing.Bitmap -ArgumentList $Path
     try {
-        if ($bitmap.Width -ne $settings.ImageWidth -or $bitmap.Height -ne $settings.ImageHeight) {
-            return 'FAIL: the screenshot is ' + $bitmap.Width + ' by ' + $bitmap.Height + ' pixels, not ' + $settings.ImageWidth + ' by ' + $settings.ImageHeight + ', so the sampled region does not apply'
+        if (!(Test-CompletePng -Bytes ([System.IO.File]::ReadAllBytes($Path)))) {
+            return 'FAIL: the screenshot ' + $Path + ' is not a complete PNG, so it cannot be read'
         }
-        $redTotal = 0; $greenTotal = 0; $blueTotal = 0; $count = 0
-        for ($y = $settings.CellTop; $y -le $settings.CellBottom; $y++) {
-            for ($x = $settings.CellLeft; $x -le $settings.CellRight; $x++) {
-                if ($x -ge $settings.ColumnLeft -and $x -le $settings.ColumnRight -and $y -ge $settings.ColumnTop -and $y -le $settings.ColumnBottom) { continue }
-                $pixel = $bitmap.GetPixel($x, $y)
-                $redTotal += $pixel.R; $greenTotal += $pixel.G; $blueTotal += $pixel.B; $count++
+        $bitmap = New-Object System.Drawing.Bitmap -ArgumentList $Path
+        try {
+            if ($bitmap.Width -ne $settings.ImageWidth -or $bitmap.Height -ne $settings.ImageHeight) {
+                return 'FAIL: the screenshot is ' + $bitmap.Width + ' by ' + $bitmap.Height + ' pixels, not ' + $settings.ImageWidth + ' by ' + $settings.ImageHeight + ', so the sampled region does not apply'
             }
+            $target = Get-RingAverage -Bitmap $bitmap -Settings $settings -ShiftX 0
+            $baseline = Get-RingAverage -Bitmap $bitmap -Settings $settings -ShiftX $settings.BaselineShiftX
         }
+        finally { $bitmap.Dispose() }
     }
-    finally { $bitmap.Dispose() }
-    $red = $redTotal / $count; $green = $greenTotal / $count; $blue = $blueTotal / $count
-    $average = (@($red, $green, $blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
-    Write-Host ('Partner tint for ' + $Color + ': average RGB ' + $average + ' over ' + $count + ' pixels.')
+    catch {
+        return 'FAIL: the screenshot ' + $Path + ' cannot be read as an image: ' + $_.Exception.Message
+    }
+    $average = (@($target.Red, $target.Green, $target.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
+    $baselineText = (@($baseline.Red, $baseline.Green, $baseline.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
+    Write-Host ('Partner tint for ' + $Color + ': average RGB ' + $average + ' over ' + $target.Count + ' pixels. Baseline RGB ' + $baselineText + ' over ' + $baseline.Count + ' pixels.')
     if ($Color -eq 'amber') {
-        if (($red - $blue) -ge $settings.AmberRedMinusBlue -and $red -ge $settings.AmberRedMin) { return 'PASS' }
-        return 'FAIL: the cell averages RGB ' + $average + ', which lacks the amber tint'
+        $excessRedMinusBlue = ($target.Red - $target.Blue) - ($baseline.Red - $baseline.Blue)
+        if ($excessRedMinusBlue -ge $settings.AmberRedMinusBlue -and $target.Red -ge $settings.AmberRedMin) { return 'PASS' }
+        return 'FAIL: the cell averages RGB ' + $average + ', which lacks the amber tint over its baseline RGB ' + $baselineText
     }
-    if (($green - $red) -ge $settings.GreenMinusRed -and ($green - $blue) -ge $settings.GreenMinusBlue) { return 'PASS' }
-    return 'FAIL: the cell averages RGB ' + $average + ', which lacks the green tint'
+    $excessGreenMinusRed = ($target.Green - $target.Red) - ($baseline.Green - $baseline.Red)
+    $excessGreenMinusBlue = ($target.Green - $target.Blue) - ($baseline.Green - $baseline.Blue)
+    if ($excessGreenMinusRed -ge $settings.GreenMinusRed -and $excessGreenMinusBlue -ge $settings.GreenMinusBlue) { return 'PASS' }
+    return 'FAIL: the cell averages RGB ' + $average + ', which lacks the green tint over its baseline RGB ' + $baselineText
 }
 
 # The mod check reads the game log. RimWorld writes the mod list when it starts a new game, so the list after that line is the set of mods the

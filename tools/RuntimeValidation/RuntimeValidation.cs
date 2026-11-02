@@ -2562,8 +2562,8 @@ namespace ZLevelsValidation
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) coolingScreenshotFailed = true;
         }
 
-        // Writes the drawn row. It passes when the outline draws a plane for each cell the scenario expects on the adjacent level. A FAIL also fails
-        // the cooling link row.
+        // Writes the drawn row. It passes when the cells that draw a plane are the cells the scenario expects on the adjacent level, as sets. A FAIL
+        // also fails the cooling link row.
         private void RecordPartnerDrawn(Map viewed)
         {
             string result = PartnerDrawnResult(viewed, surface);
@@ -2571,9 +2571,9 @@ namespace ZLevelsValidation
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) partnerDrawnFailed = true;
         }
 
-        // Reads the outline counts by name, so this code compiles before the hook exists. Until it does, the row names the fields that are missing.
-        // The counts come from the frame that ran for the viewed map. The expected count comes from the columns the scenario spawned, not from the
-        // registry, so a target that the registry drops still fails the row.
+        // Reads the outline by name, so a missing field is a row failure with its cause. The drawn cells come from the frame that ran for the viewed map.
+        // The expected cells come from the columns the scenario placed on the adjacent level, minus the enclosed ones. They come from the scenario, not
+        // from the registry, so a target that the registry returns in place of a correct one fails the row, even when the count still matches.
         private static string PartnerDrawnResult(Map viewed, Map adjacent)
         {
             Type hook = Type.GetType("ZLevelsRimatomics.CoolingColumnHighlight, ZLevelsRimatomics");
@@ -2581,32 +2581,39 @@ namespace ZLevelsValidation
             FieldInfo lastMap = hook.GetField("LastMap", BindingFlags.Public | BindingFlags.Static);
             FieldInfo finished = hook.GetField("FinishedLastFrame", BindingFlags.Public | BindingFlags.Static);
             FieldInfo planes = hook.GetField("PlanesLastFrame", BindingFlags.Public | BindingFlags.Static);
-            FieldInfo cells = hook.GetField("CellsDrawnLastFrame", BindingFlags.Public | BindingFlags.Static);
+            FieldInfo drawn = hook.GetField("DrawnCellsLastFrame", BindingFlags.Public | BindingFlags.Static);
             var missing = new List<string>();
             if (lastMap == null) missing.Add("LastMap");
             if (finished == null) missing.Add("FinishedLastFrame");
             if (planes == null) missing.Add("PlanesLastFrame");
-            if (cells == null) missing.Add("CellsDrawnLastFrame");
+            if (drawn == null) missing.Add("DrawnCellsLastFrame");
             if (missing.Count > 0) return "FAIL: partner outline not built yet: these fields of CoolingColumnHighlight are missing: " + string.Join(", ", missing);
             if (!object.ReferenceEquals(lastMap.GetValue(null), viewed)) return "FAIL: the outline pass did not run on the viewed level";
             if (!(bool)finished.GetValue(null)) return "FAIL: the outline pass threw before it finished";
-            int expected = ExpectedOutlineCells(adjacent);
-            int drawnCells = (int)cells.GetValue(null);
-            int drawnPlanes = (int)planes.GetValue(null);
-            if (expected == 0) return "FAIL: no cooling column stands on the adjacent level, so the outline has nothing to match";
-            if (drawnCells != expected) return "FAIL: drew " + drawnCells + " cells for " + expected + " expected";
-            return "PASS: " + drawnCells + " cells of " + expected + " expected, " + drawnPlanes + " planes";
+            var drawnCells = new List<ZLevelsRimatomics.OutlineCell>();
+            foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null))
+            {
+                IntVec3 cell = (IntVec3)item;
+                drawnCells.Add(new ZLevelsRimatomics.OutlineCell(cell.x, cell.z, false));
+            }
+            List<ZLevelsRimatomics.OutlineCell> expected = ExpectedOutline(viewed, adjacent);
+            return ZLevelsRimatomics.OutlineRule.DrawnRowVerdict(expected, drawnCells, (int)planes.GetValue(null));
         }
 
-        // The cells that hold a cooling column the scenario spawned and that still stands on the adjacent level. Each cell counts once.
-        private static int ExpectedOutlineCells(Map adjacent)
+        // The cells the scenario placed on the adjacent level that still stand there, minus the enclosed ones. A cell is paired when a column the scenario
+        // placed stands on the same cell of the viewed level. Each cell counts once.
+        private static List<ZLevelsRimatomics.OutlineCell> ExpectedOutline(Map viewed, Map adjacent)
         {
-            var cells = new HashSet<IntVec3>();
+            var placed = new List<ZLevelsRimatomics.OutlineCell>();
+            var seen = new HashSet<IntVec3>();
             foreach (Thing column in scenarioColumns)
             {
-                if (column.Spawned && column.Map == adjacent) cells.Add(column.Position);
+                if (!column.Spawned || column.Map != adjacent || !seen.Add(column.Position)) continue;
+                IntVec3 cell = column.Position;
+                bool paired = scenarioColumns.Exists(other => other.Spawned && other.Map == viewed && other.Position == cell);
+                placed.Add(new ZLevelsRimatomics.OutlineCell(cell.x, cell.z, paired));
             }
-            return cells.Count;
+            return ZLevelsRimatomics.OutlineRule.ExpectedCells(placed, (x, z) => new IntVec3(x, 0, z).InBounds(viewed));
         }
 
         // LoopOf is read by name, so a missing or renamed method is a row failure with its cause, not a compile error. When LoopOf cannot

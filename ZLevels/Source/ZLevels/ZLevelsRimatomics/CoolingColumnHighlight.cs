@@ -27,12 +27,12 @@ namespace ZLevelsRimatomics
         // and a different failure on the same map logs again.
         private static readonly ConditionalWeakTable<Map, HashSet<string>> loggedFailures = new ConditionalWeakTable<Map, HashSet<string>>();
         // The outcome of the last frame that ran for a map, for the validation harness. LastMap is the map that frame ran for. FinishedLastFrame is
-        // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. CellsDrawnLastFrame counts the cells
-        // that drew at least one plane.
+        // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. DrawnCellsLastFrame lists the cells
+        // that drew at least one plane, so the harness compares the cells themselves and not only their count.
         public static Map LastMap;
         public static bool FinishedLastFrame;
         public static int PlanesLastFrame;
-        public static int CellsDrawnLastFrame;
+        public static readonly List<IntVec3> DrawnCellsLastFrame = new List<IntVec3>();
 
         // The field-edge texture, as GenDraw.DrawFieldEdges takes it: the main texture of the material that MatLoader loads for Misc/FieldEdge.
         // When the path does not load, MatLoader returns BaseContent.BadMat, the placeholder, and warns on every call. So the failure is kept, and
@@ -56,12 +56,11 @@ namespace ZLevelsRimatomics
         // One plane per open side, drawn with Graphics.DrawMesh. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced.
         // With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does not use instancing.
         // The sides come from OutlineRule, which skips a side that leads off the map or onto another cell of the list, as DrawFieldEdges does.
-        // Returns the cells that drew at least one plane.
-        private static int DrawOutline(List<IntVec3> cells, Color color, Map map)
+        // Each cell that draws at least one plane is added to DrawnCellsLastFrame.
+        private static void DrawOutline(List<IntVec3> cells, Color color, Map map)
         {
-            if (cells.Count == 0) return 0;
+            if (cells.Count == 0) return;
             Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, color, OutlineRenderQueue);
-            int drawnCells = 0;
             foreach (IntVec3 cell in cells)
             {
                 Vector3 position = cell.ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
@@ -76,9 +75,8 @@ namespace ZLevelsRimatomics
                     PlanesLastFrame++;
                     drewPlane = true;
                 }
-                if (drewPlane) drawnCells++;
+                if (drewPlane) DrawnCellsLastFrame.Add(cell);
             }
-            return drawnCells;
         }
 
         public static void Postfix(Map ___map)
@@ -90,7 +88,7 @@ namespace ZLevelsRimatomics
                 LastMap = ___map;
                 FinishedLastFrame = false;
                 PlanesLastFrame = 0;
-                CellsDrawnLastFrame = 0;
+                DrawnCellsLastFrame.Clear();
                 pairedCells.Clear();
                 unpairedCells.Clear();
                 foreach (CoolingTarget target in CoolingLoopRegistry.HighlightTargets(___map))
@@ -98,8 +96,8 @@ namespace ZLevelsRimatomics
                     if (target.Paired) pairedCells.Add(target.Cell);
                     else unpairedCells.Add(target.Cell);
                 }
-                CellsDrawnLastFrame += DrawOutline(pairedCells, PairedColor, ___map);
-                CellsDrawnLastFrame += DrawOutline(unpairedCells, UnpairedColor, ___map);
+                DrawOutline(pairedCells, PairedColor, ___map);
+                DrawOutline(unpairedCells, UnpairedColor, ___map);
                 FinishedLastFrame = true;
             }
             catch (Exception exception)
