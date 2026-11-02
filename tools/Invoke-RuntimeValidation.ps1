@@ -29,23 +29,47 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# One entry rule for ERROR entries, shared by the cause hint and the Z-Levels gate. A timestamped line that contains ' ERROR ' starts an entry.
-# The entry runs to the next timestamped line, with no line limit. The log is read once, in one pass, and every entry is returned as text.
-function Get-ErrorEntries {
+# One streaming pass over the game log, for the cause hint and the Z-Levels gate. An ERROR entry starts at any line that contains ' ERROR ',
+# timestamped or not. It ends at the next timestamped line or at the next ERROR line. Only the entry count, the count of entries that mention
+# Z-Levels, and the first of those entries are kept. The log is read as a stream, so a large log is not loaded into memory.
+function Get-ErrorScan {
     param([string]$LogPath)
-    $entries = New-Object System.Collections.Generic.List[string]
+    $errorTag = [regex]::new(' ERROR ', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $stamp = [regex]::new('^\d{4}-\d{2}-\d{2} ')
+    $zlevels = [regex]::new('Z-?Levels', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $entries = 0
+    $zlevelsEntries = 0
+    $first = $null
     $lines = New-Object System.Collections.Generic.List[string]
-    $inError = $false
-    foreach ($line in Get-Content -LiteralPath $LogPath) {
-        if ($line -match '^\d{4}-\d{2}-\d{2} ') {
-            if ($inError) { $entries.Add($lines -join "`n") }
+    $inEntry = $false
+    $entryHasZLevels = $false
+    foreach ($line in [System.IO.File]::ReadLines($LogPath)) {
+        $startsEntry = $errorTag.IsMatch($line)
+        if ($inEntry -and ($startsEntry -or $stamp.IsMatch($line))) {
+            $entries++
+            if ($entryHasZLevels) {
+                $zlevelsEntries++
+                if ($null -eq $first) { $first = $lines -join "`n" }
+            }
             $lines.Clear()
-            $inError = $line -match ' ERROR '
+            $inEntry = $false
+            $entryHasZLevels = $false
         }
-        if ($inError) { $lines.Add($line) }
+        if ($startsEntry) { $inEntry = $true }
+        if ($inEntry) {
+            # Lines are kept only until the first Z-Levels entry is found, because only that entry is printed.
+            if ($null -eq $first) { $lines.Add($line) }
+            if ($zlevels.IsMatch($line)) { $entryHasZLevels = $true }
+        }
     }
-    if ($inError) { $entries.Add($lines -join "`n") }
-    return $entries.ToArray()
+    if ($inEntry) {
+        $entries++
+        if ($entryHasZLevels) {
+            $zlevelsEntries++
+            if ($null -eq $first) { $first = $lines -join "`n" }
+        }
+    }
+    return [pscustomobject]@{ Entries = $entries; ZLevelsEntries = $zlevelsEntries; FirstZLevelsEntry = $first }
 }
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
@@ -186,16 +210,16 @@ $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
-    # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause. The first
-    # one may come from earlier in the session, not from this scenario. The log is read by the same entry rule as the Z-Levels gate.
+    # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause.
+    # Earlier entries in this log may be unrelated to this run, so the hint says so.
     $playerLog = Join-Path $runDirectory 'Player.log'
     if (!(Test-Path -LiteralPath $playerLog)) {
         Write-Host 'No Player.log in the run folder.'
     }
     else {
-        $zlevelsEntries = @(Get-ErrorEntries -LogPath $playerLog | Where-Object { $_ -match 'Z-?Levels' })
-        if ($zlevelsEntries.Count) {
-            Write-Host "Z-Levels ERROR entries in Player.log: $($zlevelsEntries.Count). The first one follows.`n$($zlevelsEntries[0])"
+        $scan = Get-ErrorScan -LogPath $playerLog
+        if ($scan.ZLevelsEntries) {
+            Write-Host "Z-Levels ERROR entries in Player.log: $($scan.ZLevelsEntries). Earlier entries in this log may be unrelated to this run. The first one follows.`n$($scan.FirstZLevelsEntry)"
         }
         else {
             Write-Host 'No ERROR entry in Player.log names Z-Levels.'
@@ -206,11 +230,11 @@ if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + 
 $errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
-    # Only error entries count, read by the same entry rule as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
-    $ownErrors = @(Get-ErrorEntries -LogPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match 'Z-?Levels' })
+    # Only error entries count, read by the same scan as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
+    $scan = Get-ErrorScan -LogPath (Join-Path $runDirectory 'Player.log')
     $errors | Set-Content -LiteralPath (Join-Path $runDirectory 'other-mod-errors.txt') -Encoding UTF8
-    if ($ownErrors.Count) {
-        $ownErrors
+    if ($scan.ZLevelsEntries) {
+        Write-Host "Z-Levels ERROR entries in Player.log: $($scan.ZLevelsEntries). The first one follows.`n$($scan.FirstZLevelsEntry)"
         throw "Runtime log contains Z-Levels errors: $runDirectory"
     }
     Write-Host "Other mods logged $($errors.Count) error lines. See $(Join-Path $runDirectory 'other-mod-errors.txt')"

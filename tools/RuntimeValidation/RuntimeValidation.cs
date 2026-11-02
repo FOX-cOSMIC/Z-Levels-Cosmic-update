@@ -2180,9 +2180,9 @@ namespace ZLevelsValidation
                         return;
                     }
                     string shot = Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots", "zlevels-cooling-column.png");
-                    bool shotTaken = IsPng(shot);
-                    RecordCooling(CoolingScreenshotLabel, shotTaken ? "TAKEN: " + shot : "FAIL: no PNG at " + shot);
-                    if (!shotTaken) coolingScreenshotFailed = true;
+                    string shotProblem = PngProblem(shot);
+                    RecordCooling(CoolingScreenshotLabel, shotProblem == null ? "TAKEN: " + shot : "FAIL: " + shotProblem);
+                    if (shotProblem != null) coolingScreenshotFailed = true;
                     coolingShotDue = null;
                 }
                 RecordCoolingLink();
@@ -2194,17 +2194,18 @@ namespace ZLevelsValidation
                 {
                     Log.Error("Z-Levels cooling link validation failed: " + exception);
                     // The description is built inside this try, so a Describe that throws cannot skip the shutdown below.
-                    string description = "FAIL: " + Describe(exception);
+                    string cause = Describe(exception);
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
                     var owed = new List<string>(CoolingLabels);
                     if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.Add(CoolingScreenshotLabel);
                     foreach (string label in owed)
                     {
-                        if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, description);
+                        // A label whose check never ran says why. It does not read as a failure of its own check.
+                        if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "not run: " + cause);
                     }
                     try
                     {
-                        Record("cooling link", description);
+                        Record("cooling link", "FAIL: " + cause);
                     }
                     catch (Exception linkException)
                     {
@@ -2222,28 +2223,40 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
-        // The 8-byte PNG signature. A screenshot counts only when the file starts with it, so an empty or partial file reads as FAIL.
+        // A screenshot counts only when the file starts with the 8-byte PNG signature and ends with the 12-byte IEND chunk. The IEND chunk is a
+        // 4-byte zero length, the type IEND, and its CRC. An empty or partial file reads as FAIL.
         private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        private static readonly byte[] PngEnd = { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
 
-        private static bool IsPng(string path)
+        // Returns null when the file is a complete PNG. Otherwise it names the problem and the path.
+        private static string PngProblem(string path)
         {
-            if (!File.Exists(path)) return false;
+            if (!File.Exists(path)) return "no screenshot file at " + path;
             using (FileStream stream = File.OpenRead(path))
             {
-                byte[] head = new byte[PngSignature.Length];
-                int total = 0;
-                while (total < head.Length)
-                {
-                    int read = stream.Read(head, total, head.Length - total);
-                    if (read == 0) return false;
-                    total += read;
-                }
-                for (int i = 0; i < head.Length; i++)
-                {
-                    if (head[i] != PngSignature[i]) return false;
-                }
-                return true;
+                if (!BytesAt(stream, 0, PngSignature) || !BytesAt(stream, stream.Length - PngEnd.Length, PngEnd)) return "file is not a complete PNG at " + path;
             }
+            return null;
+        }
+
+        // True when the file holds the expected bytes at the offset. A file too short to hold them does not match.
+        private static bool BytesAt(FileStream stream, long offset, byte[] expected)
+        {
+            if (offset < 0 || stream.Length < offset + expected.Length) return false;
+            stream.Seek(offset, SeekOrigin.Begin);
+            byte[] actual = new byte[expected.Length];
+            int total = 0;
+            while (total < actual.Length)
+            {
+                int read = stream.Read(actual, total, actual.Length - total);
+                if (read == 0) return false;
+                total += read;
+            }
+            for (int i = 0; i < expected.Length; i++)
+            {
+                if (actual[i] != expected[i]) return false;
+            }
+            return true;
         }
 
         // A label that a later task has not built yet records FAIL with the piece that is still missing at that stage.
@@ -2331,10 +2344,11 @@ namespace ZLevelsValidation
             catch (Exception exception)
             {
                 Log.Error("Z-Levels cooling pairing check failed: " + exception);
-                string description = "FAIL: " + Describe(exception);
+                string cause = Describe(exception);
                 foreach (string label in CoolingPairingLabels)
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, description);
+                    // A label whose check never ran says why. It does not read as a failure of its own check.
+                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "not run: " + cause);
                 }
             }
         }
@@ -3046,7 +3060,16 @@ namespace ZLevelsValidation
         {
             var line = DateTime.UtcNow.ToString("O") + " | " + scenario + " | " + result;
             File.AppendAllText(Path.Combine(GenFilePaths.SaveDataFolderPath, "validation-results.txt"), line + Environment.NewLine);
-            Log.Message("[ZLevels validation] " + line);
+            // The row is in the results file before this point. A failure of the game log copy must not make a caller write the row again,
+            // so only a failed row write is thrown from here.
+            try
+            {
+                Log.Message("[ZLevels validation] " + line);
+            }
+            catch (Exception)
+            {
+                // Ignored on purpose. The row is already in validation-results.txt, and only the game log copy of it failed.
+            }
         }
     }
 }

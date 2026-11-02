@@ -24,25 +24,30 @@ namespace ZLevelsRimatomics
             public CompCoolingColumn Column { get; }
             public Verse.Game Game { get; }
 
-            // Set when the grid check warns for this entry. The next check that finds the column listed in its grid clears it, so each off-grid episode warns once.
+            // Set when the grid check warns for this entry. The next query that sees the column listed in its grid clears it, so the warning is
+            // once per episode that a query sees.
             public bool GridWarned { get; set; }
         }
 
         private static readonly List<Entry> entries = new List<Entry>();
 
-        // Drops the entries that are dead for good: the column is no longer spawned, its map is disposed, or it registered in another game. An
-        // entry for a spawned column that is off its grid stays, because that column can stand in its grid again. Then the column is listed under
-        // the current game, unless an entry already holds it. A column that cannot register logs an error before it returns, so no return is silent.
+        // Removes the entries that are dead for good, and logs each removal with its reason. Then the column is listed under the current game,
+        // unless an entry already holds it. A column that cannot register logs an error before it returns, so no return is silent.
         public static void Register(CompCoolingColumn column)
         {
-            entries.RemoveAll(DeadForGood);
+            PruneDeadEntries();
             if (column == null)
             {
                 Log.Error("Z-Levels cooling column registration received no column");
                 return;
             }
             string name = column.parent?.def?.defName ?? "cooling column";
-            if (column.parent == null || !column.parent.Spawned || column.parent.Map == null)
+            if (column.parent == null || !column.parent.Spawned)
+            {
+                Log.Error("Z-Levels cooling column " + name + " is not registered: it is not spawned");
+                return;
+            }
+            if (column.parent.Map == null)
             {
                 Log.Error("Z-Levels cooling column " + name + " is not registered: it has no map");
                 return;
@@ -96,14 +101,36 @@ namespace ZLevelsRimatomics
             return loop;
         }
 
-        // An entry is dead for good when its column is no longer spawned, when its map is disposed, or when it registered in a game that is not the
-        // current game. A column on a removed map is not spawned, so the spawn check is what drops it. A moved column stays spawned and keeps its entry.
-        private static bool DeadForGood(Entry entry)
+        // Removes each entry that is dead for good. Each removal logs one warning that names the column and the reason, so a column that leaves
+        // the registry leaves a trace in the log. Entries are visited from the end, so a removal does not skip the entry after it.
+        private static void PruneDeadEntries()
         {
-            Thing thing = entry.Column.parent;
-            if (thing == null || !thing.Spawned) return true;
-            Map map = thing.Map;
-            return map == null || map.Disposed || entry.Game != Current.Game;
+            for (int i = entries.Count - 1; i >= 0; i--)
+            {
+                string reason = DeadReason(entries[i]);
+                if (reason == null) continue;
+                Log.Warning("Z-Levels cooling column " + Describe(entries[i].Column) + " left the cooling registry: " + reason + ".");
+                entries.RemoveAt(i);
+            }
+        }
+
+        // The reason an entry is dead for good, or null when it is alive. A column that is not spawned, or has no map, is named as not spawned.
+        // A column on a removed map is not spawned, so the spawn check drops it. A moved column stays spawned, so it keeps its entry.
+        private static string DeadReason(Entry entry)
+        {
+            Thing thing = entry.Column?.parent;
+            if (thing == null || !thing.Spawned || thing.Map == null) return "not spawned";
+            if (thing.Map.Disposed) return "map disposed";
+            if (entry.Game != Current.Game) return "another game";
+            return null;
+        }
+
+        // The def and cell of a column, for a log line.
+        private static string Describe(CompCoolingColumn column)
+        {
+            Thing thing = column?.parent;
+            if (thing == null) return "cooling column";
+            return thing.def.defName + " at " + thing.Position;
         }
 
         // A column is usable when it is spawned on a map that is not disposed, it stands in that map's thing grid at its own cell, and its entry
