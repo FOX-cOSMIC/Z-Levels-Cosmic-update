@@ -105,6 +105,10 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `Current.Game` is a public static `Game` property (`Verse.Current` decompile, line 43). `Game.GetComponent<T>()` is declared as `public T GetComponent<T>() where T : GameComponent` (`Verse.Game` decompile, line 683).
 - `DestroyMode` is a public enum with `byte` as its underlying type, in namespace `Verse` (`Verse.DestroyMode` decompile, line 3). Its first member is `Vanish` (line 5).
 - `Map.Disposed` is a public `bool` property with a private setter (`Verse.Map` decompile, line 335).
+- `Map.thingGrid` is a public `ThingGrid` field (`Verse.Map` decompile, line 99).
+- `ThingGrid.Register(Thing t)` is public. It registers a one-cell thing at `t.Position`, and a larger thing over `t.OccupiedRect()` (`Verse.ThingGrid` decompile, lines 24 to 31).
+- `ThingGrid.ThingsAt(IntVec3 c)` is a public method that returns `IEnumerable<Thing>`. It yields nothing for a cell off the map, because it checks `c.InBounds(map)` first (`Verse.ThingGrid` decompile, lines 93 to 103).
+- `ThingGrid.ThingsListAt(IntVec3 c)` is a public method that returns `List<Thing>`. For a cell off the map it calls `Log.ErrorOnce` (id 495287). The validation runner fails a run on any ERROR line except its packageId duplicate notices, so the Z-Levels grid check uses `ThingsAt` instead (`Verse.ThingGrid` decompile, lines 105 to 114).
 - `Thing.def` is a public `ThingDef` field (`Verse.Thing` decompile, line 17).
 - `Thing.Map` returns null when `mapIndexOrState` is below zero (`Verse.Thing` decompile, lines 233 to 241).
 - `Thing.Spawned` returns false when `mapIndexOrState` is below zero or `Find.Maps` is null (`Verse.Thing` decompile, lines 194 to 198).
@@ -118,4 +122,5 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 ## Logging and spawning
 
 - `Log.Error(string text)` is a public static method (`Verse.Log` decompile, line 152).
+- `Log.Warning(string text)` is a public static method (`Verse.Log` decompile, line 125).
 - `GenSpawn.Spawn(Thing newThing, IntVec3 loc, Map map, WipeMode wipeMode = WipeMode.Vanish)` returns `Thing` (`Verse.GenSpawn` decompile, line 26). It forwards to the overload at line 86, which returns null when the map is null (line 91) or the cell is out of bounds (line 107). Each case logs an error first.

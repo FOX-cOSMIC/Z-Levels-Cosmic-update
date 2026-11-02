@@ -114,6 +114,8 @@ namespace ZLevelsValidation
         private bool coolingChecksRecorded;
         private DateTime? coolingShotDue;
         private bool coolingShotTaken;
+        // Set when the screenshot row fails, so the cooling link row cannot read PASS beside it.
+        private bool coolingScreenshotFailed;
         // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels and cooling link record FAIL.
         private static bool CoolingNoColumns => GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns");
         private const string NoColumnsVariantNotBuilt = "FAIL: no-columns variant not built yet";
@@ -2150,11 +2152,18 @@ namespace ZLevelsValidation
                     if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && CoolingNoColumns)
                     {
                         Record("cooling column screenshot", "FAIL: no columns placed");
+                        coolingScreenshotFailed = true;
                     }
-                    else if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && PlaceCoolingLook())
+                    else if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots"))
                     {
-                        coolingShotDue = DateTime.UtcNow.AddSeconds(3);
-                        return;
+                        string lookProblem = PlaceCoolingLook();
+                        if (lookProblem == null)
+                        {
+                            coolingShotDue = DateTime.UtcNow.AddSeconds(3);
+                            return;
+                        }
+                        Record("cooling column screenshot", "FAIL: " + lookProblem);
+                        coolingScreenshotFailed = true;
                     }
                 }
                 else if (coolingShotDue.HasValue)
@@ -2169,7 +2178,9 @@ namespace ZLevelsValidation
                         return;
                     }
                     string shot = Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots", "zlevels-cooling-column.png");
-                    Record("cooling column screenshot", File.Exists(shot) ? "TAKEN: " + shot : "FAIL: no file at " + shot);
+                    bool shotTaken = File.Exists(shot);
+                    Record("cooling column screenshot", shotTaken ? "TAKEN: " + shot : "FAIL: no file at " + shot);
+                    if (!shotTaken) coolingScreenshotFailed = true;
                     coolingShotDue = null;
                 }
                 RecordCoolingLink();
@@ -2177,19 +2188,29 @@ namespace ZLevelsValidation
             catch (Exception exception)
             {
                 finished = true;
-                Log.Error("Z-Levels cooling link validation failed: " + exception);
-                foreach (string label in CoolingLabels)
-                {
-                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + Describe(exception));
-                }
                 try
                 {
-                    Record("cooling link", "FAIL: " + Describe(exception));
+                    Log.Error("Z-Levels cooling link validation failed: " + exception);
+                    // The description is built inside this try, so a Describe that throws cannot skip the shutdown below.
+                    string description = "FAIL: " + Describe(exception);
+                    foreach (string label in CoolingLabels)
+                    {
+                        if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, description);
+                    }
+                    try
+                    {
+                        Record("cooling link", description);
+                    }
+                    catch (Exception linkException)
+                    {
+                        // The link row could not be written. The game still shuts down after this block, and the log names this failure.
+                        Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
+                    }
                 }
-                catch (Exception linkException)
+                catch (Exception failureException)
                 {
-                    // The link row could not be written. The game still shuts down after this block, and the log names this failure.
-                    Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
+                    // The failure rows could not be built. The game still shuts down after this block, and the log names this failure.
+                    Log.Error("Z-Levels cooling link failure rows could not be built: " + failureException);
                 }
             }
             finished = true;
@@ -2283,7 +2304,7 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels cooling pairing check failed: " + exception);
                 foreach (string label in CoolingPairingLabels)
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordCooling(label, "FAIL: " + Describe(exception));
+                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + Describe(exception));
                 }
             }
         }
@@ -2363,13 +2384,16 @@ namespace ZLevelsValidation
             return "FAIL: the pipe net could not be read: " + shares;
         }
 
-        // One line per row: the exception type and its message, then the inner exception's type and message when there is one. Line breaks
-        // become spaces, so a row never spans two lines.
+        // One line per row: the exception type and message, then the type and message of each inner exception in turn. Line breaks become
+        // spaces, so a row never spans two lines.
         private static string Describe(Exception exception)
         {
-            string text = exception.GetType().Name + ": " + exception.Message;
-            if (exception.InnerException != null) text += "; inner " + exception.InnerException.GetType().Name + ": " + exception.InnerException.Message;
-            return text.Replace('\r', ' ').Replace('\n', ' ');
+            var levels = new List<string>();
+            for (Exception level = exception; level != null; level = level.InnerException)
+            {
+                levels.Add(level.GetType().Name + ": " + level.Message);
+            }
+            return string.Join("; inner ", levels).Replace('\r', ' ').Replace('\n', ' ');
         }
 
         // The ZUtils.TeleportThing method. ZUtils is internal to the mod, so the harness reaches it by name. TeleportThing sets only the map
@@ -2392,8 +2416,11 @@ namespace ZLevelsValidation
             ClearCell(lower, away);
             lower.terrainGrid.SetTerrain(away, TerrainDefOf.Concrete);
             teleport.Invoke(null, new object[] { surfaceBuilding, lower, away });
+            // While the column stands on the lower level, its map's thing grid does not list it at its cell, so the registry must not count it.
+            string midpoint = ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(surfaceComp) ? "FAIL: the moved column is still usable on the lower level" : null;
             SpawnBuilding(column, surface, away, ThingDefOf.Steel);
             teleport.Invoke(null, new object[] { surfaceBuilding, surface, cell });
+            if (midpoint != null) return midpoint;
             string reason = UnjoinableReason("the surface column", surfaceComp) ?? UnjoinableReason("the lower column", lowerComp);
             if (reason != null) return "FAIL: " + reason + " after the round trip";
             bool joined = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
@@ -2453,14 +2480,15 @@ namespace ZLevelsValidation
 
         // The look check: one column with a coolant pipe beside it, on the start map, with the camera on the column.
         // Returns false after a FAIL record when either def is missing.
-        private static bool PlaceCoolingLook()
+        // Places the column and the pipe for the screenshot. Returns null when both are placed, and the reason when they are not. The caller
+        // writes the screenshot row from that reason.
+        private static string PlaceCoolingLook()
         {
             ThingDef column = DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn");
             ThingDef pipe = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
             if (column == null || pipe == null)
             {
-                Record("cooling column screenshot", "FAIL: column or coolant pipe def missing");
-                return false;
+                return "column or coolant pipe def missing";
             }
             Map map = Find.CurrentMap;
             IntVec3 cell = map.Center;
@@ -2473,7 +2501,7 @@ namespace ZLevelsValidation
             Record("cooling look placed", "column " + DescribeLookThing(placedColumn) + "; pipe " + DescribeLookThing(placedPipe)
                 + "; terrain under column " + cell.GetTerrain(map).defName + "; roofed " + cell.Roofed(map) + "; fogged " + cell.Fogged(map));
             CameraJumper.TryJump(cell, map, CameraJumper.MovementMode.Cut);
-            return true;
+            return null;
         }
 
         // The facts a look check needs: where a thing is, whether it spawned, how it draws, and the texture path its def names.
@@ -2512,6 +2540,12 @@ namespace ZLevelsValidation
             if (CoolingNoColumns)
             {
                 Record("cooling link", NoColumnsVariantNotBuilt);
+                return;
+            }
+            // A screenshot that did not complete leaves the link without a PASS, even when every label passed.
+            if (coolingScreenshotFailed)
+            {
+                Record("cooling link", "FAIL: the cooling screenshot did not complete");
                 return;
             }
             var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();

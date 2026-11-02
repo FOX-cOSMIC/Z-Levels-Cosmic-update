@@ -29,6 +29,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# The first ERROR entry in a game log that names Z-Levels. An entry is the ERROR line and its continuation lines, up to the next timestamped
+# line, read the way the $ownErrors block reads them. Returns the entry text, or $null when no entry names Z-Levels.
+function Get-ZLevelsErrorEntry {
+    param([string]$LogPath)
+    foreach ($hit in Select-String -LiteralPath $LogPath -Pattern ' ERROR ' -Context 0,80) {
+        $post = @($hit.Context.PostContext | ForEach-Object -Begin { $stop = $false } -Process { if ($stop) { return }; if ($_ -match '^\d{4}-\d{2}-\d{2} ') { $stop = $true; return }; $_ })
+        $entry = (@($hit.Line) + $post) -join "`n"
+        if ($entry -match 'Z-?Levels') { return $entry }
+    }
+    return $null
+}
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
 $executable = Join-Path $game 'RimWorld.exe'
@@ -168,10 +179,15 @@ $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
-    # The first Z-Levels error in the run's copy of the game log, so a failing run names its cause without opening Player.log.
+    # The cause hint: the first ERROR entry in the run's copy of the game log that names Z-Levels, so a failing run names its cause.
     $playerLog = Join-Path $runDirectory 'Player.log'
-    $firstZLevelsError = if (Test-Path -LiteralPath $playerLog) { Select-String -LiteralPath $playerLog -Pattern ' ERROR .*Z-?Levels' | Select-Object -First 1 }
-    if ($firstZLevelsError) { Write-Host "First Z-Levels ERROR line: $($firstZLevelsError.Line)" } else { Write-Host 'No Z-Levels ERROR line in Player.log.' }
+    if (!(Test-Path -LiteralPath $playerLog)) {
+        Write-Host 'No Player.log in the run folder.'
+    }
+    else {
+        $zlevelsEntry = Get-ZLevelsErrorEntry -LogPath $playerLog
+        if ($zlevelsEntry) { Write-Host "First ERROR entry that names Z-Levels:`n$zlevelsEntry" } else { Write-Host 'No ERROR entry in Player.log names Z-Levels.' }
+    }
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 $errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })

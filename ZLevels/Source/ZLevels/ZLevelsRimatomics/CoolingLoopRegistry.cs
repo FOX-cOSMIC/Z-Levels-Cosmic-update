@@ -6,9 +6,10 @@ using ZLevels;
 namespace ZLevelsRimatomics
 {
     // Pairs cooling columns across adjacent levels. A column joins the registry when it spawns with a Rimatomics pipe, and it leaves when
-    // it despawns. Each entry keeps the game that its column registered in. ZUtils.TeleportThing moves a column to another map without a
-    // spawn or a despawn, so an entry holds no map. Loops are found by a breadth-first search at call time, so a column loaded before its
-    // neighbor's map exists still pairs.
+    // it despawns. Each entry keeps the game that its column registered in. A column is usable only while it stands in its map's thing grid
+    // at its own cell. ZUtils.TeleportThing moves a column to another map with no spawn, despawn, or grid update, so the grid check is what
+    // tells a moved column apart. Loops come from a breadth-first search at call time, so the order in which columns register does not
+    // change them.
     public static class CoolingLoopRegistry
     {
         private sealed class Entry
@@ -21,15 +22,19 @@ namespace ZLevelsRimatomics
 
             public CompCoolingColumn Column { get; }
             public Verse.Game Game { get; }
+
+            // Set once the grid check has warned for this entry, so the warning comes once per column.
+            public bool GridWarned { get; set; }
         }
 
         private static readonly List<Entry> entries = new List<Entry>();
 
-        // Drops only the entries that are no longer usable for good. Then the column is listed under the current game, unless an entry already
-        // holds it. A column that cannot register logs an error before it returns, so no return is silent.
+        // Drops only the entries whose map is disposed or whose game is not the current game. An entry for an unspawned or off-grid column stays,
+        // because the column can stand in its grid again. Then the column is listed under the current game, unless an entry already holds it.
+        // A column that cannot register logs an error before it returns, so no return is silent.
         public static void Register(CompCoolingColumn column)
         {
-            entries.RemoveAll(entry => !Usable(entry));
+            entries.RemoveAll(DeadForGood);
             if (column == null)
             {
                 Log.Error("Z-Levels cooling column registration received no column");
@@ -54,7 +59,8 @@ namespace ZLevelsRimatomics
             entries.RemoveAll(entry => entry.Column == column);
         }
 
-        // True when the column is listed and usable. A column with no pipe never registers, so this is false for it.
+        // True when the column is listed and usable: spawned, on a map that is not disposed, in that map's thing grid at its cell, and registered
+        // for the current game. A column with no pipe never registers, so this is false for it.
         public static bool IsRegistered(CompCoolingColumn column)
         {
             return column != null && entries.Exists(entry => entry.Column == column && Usable(entry));
@@ -89,14 +95,42 @@ namespace ZLevelsRimatomics
             return loop;
         }
 
-        // A column is usable when it is spawned, its map is not disposed, and it registered in the current game. The map is read at each call,
-        // so a column that TeleportThing moved to another map is still usable. Thing.Spawned and Thing.Map catch a column whose map was removed,
-        // and the game check catches a column left over from an earlier game.
+        // An entry is dead for good when its map is disposed, or when it registered in a game that is not the current game.
+        private static bool DeadForGood(Entry entry)
+        {
+            Map map = entry.Column.parent?.Map;
+            return (map != null && map.Disposed) || entry.Game != Current.Game;
+        }
+
+        // A column is usable when it is spawned on a map that is not disposed, it stands in that map's thing grid at its own cell, and its entry
+        // registered in the current game. The spawn and map checks cover a despawned column and a removed map. The game check covers an entry
+        // left over from an earlier game. The grid check covers a column that ZUtils.TeleportThing moved, because that move sets only the map and the position.
         private static bool Usable(Entry entry)
         {
             CompCoolingColumn column = entry.Column;
-            if (column == null || column.parent == null || !column.parent.Spawned || column.parent.Map == null) return false;
-            return !column.parent.Map.Disposed && entry.Game == Current.Game;
+            if (column == null || column.parent == null || !column.parent.Spawned) return false;
+            Map map = column.parent.Map;
+            if (map == null || map.Disposed || entry.Game != Current.Game) return false;
+            if (ListedInGrid(column.parent)) return true;
+            WarnOffGridOnce(entry);
+            return false;
+        }
+
+        // The thing grid lists a one-cell thing at its position. ThingsAt returns nothing for a cell outside the map, where ThingsListAt would log an error.
+        private static bool ListedInGrid(Thing thing)
+        {
+            foreach (Thing listed in thing.Map.thingGrid.ThingsAt(thing.Position))
+            {
+                if (listed == thing) return true;
+            }
+            return false;
+        }
+
+        private static void WarnOffGridOnce(Entry entry)
+        {
+            if (entry.GridWarned) return;
+            entry.GridWarned = true;
+            Log.Warning("Z-Levels cooling column " + (entry.Column.parent.def?.defName ?? "cooling column") + " is spawned, but it is not in its map's thing grid at its cell. It does not pair until it is.");
         }
 
         private static bool SitsOnSameCellOfAdjacentLevel(ZLevelsManager tracker, CompCoolingColumn a, CompCoolingColumn b)
