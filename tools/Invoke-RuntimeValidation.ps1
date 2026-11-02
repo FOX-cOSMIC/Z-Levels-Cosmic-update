@@ -29,16 +29,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# The first ERROR entry in a game log that names Z-Levels. An entry is the ERROR line and its continuation lines, up to the next timestamped
-# line, read the way the $ownErrors block reads them. Returns the entry text, or $null when no entry names Z-Levels.
-function Get-ZLevelsErrorEntry {
+# One entry rule for ERROR entries, shared by the cause hint and the Z-Levels gate. A timestamped line that contains ' ERROR ' starts an entry.
+# The entry runs to the next timestamped line, with no line limit. The log is read once, in one pass, and every entry is returned as text.
+function Get-ErrorEntries {
     param([string]$LogPath)
-    foreach ($hit in Select-String -LiteralPath $LogPath -Pattern ' ERROR ' -Context 0,80) {
-        $post = @($hit.Context.PostContext | ForEach-Object -Begin { $stop = $false } -Process { if ($stop) { return }; if ($_ -match '^\d{4}-\d{2}-\d{2} ') { $stop = $true; return }; $_ })
-        $entry = (@($hit.Line) + $post) -join "`n"
-        if ($entry -match 'Z-?Levels') { return $entry }
+    $entries = New-Object System.Collections.Generic.List[string]
+    $lines = New-Object System.Collections.Generic.List[string]
+    $inError = $false
+    foreach ($line in Get-Content -LiteralPath $LogPath) {
+        if ($line -match '^\d{4}-\d{2}-\d{2} ') {
+            if ($inError) { $entries.Add($lines -join "`n") }
+            $lines.Clear()
+            $inError = $line -match ' ERROR '
+        }
+        if ($inError) { $lines.Add($line) }
     }
-    return $null
+    if ($inError) { $entries.Add($lines -join "`n") }
+    return $entries.ToArray()
 }
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
@@ -179,28 +186,31 @@ $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
 if ($results -match '[|] FAIL:' -or !($results -match ('[|] ' + $requiredPass + ' [|] PASS$'))) {
-    # The cause hint: the first ERROR entry in the run's copy of the game log that names Z-Levels, so a failing run names its cause.
+    # The cause hint: the Z-Levels ERROR entries in the run's copy of the game log, with their count, so a failing run names its cause. The first
+    # one may come from earlier in the session, not from this scenario. The log is read by the same entry rule as the Z-Levels gate.
     $playerLog = Join-Path $runDirectory 'Player.log'
     if (!(Test-Path -LiteralPath $playerLog)) {
         Write-Host 'No Player.log in the run folder.'
     }
     else {
-        $zlevelsEntry = Get-ZLevelsErrorEntry -LogPath $playerLog
-        if ($zlevelsEntry) { Write-Host "First ERROR entry that names Z-Levels:`n$zlevelsEntry" } else { Write-Host 'No ERROR entry in Player.log names Z-Levels.' }
+        $zlevelsEntries = @(Get-ErrorEntries -LogPath $playerLog | Where-Object { $_ -match 'Z-?Levels' })
+        if ($zlevelsEntries.Count) {
+            Write-Host "Z-Levels ERROR entries in Player.log: $($zlevelsEntries.Count). The first one follows.`n$($zlevelsEntries[0])"
+        }
+        else {
+            Write-Host 'No ERROR entry in Player.log names Z-Levels.'
+        }
     }
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 $errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
-    # Only error entries count. A Z-Levels frame in an ordinary log line is not an error. An entry runs until the next timestamped line.
-    $ownErrors = @(foreach ($hit in Select-String -LiteralPath (Join-Path $runDirectory 'Player.log') -Pattern ' ERROR ' -Context 0,80) {
-        $post = @($hit.Context.PostContext | ForEach-Object -Begin { $stop = $false } -Process { if ($stop) { return }; if ($_ -match '^\d{4}-\d{2}-\d{2} ') { $stop = $true; return }; $_ })
-        if (((@($hit.Line) + $post) -join "`n") -match 'Z-?Levels') { $hit }
-    })
+    # Only error entries count, read by the same entry rule as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
+    $ownErrors = @(Get-ErrorEntries -LogPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match 'Z-?Levels' })
     $errors | Set-Content -LiteralPath (Join-Path $runDirectory 'other-mod-errors.txt') -Encoding UTF8
     if ($ownErrors.Count) {
-        $ownErrors | ForEach-Object { $_.Line }
+        $ownErrors
         throw "Runtime log contains Z-Levels errors: $runDirectory"
     }
     Write-Host "Other mods logged $($errors.Count) error lines. See $(Join-Path $runDirectory 'other-mod-errors.txt')"

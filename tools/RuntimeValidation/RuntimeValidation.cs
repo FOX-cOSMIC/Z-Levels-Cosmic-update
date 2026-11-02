@@ -119,6 +119,8 @@ namespace ZLevelsValidation
         // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels and cooling link record FAIL.
         private static bool CoolingNoColumns => GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns");
         private const string NoColumnsVariantNotBuilt = "FAIL: no-columns variant not built yet";
+        // The screenshot row. The first frame of the cooling tick records it, and the outer catch of that tick writes it when the tick throws.
+        private const string CoolingScreenshotLabel = "cooling column screenshot";
         // Every label the final "cooling link" line needs. Each is recorded PASS or FAIL: <reason>. A label that is never recorded blocks the link.
         private static readonly string[] CoolingLabels =
         {
@@ -2151,7 +2153,7 @@ namespace ZLevelsValidation
                     coolingChecksRecorded = true;
                     if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots") && CoolingNoColumns)
                     {
-                        Record("cooling column screenshot", "FAIL: no columns placed");
+                        RecordCooling(CoolingScreenshotLabel, "FAIL: no columns placed");
                         coolingScreenshotFailed = true;
                     }
                     else if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots"))
@@ -2162,7 +2164,7 @@ namespace ZLevelsValidation
                             coolingShotDue = DateTime.UtcNow.AddSeconds(3);
                             return;
                         }
-                        Record("cooling column screenshot", "FAIL: " + lookProblem);
+                        RecordCooling(CoolingScreenshotLabel, "FAIL: " + lookProblem);
                         coolingScreenshotFailed = true;
                     }
                 }
@@ -2178,8 +2180,8 @@ namespace ZLevelsValidation
                         return;
                     }
                     string shot = Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots", "zlevels-cooling-column.png");
-                    bool shotTaken = File.Exists(shot);
-                    Record("cooling column screenshot", shotTaken ? "TAKEN: " + shot : "FAIL: no file at " + shot);
+                    bool shotTaken = IsPng(shot);
+                    RecordCooling(CoolingScreenshotLabel, shotTaken ? "TAKEN: " + shot : "FAIL: no PNG at " + shot);
                     if (!shotTaken) coolingScreenshotFailed = true;
                     coolingShotDue = null;
                 }
@@ -2193,7 +2195,10 @@ namespace ZLevelsValidation
                     Log.Error("Z-Levels cooling link validation failed: " + exception);
                     // The description is built inside this try, so a Describe that throws cannot skip the shutdown below.
                     string description = "FAIL: " + Describe(exception);
-                    foreach (string label in CoolingLabels)
+                    // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
+                    var owed = new List<string>(CoolingLabels);
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.Add(CoolingScreenshotLabel);
+                    foreach (string label in owed)
                     {
                         if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, description);
                     }
@@ -2215,6 +2220,30 @@ namespace ZLevelsValidation
             }
             finished = true;
             Root.Shutdown();
+        }
+
+        // The 8-byte PNG signature. A screenshot counts only when the file starts with it, so an empty or partial file reads as FAIL.
+        private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+
+        private static bool IsPng(string path)
+        {
+            if (!File.Exists(path)) return false;
+            using (FileStream stream = File.OpenRead(path))
+            {
+                byte[] head = new byte[PngSignature.Length];
+                int total = 0;
+                while (total < head.Length)
+                {
+                    int read = stream.Read(head, total, head.Length - total);
+                    if (read == 0) return false;
+                    total += read;
+                }
+                for (int i = 0; i < head.Length; i++)
+                {
+                    if (head[i] != PngSignature[i]) return false;
+                }
+                return true;
+            }
         }
 
         // A label that a later task has not built yet records FAIL with the piece that is still missing at that stage.
@@ -2302,9 +2331,10 @@ namespace ZLevelsValidation
             catch (Exception exception)
             {
                 Log.Error("Z-Levels cooling pairing check failed: " + exception);
+                string description = "FAIL: " + Describe(exception);
                 foreach (string label in CoolingPairingLabels)
                 {
-                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + Describe(exception));
+                    if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, description);
                 }
             }
         }
@@ -2357,9 +2387,16 @@ namespace ZLevelsValidation
         {
             if (!column.parent.Spawned || column.parent.Map == null) return role + " is not spawned on a map";
             if (column.parent.Map.Disposed) return role + " is on a disposed map";
+            if (!ListedInThingGrid(column.parent)) return role + " is not listed in its map's thing grid at its cell";
             if (ReadField(column, "pipe") == null) return role + " has no pipe, so it is not registered";
             if (!ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(column)) return role + " is not registered";
             return null;
+        }
+
+        // The harness reads the thing grid itself, so a column that a move left off its grid is named by the grid, not by the registry.
+        private static bool ListedInThingGrid(Thing thing)
+        {
+            return thing.Map.thingGrid.ThingsAt(thing.Position).Any(listed => ReferenceEquals(listed, thing));
         }
 
         // The row for a column that must stay off the loop. pairReason names an unusable column of the in-range pair, and the column itself must
@@ -2412,12 +2449,14 @@ namespace ZLevelsValidation
         {
             IntVec3 away = cell + new IntVec3(0, 0, -2);
             if (!away.InBounds(lower) || !away.InBounds(surface)) throw new InvalidOperationException("the round-trip cell is off the map");
+            // Before the move, the surface column must be registered. Otherwise the midpoint checks below prove nothing.
+            if (!ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(surfaceComp)) return "FAIL: the surface column is not registered before the move";
             MethodInfo teleport = TeleportThingMethod();
             ClearCell(lower, away);
             lower.terrainGrid.SetTerrain(away, TerrainDefOf.Concrete);
             teleport.Invoke(null, new object[] { surfaceBuilding, lower, away });
-            // While the column stands on the lower level, its map's thing grid does not list it at its cell, so the registry must not count it.
-            string midpoint = ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(surfaceComp) ? "FAIL: the moved column is still usable on the lower level" : null;
+            // Two assertions while the column stands on the lower level. The reason names the one that fails.
+            string midpoint = MidpointProblem(lower, away, surfaceBuilding, surfaceComp);
             SpawnBuilding(column, surface, away, ThingDefOf.Steel);
             teleport.Invoke(null, new object[] { surfaceBuilding, surface, cell });
             if (midpoint != null) return midpoint;
@@ -2425,6 +2464,15 @@ namespace ZLevelsValidation
             if (reason != null) return "FAIL: " + reason + " after the round trip";
             bool joined = Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
             return joined ? "PASS" : "FAIL: the surface column and the lower column do not share a loop after the round trip";
+        }
+
+        // The two midpoint assertions. The lower map's thing grid must not list the column at the away cell, and the registry must not count the
+        // column as usable. The reason names the assertion that fails.
+        private static string MidpointProblem(Map lower, IntVec3 away, Thing moved, ZLevelsRimatomics.CompCoolingColumn movedComp)
+        {
+            if (lower.thingGrid.ThingsAt(away).Any(listed => ReferenceEquals(listed, moved))) return "FAIL: the lower map's thing grid lists the moved column at the away cell";
+            if (ZLevelsRimatomics.CoolingLoopRegistry.IsRegistered(movedComp)) return "FAIL: the moved column is still usable on the lower level";
+            return null;
         }
 
         // Rimatomics types are read by name, so this code compiles without a reference to Rimatomics. The column's pipe field must be set,
