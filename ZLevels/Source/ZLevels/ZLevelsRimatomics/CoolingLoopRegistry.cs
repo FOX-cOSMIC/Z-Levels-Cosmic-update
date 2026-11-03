@@ -48,6 +48,7 @@ namespace ZLevelsRimatomics
         // unless an entry already holds it. A column that cannot register logs an error before it returns, so no return is silent.
         public static void Register(CompCoolingColumn column)
         {
+            ForgetEntriesOfEarlierGame();
             PruneDeadEntries();
             if (column == null)
             {
@@ -75,6 +76,7 @@ namespace ZLevelsRimatomics
 
         public static void Deregister(CompCoolingColumn column)
         {
+            ForgetEntriesOfEarlierGame();
             entries.RemoveAll(entry => entry.Column == column);
         }
 
@@ -82,16 +84,15 @@ namespace ZLevelsRimatomics
         // for the current game. A column with no pipe never registers, so this is false for it.
         public static bool IsRegistered(CompCoolingColumn column)
         {
+            ForgetEntriesOfEarlierGame();
             return column != null && entries.Exists(entry => entry.Column == column && Usable(entry));
         }
 
-        // b sits on the level directly below or above a, on the same cell as a (ADR-0005). ConnectedPowerNets keeps its wider rule for power.
-        // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree. It returns false unless both columns are registered.
-        // It throws when both are registered but the game has no ZLevelsManager, because a live game always has one.
         // The usable columns of this moment, as a set. A query that tests many pairs reads the set once and passes it to the overloads below, so the grid
         // check runs once per entry and not once per pair. A set read before a change is stale, so each query reads its own.
         public static HashSet<CompCoolingColumn> UsableColumns()
         {
+            ForgetEntriesOfEarlierGame();
             var usable = new HashSet<CompCoolingColumn>();
             foreach (Entry entry in entries)
             {
@@ -108,23 +109,18 @@ namespace ZLevelsRimatomics
             return tracker;
         }
 
-        // Paired(a, b) for this moment. It reads the usable set and the tracker itself.
-        public static bool Paired(CompCoolingColumn a, CompCoolingColumn b)
-        {
-            HashSet<CompCoolingColumn> usable = UsableColumns();
-            if (!usable.Contains(a) || !usable.Contains(b)) return false;
-            return Paired(a, b, usable, TrackerOf());
-        }
-
-        // Paired(a, b) with the usable set and the tracker passed in, so one tick does not repeat the grid check or the tracker lookup for each pair.
+        // b sits on the level directly below or above a, on the same cell as a (ADR-0005). ConnectedPowerNets keeps its wider rule for power.
+        // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree. It returns false unless both columns are in the usable set.
+        // The usable set and the tracker are passed in, so one tick does not repeat the grid check or the tracker lookup for each pair.
         public static bool Paired(CompCoolingColumn a, CompCoolingColumn b, HashSet<CompCoolingColumn> usable, ZLevelsManager tracker)
         {
             if (!usable.Contains(a) || !usable.Contains(b)) return false;
             return SitsOnSameCellOfAdjacentLevel(tracker, a, b) && SitsOnSameCellOfAdjacentLevel(tracker, b, a);
         }
 
-        // The connected group of paired columns that contains start, found by a breadth-first search at call time. The group includes start
-        // when start is registered. An unregistered start returns an empty list, so a caller that reads the loop must check that start is in it.
+        // The connected group of columns that contains start, found by a breadth-first search at call time. A column joins through a pair or through its pipe
+        // net (see the overload below). The group includes start when start is registered. An unregistered start returns an empty list, so a caller that
+        // reads the loop must check that start is in it.
         public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start)
         {
             HashSet<CompCoolingColumn> usable = UsableColumns();
@@ -132,7 +128,9 @@ namespace ZLevelsRimatomics
             return LoopOf(start, usable, TrackerOf());
         }
 
-        // LoopOf with the usable set and the tracker passed in (see Paired). The group includes start when start is in the usable set.
+        // LoopOf with the usable set and the tracker passed in (see Paired). The group includes start when start is in the usable set. A column joins the group
+        // through either link: it pairs with a column in the group, or it stands on the same Rimatomics pipe net as a column in the group. The Patch then takes
+        // every pipe net that holds a member, so each net of the loop gets the whole loop's coolers and turbines.
         public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start, HashSet<CompCoolingColumn> usable, ZLevelsManager tracker)
         {
             var loop = new List<CompCoolingColumn>();
@@ -143,10 +141,21 @@ namespace ZLevelsRimatomics
                 CompCoolingColumn current = loop[i];
                 foreach (Entry entry in entries)
                 {
-                    if (!loop.Contains(entry.Column) && Paired(current, entry.Column, usable, tracker)) loop.Add(entry.Column);
+                    CompCoolingColumn other = entry.Column;
+                    if (loop.Contains(other)) continue;
+                    if (Paired(current, other, usable, tracker) || SharePipeNet(current, other, usable)) loop.Add(other);
                 }
             }
             return loop;
+        }
+
+        // Two usable columns on one Rimatomics pipe net join each other, because a pipe joins the pipes beside it. The field is read as it is. The CompPipe.net
+        // getter would rebuild the grids, and LoopOf also runs inside a grid rebuild, from InitNet.
+        private static bool SharePipeNet(CompCoolingColumn a, CompCoolingColumn b, HashSet<CompCoolingColumn> usable)
+        {
+            if (ReferenceEquals(a, b) || !usable.Contains(a) || !usable.Contains(b)) return false;
+            Rimatomics.BasePipeNet net = a.pipe?.pipeNetRef;
+            return net != null && ReferenceEquals(net, b.pipe?.pipeNetRef);
         }
 
         // The cells the partner highlight outlines on the viewed level: each cell where a usable cooling column stands on the level directly above or
@@ -155,7 +164,9 @@ namespace ZLevelsRimatomics
         public static List<CoolingTarget> HighlightTargets(Map viewed)
         {
             var targets = new List<CoolingTarget>();
-            if (viewed == null || viewed.Disposed || Current.Game == null) return targets;
+            if (Current.Game == null) return targets;
+            ForgetEntriesOfEarlierGame();
+            if (viewed == null || viewed.Disposed) return targets;
             ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
             if (tracker == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
             Map lower = tracker.GetLowerLevel(viewed.Tile, viewed);
@@ -184,6 +195,14 @@ namespace ZLevelsRimatomics
             return false;
         }
 
+        // Drops every entry that an earlier game registered, because its columns belong to a game that is gone. One line records the count,
+        // so a game change leaves a trace without a warning for each column.
+        private static void ForgetEntriesOfEarlierGame()
+        {
+            int dropped = entries.RemoveAll(entry => entry.Game != Current.Game);
+            if (dropped > 0) Log.Message("Z-Levels cooling registry dropped " + dropped + " column entries from an earlier game.");
+        }
+
         // Removes each entry that is dead for good. Each removal logs one warning that names the column and the reason, so a column that leaves
         // the registry leaves a trace in the log. Entries are visited from the end, so a removal does not skip the entry after it.
         private static void PruneDeadEntries()
@@ -199,14 +218,15 @@ namespace ZLevelsRimatomics
             }
         }
 
-        // The reason an entry is dead for good, or null when it is alive. A column that is not spawned, or has no map, is named as not spawned.
-        // A column on a removed map is not spawned, so the spawn check drops it. A moved column stays spawned, so it keeps its entry.
+        // The reason an entry is dead for good, or null when it is alive. The game check comes first, so no map is read for an entry from an earlier game.
+        // A column that is not spawned, or has no map, is named as not spawned. A column on a removed map is not spawned, so the spawn check drops it.
+        // A moved column stays spawned, so it keeps its entry.
         private static string DeadReason(Entry entry)
         {
+            if (entry.Game != Current.Game) return "another game";
             Thing thing = entry.Column?.parent;
             if (thing == null || !thing.Spawned || thing.Map == null) return "not spawned";
             if (thing.Map.Disposed) return "map disposed";
-            if (entry.Game != Current.Game) return "another game";
             return null;
         }
 
@@ -219,14 +239,16 @@ namespace ZLevelsRimatomics
         }
 
         // A column is usable when it is spawned on a map that is not disposed, it stands in that map's thing grid at its own cell, and its entry
-        // registered in the current game. The spawn and map checks cover a despawned column and a removed map. The game check covers an entry
-        // left over from an earlier game. The grid check covers a column that ZUtils.TeleportThing moved, because that move sets only the map and the position.
+        // registered in the current game. The spawn and map checks cover a despawned column and a removed map. The game check comes first, because an
+        // entry from an earlier game can hold a stale map index, and reading that map can log a vanilla error. The grid check covers a column that
+        // ZUtils.TeleportThing moved, because that move sets only the map and the position.
         private static bool Usable(Entry entry)
         {
+            if (entry.Game != Current.Game) return false;
             CompCoolingColumn column = entry.Column;
             if (column == null || column.parent == null || !column.parent.Spawned) return false;
             Map map = column.parent.Map;
-            if (map == null || map.Disposed || entry.Game != Current.Game) return false;
+            if (map == null || map.Disposed) return false;
             if (ListedInGrid(column.parent))
             {
                 entry.GridWarned = false;

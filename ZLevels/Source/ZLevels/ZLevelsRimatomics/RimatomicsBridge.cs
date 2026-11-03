@@ -12,7 +12,8 @@ namespace ZLevelsRimatomics
 
         static RimatomicsBridge()
         {
-            Active = ModsConfig.IsActive("dubwise.rimatomics") || ModsConfig.IsActive("nachotoast.rimatomicsplusplus");
+            // Rimatomics++ works only with Dubs Rimatomics, so the bridge turns on for Dubs alone.
+            Active = ModsConfig.IsActive("dubwise.rimatomics");
             if (Active)
             {
                 new Harmony("zlevels.rimatomics").PatchAll(typeof(RimatomicsBridge).Assembly);

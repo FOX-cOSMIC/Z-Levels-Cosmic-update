@@ -151,6 +151,7 @@ namespace ZLevelsValidation
             "lower turbine shares the surface tower's loop",
             "surface tower stays in the lower loop",
             "cooling link breaks when a column is removed",
+            "cooling link breaks when a column is deconstructed",
             "cooling link survives reload",
             "rimatomics bridge active",
             "reactor runs on the lower level",
@@ -306,6 +307,12 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairsdamage"))
                 {
                     RunStairsDamageTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscoolingtwonets"))
+                {
+                    // RunTwoNetsTick sets finished when its rows are written.
+                    RunTwoNetsTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelscooling") || GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns"))
@@ -2363,7 +2370,9 @@ namespace ZLevelsValidation
         }
 
         // The pairing and pipe labels. The scenario generates the lower level, then places a surface column, a lower column under it,
-        // a second surface column 1 cell east, a third 3 cells east, and a coolant pipe north of the first surface column.
+        // a second surface column one cell away diagonally (east and south), a third 3 cells east, and a coolant pipe north of the first surface column.
+        // The diagonal cell touches neither the first column nor the pipe. A column that touched the first column would share its pipe net, and the loop
+        // rule joins a whole net, so the one-cell row would test loop membership and not pairing.
         private void RecordCoolingPairing(ThingDef column)
         {
             ThingDef pipeDef = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
@@ -2403,13 +2412,14 @@ namespace ZLevelsValidation
                 IntVec3 cell = surface.Center + new IntVec3(-12, 0, 0);
                 coolingPairCell = cell;
                 IntVec3 farCell = cell + new IntVec3(3, 0, 0);
-                if (!cell.InBounds(surface) || !cell.InBounds(lower) || !farCell.InBounds(surface) || !(cell + new IntVec3(0, 0, 1)).InBounds(surface))
+                if (!cell.InBounds(surface) || !cell.InBounds(lower) || !farCell.InBounds(surface) || !(cell + new IntVec3(0, 0, 1)).InBounds(surface)
+                    || !(cell + new IntVec3(1, 0, -1)).InBounds(surface))
                 {
                     throw new InvalidOperationException("the test cells are off the map");
                 }
                 ThingWithComps surfaceBuilding = SpawnBuilding(column, surface, cell, ThingDefOf.Steel);
                 ThingWithComps lowerBuilding = SpawnBuilding(column, lower, cell, ThingDefOf.Steel);
-                ThingWithComps nearBuilding = SpawnBuilding(column, surface, cell + new IntVec3(1, 0, 0), ThingDefOf.Steel);
+                ThingWithComps nearBuilding = SpawnBuilding(column, surface, cell + new IntVec3(1, 0, -1), ThingDefOf.Steel);
                 ThingWithComps farBuilding = SpawnBuilding(column, surface, farCell, ThingDefOf.Steel);
                 ThingWithComps pipeBuilding = SpawnBuilding(pipeDef, surface, cell + new IntVec3(0, 0, 1));
                 var surfaceComp = RequireCoolingComp(surfaceBuilding, "the surface column");
@@ -2430,8 +2440,8 @@ namespace ZLevelsValidation
                     string pairReason = UnjoinableReason("the surface column", surfaceComp) ?? UnjoinableReason("the lower column", lowerComp);
                     bool paired = pairReason == null && Joined(loopOf, surfaceComp, lowerComp) && Joined(loopOf, lowerComp, surfaceComp);
                     RecordCooling("cooling columns paired", pairReason != null ? "FAIL: " + pairReason : paired ? "PASS" : "FAIL: the surface column and the lower column do not share a loop");
-                    RecordCooling("column one cell away stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column one cell away", nearComp, 1f, paired));
-                    RecordCooling("column out of range stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column three cells away", farComp, 3f, paired));
+                    RecordCooling("column one cell away stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column one cell away", nearComp, new IntVec3(1, 0, -1), paired));
+                    RecordCooling("column out of range stays unpaired", StaysUnpairedResult(loopOf, lowerComp, pairReason, "the column three cells away", farComp, new IntVec3(3, 0, 0), paired));
                 }
                 // One MapUpdate runs Rimatomics' grid regeneration, which joins the new pipe to its net (Harmony_GridRegen is a prefix on Map.MapUpdate).
                 surface.MapUpdate();
@@ -2723,14 +2733,15 @@ namespace ZLevelsValidation
         }
 
         // The row for a column that must stay off the loop. pairReason names an unusable column of the in-range pair, and the column itself must
-        // be usable too. The in-range pair must be joined, so an empty loop proves nothing. The column must sit at the layout distance from the lower column.
-        private static string StaysUnpairedResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, string pairReason, string role, ZLevelsRimatomics.CompCoolingColumn column, float cells, bool paired)
+        // be usable too. The in-range pair must be joined, so an empty loop proves nothing. The column must sit at the layout offset from the lower column.
+        // The offset is exact, so a diagonal neighbour is checked as a diagonal and not as a distance.
+        private static string StaysUnpairedResult(MethodInfo loopOf, ZLevelsRimatomics.CompCoolingColumn lowerComp, string pairReason, string role, ZLevelsRimatomics.CompCoolingColumn column, IntVec3 offset, bool paired)
         {
             string reason = pairReason ?? UnjoinableReason(role, column);
             if (reason != null) return "FAIL: " + reason;
             if (!paired) return "FAIL: the in-range pair is not joined, so " + role + " proves nothing";
-            float apart = column.parent.Position.DistanceTo(lowerComp.parent.Position);
-            if (apart != cells) return "FAIL: the test layout puts " + role + " " + apart + " cells from the lower column, not " + cells;
+            IntVec3 placed = column.parent.Position - lowerComp.parent.Position;
+            if (placed != offset) return "FAIL: the test layout puts " + role + " at " + placed + " from the lower column, not " + offset;
             return Joined(loopOf, lowerComp, column) || Joined(loopOf, column, lowerComp) ? "FAIL: " + role + " shares the loop" : "PASS";
         }
 
@@ -2972,10 +2983,11 @@ namespace ZLevelsValidation
             "lower turbine shares the surface tower's loop",
             "cooling link survives reload",
             "cooling link breaks when a column is removed",
+            "cooling link breaks when a column is deconstructed",
         };
         // A footprint that holds any of these would lose it to SpawnBuilding's clearing, and each one changes the nets, so the scene refuses to start.
         private static readonly string[] CoolingFootprintDefs = { "ZL_CoolingColumn", "coolingPipe", "coolingPipeHidden", "CoolingTower", "Turbine" };
-        private enum LinkStep { Scene, Settle, Shares, Save, AwaitLoad, SettleAfterLoad, ReloadCheck, ReactorBuild, ReactorPower, ReactorSample, Removal, SettleAfterRemoval, RemovalCheck, Done }
+        private enum LinkStep { Scene, Settle, Shares, Save, AwaitLoad, SettleAfterLoad, ReloadCheck, ReactorBuild, ReactorPower, ReactorSample, Removal, SettleAfterRemoval, RemovalCheck, Restore, SettleAfterRestore, Deconstruction, SettleAfterDeconstruction, DeconstructionCheck, Done }
         // The sequence's state. Static, because the reload continues the sequence in a new RuntimeValidation.
         private static LinkStep linkStep = LinkStep.Scene;
         private static DateTime linkDeadline;
@@ -2988,6 +3000,8 @@ namespace ZLevelsValidation
         // The reason that a link building is missing at each read, or null when both stand. A row that finds a building missing names it.
         private static string linkSharedMissing;
         private static string linkRemovalMissing;
+        private static string linkDeconstructMissing;
+        private static bool linkHeldBeforeDeconstruction;
 
         // Advances the link sequence by one frame. Each step waits two game ticks where the nets have to settle: after the scene, after the load, and after
         // the removal. The reactor stages run after the reload and before the removal, so the link stays whole while the reactor is sampled. It returns true
@@ -3074,6 +3088,28 @@ namespace ZLevelsValidation
                     return false;
                 case LinkStep.RemovalCheck:
                     RecordRemovalRow();
+                    linkStep = LinkStep.Restore;
+                    return false;
+                case LinkStep.Restore:
+                    RestoreSurfaceColumn();
+                    linkTickMark = Find.TickManager.TicksGame;
+                    linkStep = LinkStep.SettleAfterRestore;
+                    return false;
+                case LinkStep.SettleAfterRestore:
+                    if (ticks < linkTickMark + 2) return false;
+                    linkStep = LinkStep.Deconstruction;
+                    return false;
+                case LinkStep.Deconstruction:
+                    DeconstructSurfaceColumn();
+                    linkTickMark = Find.TickManager.TicksGame;
+                    linkStep = LinkStep.SettleAfterDeconstruction;
+                    return false;
+                case LinkStep.SettleAfterDeconstruction:
+                    if (ticks < linkTickMark + 2) return false;
+                    linkStep = LinkStep.DeconstructionCheck;
+                    return false;
+                case LinkStep.DeconstructionCheck:
+                    RecordDeconstructionRow();
                     linkStep = LinkStep.Done;
                     return true;
                 default:
@@ -3215,6 +3251,251 @@ namespace ZLevelsValidation
             RecordCooling("cooling link breaks when a column is removed", verdict);
             Record("cooling link removal evidence", "before the removal: " + (linkRemovalMissing ?? ("holds the surface tower " + (linkHeldBeforeRemoval ? "yes" : "no")))
                 + "; the surface column at " + coolingPairCell + " was removed; two ticks after: " + detail);
+        }
+
+        // The label of the deconstruction check. The restored column leaves through DestroyMode.Deconstruct, the call that the game's deconstruct job makes.
+        // Thing.Destroy calls DeSpawn for that mode, as it does for Vanish, so the link must break the same way.
+        private const string DeconstructionLabel = "cooling link breaks when a column is deconstructed";
+
+        // Puts the surface column back on the pairing cell, so the deconstruction check starts from a joined link. The no-columns variant has no column to put back.
+        private void RestoreSurfaceColumn()
+        {
+            if (CoolingNoColumns) return;
+            ThingDef column = DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn");
+            if (column == null) throw new InvalidOperationException("the ZL_CoolingColumn def is not loaded");
+            SpawnBuilding(column, surface, coolingPairCell, ThingDefOf.Steel);
+        }
+
+        // Reads the link, then deconstructs the restored surface column. The read first is the start of the change, so a passing row shows the tower in
+        // Coolers before the deconstruction and out of Coolers two ticks after it.
+        private void DeconstructSurfaceColumn()
+        {
+            linkDeconstructMissing = ReadLink(out bool holdsTower, out _, out _);
+            linkHeldBeforeDeconstruction = linkDeconstructMissing == null && holdsTower;
+            if (CoolingNoColumns) return;
+            Thing column = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
+            if (column == null) throw new InvalidOperationException("the restored surface column is missing before the deconstruction");
+            column.Destroy(DestroyMode.Deconstruct);
+        }
+
+        // The last read of the deconstruction check. It passes when the tower was in Coolers before the deconstruction, is out of Coolers two ticks after it,
+        // and the lower turbine still holds its own turbine in Turbines.
+        private void RecordDeconstructionRow()
+        {
+            if (CoolingNoColumns)
+            {
+                RecordCooling(DeconstructionLabel, "FAIL: the no-columns variant placed no column, so there is no column to deconstruct");
+                return;
+            }
+            string missing = ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail);
+            string verdict;
+            if (linkDeconstructMissing != null) verdict = "FAIL: before the deconstruction, " + linkDeconstructMissing;
+            else if (missing != null) verdict = "FAIL: after the deconstruction, " + missing;
+            else if (!linkHeldBeforeDeconstruction) verdict = "FAIL: the tower was not in the lower turbine's Coolers before the deconstruction, so no link broke";
+            else if (holdsTower) verdict = "FAIL: the tower is still in the lower turbine's Coolers two ticks after the deconstruction";
+            else if (!holdsTurbine) verdict = "FAIL: the lower turbine left its own Turbines after the deconstruction";
+            else verdict = "PASS";
+            RecordCooling(DeconstructionLabel, verdict);
+            Record("cooling link deconstruction evidence", "before the deconstruction: " + (linkDeconstructMissing ?? ("holds the surface tower " + (linkHeldBeforeDeconstruction ? "yes" : "no")))
+                + "; the restored surface column at " + coolingPairCell + " was deconstructed; two ticks after: " + detail);
+        }
+
+        // The two-net scene. Each surface column stands on its own surface net with one tower. Both lower columns join one lower net through a coolant pipe,
+        // so each surface net must hold both towers in Coolers, once each, and so must the lower net. The scene has no reactor. It runs only under
+        // -zlevelscoolingtwonets.
+        private const string TwoNetsSceneLabel = "two nets scene";
+        private const string TwoNetsSurfaceALabel = "two nets: surface net A holds both towers once";
+        private const string TwoNetsSurfaceBLabel = "two nets: surface net B holds both towers once";
+        private const string TwoNetsLowerLabel = "two nets: lower net holds both towers once";
+        private const string TwoNetsLinkLabel = "two nets link";
+        private static readonly string[] TwoNetsRowLabels = { TwoNetsSceneLabel, TwoNetsSurfaceALabel, TwoNetsSurfaceBLabel, TwoNetsLowerLabel, "rimatomics bridge active" };
+        private bool twoNetsBuilt;
+        private int twoNetsTickMark;
+        private Thing twoNetsTowerA;
+        private Thing twoNetsTowerB;
+        private Thing twoNetsColumnA;
+        private Thing twoNetsColumnB;
+        private Thing twoNetsLowerColumnA;
+        private Thing twoNetsLowerColumnB;
+
+        // Runs the two-net scene. The scene is built on the first call, and its rows are written two ticks later, when the nets have settled.
+        private void RunTwoNetsTick()
+        {
+            try
+            {
+                if (!twoNetsBuilt)
+                {
+                    twoNetsBuilt = true;
+                    string problem = PlaceTwoNetsScene();
+                    if (problem != null)
+                    {
+                        FailTwoNetsRows(problem);
+                        finished = true;
+                        Root.Shutdown();
+                        return;
+                    }
+                    twoNetsTickMark = Find.TickManager.TicksGame;
+                    return;
+                }
+                if (Find.TickManager.TicksGame < twoNetsTickMark + 2) return;
+                RecordTwoNetsRows();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                try
+                {
+                    string cause = DescribeOrTypeName(exception);
+                    foreach (string label in TwoNetsRowLabels.Append(TwoNetsLinkLabel))
+                    {
+                        if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: not run: " + cause);
+                    }
+                    Log.Error("Z-Levels two-net scene failed: " + exception);
+                }
+                catch (Exception failureException)
+                {
+                    Log.Error("Z-Levels two-net scene failure rows could not be built: " + failureException);
+                }
+            }
+            finished = true;
+            Root.Shutdown();
+        }
+
+        // Places the two-net scene. It returns null when the scene stands, and the reason when it does not. The footprints are checked before anything
+        // spawns, because SpawnBuilding clears its footprint.
+        private string PlaceTwoNetsScene()
+        {
+            ThingDef towerDef = DefDatabase<ThingDef>.GetNamedSilentFail("CoolingTower");
+            ThingDef columnDef = DefDatabase<ThingDef>.GetNamedSilentFail("ZL_CoolingColumn");
+            ThingDef pipeDef = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
+            if (towerDef == null || columnDef == null || pipeDef == null) return "the CoolingTower, ZL_CoolingColumn, or coolingPipe def is not loaded";
+            ZLevelsManager manager = Current.Game?.GetComponent<ZLevelsManager>();
+            if (manager == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
+            surface = Find.CurrentMap;
+            lower = CreateLevelBelow(manager, surface);
+            // Column A and column B are two cells apart on both levels. The lower pipe joins the two lower columns, and no pipe joins the surface columns.
+            IntVec3 a = surface.Center + new IntVec3(-12, 0, 0);
+            IntVec3 b = a + new IntVec3(2, 0, 0);
+            IntVec3 between = a + new IntVec3(1, 0, 0);
+            // Tower A stands west of column A, and tower B stands east of column B. Each tower touches only its own column.
+            CellRect towerARect = CellRect.FromLimits(a.x - 8, a.z - 5, a.x - 1, a.z + 2);
+            CellRect towerBRect = CellRect.FromLimits(b.x + 1, b.z - 5, b.x + 8, b.z + 2);
+            if (!RectInside(surface, towerARect) || !RectInside(surface, towerBRect) || !a.InBounds(surface) || !b.InBounds(surface)
+                || !a.InBounds(lower) || !b.InBounds(lower) || !between.InBounds(lower))
+            {
+                return "the two-net scene is off the map";
+            }
+            string clash = FirstCoolingThingIn(surface, towerARect) ?? FirstCoolingThingIn(surface, towerBRect);
+            if (clash != null) return "the two-net scene would overlap " + clash;
+            IntVec3 towerAAnchor = AnchorFor(towerDef.size, towerARect, out bool towerAFits);
+            IntVec3 towerBAnchor = AnchorFor(towerDef.size, towerBRect, out bool towerBFits);
+            if (!towerAFits || !towerBFits) return "the game's footprint does not match the two-net scene";
+            // The lower cells take a concrete floor, as the round-trip check does, so the pipe and the columns can stand on them.
+            foreach (IntVec3 cell in new[] { a, between, b })
+            {
+                ClearCell(lower, cell);
+                lower.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+            }
+            twoNetsTowerA = SpawnBuilding(towerDef, surface, towerAAnchor);
+            twoNetsTowerB = SpawnBuilding(towerDef, surface, towerBAnchor);
+            twoNetsColumnA = SpawnBuilding(columnDef, surface, a, ThingDefOf.Steel);
+            twoNetsColumnB = SpawnBuilding(columnDef, surface, b, ThingDefOf.Steel);
+            twoNetsLowerColumnA = SpawnBuilding(columnDef, lower, a, ThingDefOf.Steel);
+            twoNetsLowerColumnB = SpawnBuilding(columnDef, lower, b, ThingDefOf.Steel);
+            SpawnBuilding(pipeDef, lower, between);
+            surface.MapUpdate();
+            lower.MapUpdate();
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+            return null;
+        }
+
+        // The first two-net building that is missing, or null when all six stand.
+        private string MissingTwoNetsBuilding()
+        {
+            if (twoNetsTowerA == null) return "tower A";
+            if (twoNetsTowerB == null) return "tower B";
+            if (twoNetsColumnA == null) return "surface column A";
+            if (twoNetsColumnB == null) return "surface column B";
+            if (twoNetsLowerColumnA == null) return "lower column A";
+            if (twoNetsLowerColumnB == null) return "lower column B";
+            return null;
+        }
+
+        // Writes the scene row, the three net rows, the bridge row, and the aggregate row. A net row reads the net of its tower or its lower column.
+        private void RecordTwoNetsRows()
+        {
+            string missing = MissingTwoNetsBuilding();
+            RecordCooling(TwoNetsSceneLabel, missing == null ? "PASS" : "FAIL: " + missing + " is missing after the settle");
+            if (missing == null)
+            {
+                object surfaceNetA = CoolingNetOf(twoNetsTowerA);
+                object surfaceNetB = CoolingNetOf(twoNetsTowerB);
+                object lowerNet = ColumnNet(twoNetsLowerColumnA);
+                RecordCooling(TwoNetsSurfaceALabel, CoolerCountResult(surfaceNetA, "surface net A"));
+                RecordCooling(TwoNetsSurfaceBLabel, CoolerCountResult(surfaceNetB, "surface net B"));
+                RecordCooling(TwoNetsLowerLabel, CoolerCountResult(lowerNet, "the lower net"));
+                Record("two nets counts", "surface net A: " + CoolerCountsText(surfaceNetA) + "; surface net B: " + CoolerCountsText(surfaceNetB)
+                    + "; lower net: " + CoolerCountsText(lowerNet));
+            }
+            else
+            {
+                RecordCooling(TwoNetsSurfaceALabel, "FAIL: the two-net scene is missing " + missing);
+                RecordCooling(TwoNetsSurfaceBLabel, "FAIL: the two-net scene is missing " + missing);
+                RecordCooling(TwoNetsLowerLabel, "FAIL: the two-net scene is missing " + missing);
+            }
+            RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
+            RecordTwoNetsLink();
+        }
+
+        // Writes the rows of a scene that did not stand. Each row names the problem. The bridge row still reads the bridge.
+        private void FailTwoNetsRows(string problem)
+        {
+            RecordCooling(TwoNetsSceneLabel, "FAIL: " + problem);
+            RecordCooling(TwoNetsSurfaceALabel, "FAIL: " + problem);
+            RecordCooling(TwoNetsSurfaceBLabel, "FAIL: " + problem);
+            RecordCooling(TwoNetsLowerLabel, "FAIL: " + problem);
+            RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
+            RecordTwoNetsLink();
+        }
+
+        // Counts each tower in one net's Coolers. Each tower must appear exactly once. A net with no pipe net fails by name.
+        private string CoolerCountResult(object net, string role)
+        {
+            if (net == null) return "FAIL: " + role + " has no pipe net";
+            int towerA = CountInList(net, "Coolers", twoNetsTowerA);
+            int towerB = CountInList(net, "Coolers", twoNetsTowerB);
+            if (towerA == 1 && towerB == 1) return "PASS";
+            return "FAIL: " + role + " holds tower A " + Times(towerA) + " and tower B " + Times(towerB) + " in Coolers, and each must be 1";
+        }
+
+        // The tower counts of one net, for the evidence row.
+        private string CoolerCountsText(object net)
+        {
+            if (net == null) return "no pipe net";
+            return "tower A " + Times(CountInList(net, "Coolers", twoNetsTowerA)) + ", tower B " + Times(CountInList(net, "Coolers", twoNetsTowerB));
+        }
+
+        private static string Times(int count)
+        {
+            return count == 1 ? "1 time" : count + " times";
+        }
+
+        // The number of times one thing appears in a net's list, read by name.
+        private static int CountInList(object net, string listName, Thing thing)
+        {
+            int count = 0;
+            foreach (object item in (System.Collections.IEnumerable)ReadField(net, listName))
+            {
+                if (ReferenceEquals(item, thing)) count++;
+            }
+            return count;
+        }
+
+        // The aggregate row. It passes when every row before it passes, and it names the rows that do not.
+        private void RecordTwoNetsLink()
+        {
+            var notPassed = TwoNetsRowLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
+            RecordCooling(TwoNetsLinkLabel, notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
         }
 
         // The reactor checks. A reactor on the lower level is built after the reload, started with ReactorFuelRods fuel rods, and sampled every 250 ticks for 2500 ticks.
