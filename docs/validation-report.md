@@ -674,6 +674,25 @@ The one-rod runs did not show overheating. The uncooled core peaked at 332.5 in 
 | `20261103-125300` | None | The core validation passed with 30 rows, and no row reads FAIL. |
 | `20261103-130813` | 21 rods, `-CoolingNoColumns` | The tower read stalled in every sample. The uncooled core peaked at 1486.9 at +1500 ticks, and the first trip read at +1250 ticks. |
 
+## Regression runs for cross-level cooling
+
+These runs check the cooling link beside the other regression runs. Each run starts a new colony in its own savedata folder, under `-quicktest`. The tree under test is commit `a613670`. Its code matches `d7e2e30`, because `a613670` changes only the plan.
+
+| Run | Command | Result |
+|---|---|---|
+| `20261103-134920` | Core validation, no switch | PASS. `core validation` reads PASS, and no row reads FAIL. |
+| `20261103-134331` | `-Cooling`, with Dubs Rimatomics only | PASS. `cooling link` and `cooled core stays below overheating` read PASS, and no row reads FAIL. The cross-check reads 45 result rows and 45 marker lines. |
+| `20261103-135031` | `-Cooling -RimatomicsPlusPlus` | PASS. `cooling link` and `cooled core stays below overheating` read PASS, and no row reads FAIL. The runner observes `rimatomics++ mod active` as PASS. |
+| `20261103-135227` | Core validation with `-ModsConfigSource` set to the user's `ModsConfig.xml` | Not passed. The game reset the mod list during play-data load, and the runner stopped. No results file was written. |
+
+The mod-list run stopped during play-data load. The game catches a `System.NullReferenceException` from `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage`, and it resets the mod config. The user's `ModsConfig.xml` lists `7h0m4s.rimworldreadablenumbers`, which the other-mods run `20261101-141256` did not list. That run used 80 mods, which is the user's 79 without that mod, plus the two Z-Levels entries. The runner has never filtered that mod, so the other-mods source did not list it.
+
+The language is not the cause. The user's `Prefs.xml` sets `English`, the run's `Config/Prefs.xml` copies it, and the exception still occurs.
+
+The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C6D3CC6BDEB7DD4A08B99B39EACBE2A` before and after the run, and its write time is the same.
+
+No run in this section tests the user's list with that mod removed. The expected line, `Runtime validation passed with other mods`, was not printed, so this section makes no claim that the user's list passes.
+
 ## Evidence
 
 - Other-mod run: `.artifacts/runs/20261101-141256/`
@@ -687,3 +706,4 @@ The one-rod runs did not show overheating. The uncooled core peaked at 332.5 in 
 - Decompiles: `.artifacts/ilspy/` (git-ignored)
 - Cross-level cooling reactor runs: `.artifacts/runs/20261103-131225/` is the no-columns run, `.artifacts/runs/20261103-131411/` is the cooled run, and `.artifacts/runs/20261103-131550/` is the core validation run.
 - Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.
+- Task 7 regression runs: `.artifacts/runs/20261103-134920/`, `.artifacts/runs/20261103-134331/`, `.artifacts/runs/20261103-135031/`, and `.artifacts/runs/20261103-135227/`.
