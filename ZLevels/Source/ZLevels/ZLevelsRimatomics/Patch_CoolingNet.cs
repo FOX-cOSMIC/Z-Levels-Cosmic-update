@@ -490,12 +490,12 @@ namespace ZLevelsRimatomics
             Write(book.CapText, true);
         }
 
-        // Runs on every game tick, from CoolingLogComponent. It writes the held lines even when no cooling net ticks, so a held line does not wait for a net.
-        // With nothing pending it reads no log flag and builds nothing.
-        internal static void TickFromComponent()
+        // Runs after each game tick, from the postfix of GameComponentUtility.GameComponentTick (CoolingLogTickPatch). It writes the held lines even when no
+        // cooling net ticks. With nothing pending it returns first, before the game check, and it reads no log flag, so the common tick costs a few field reads.
+        internal static void FlushOnGameTick()
         {
-            Guard("forget earlier games", ForgetFailuresOfEarlierGames);
             if (NothingPending()) return;
+            Guard("forget earlier games", ForgetFailuresOfEarlierGames);
             Guard("write the held lines", FlushHeld);
         }
 
@@ -724,6 +724,18 @@ namespace ZLevelsRimatomics
         {
             return Helper("grace period", () => column.SpawnedAtTick.HasValue
                 && Find.TickManager.TicksGame - column.SpawnedAtTick.Value >= NoNetGraceTicks, false);
+        }
+    }
+
+    // A postfix on the static GameComponentUtility.GameComponentTick, which RimWorld calls once per game tick from TickManager.DoSingleTick. The postfix
+    // flushes the held cooling log lines, so a held line does not wait for a cooling net to tick. PatchAll applies it only when a Rimatomics mod is active,
+    // through RimatomicsBridge. This class names no Rimatomics type.
+    [HarmonyPatch(typeof(GameComponentUtility), nameof(GameComponentUtility.GameComponentTick))]
+    public static class CoolingLogTickPatch
+    {
+        static void Postfix()
+        {
+            Patch_CoolingNet.FlushOnGameTick();
         }
     }
 }
