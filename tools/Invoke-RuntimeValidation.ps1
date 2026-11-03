@@ -74,11 +74,11 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
-        # The outline rows compare the (cell, colour) pairs of the draw calls with the pairs the scenario expects. One row is written at the amber stage,
-        # and one at the green stage after the lower column stands. The two tint rows are written from the partner screenshots after the game exits.
+        # The calls rows compare the (cell, side, colour) planes of the draw calls with the planes the scenario expects. One row is written at the amber
+        # stage, and one at the green stage after the lower column stands. The two tint rows are written from the partner screenshots after the game exits.
         if ($CoolingColumns) {
-            $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS with planes' }
-            $labels += [pscustomobject]@{ Label = 'partner highlight drawn with pair'; Accept = 'PASS with planes' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight calls'; Accept = 'PASS with planes' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight calls with pair'; Accept = 'PASS with planes' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint amber'; Accept = 'PASS with values' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint green'; Accept = 'PASS with values' }
         }
@@ -97,10 +97,10 @@ function Get-GateProblems {
             if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
             continue
         }
-        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. The outline row reads PASS with the
-        # cells, planes and paired cells it drew. A tint row reads PASS with the values it measured. The label must be the whole label, at the start of the
+        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. A calls row reads PASS with the planes,
+        # cells and paired cells that matched the expected planes. A tint row reads PASS with the values it measured. The label must be the whole label, at the start of the
         # row or after "| ", so a longer label does not satisfy it. The row's own PASS or FAIL is the authority, so no count is compared here.
-        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with planes' { 'PASS: [1-9][0-9]* cells of [1-9][0-9]* expected, [1-9][0-9]* planes, [0-9]+ paired$' } 'PASS with values' { 'PASS: .+$' } default { 'PASS$' } }
+        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with planes' { 'PASS: [1-9][0-9]* planes match the [1-9][0-9]* expected, [1-9][0-9]* cells, [0-9]+ paired$' } 'PASS with values' { 'PASS: .+$' } default { 'PASS$' } }
         $passed = @($Results | Where-Object { $_ -match ('(^|[|] )' + [regex]::Escape($label) + ' [|] ' + $accepted) })
         if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
     }

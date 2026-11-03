@@ -13,9 +13,6 @@ namespace ZLevelsRimatomics
     [HarmonyPatch(typeof(DynamicDrawManager), nameof(DynamicDrawManager.DrawDynamicThings))]
     public static class CoolingColumnHighlight
     {
-        // The outline colours come from OutlineRule, so the hook and the drawn row use one palette.
-        private static readonly Color PairedColor = ToColor(OutlineRule.PairedColour);
-        private static readonly Color UnpairedColor = ToColor(OutlineRule.UnpairedColour);
         // The material and queue that GenDraw.DrawFieldEdges uses for its outline. MaterialPool.MatFrom cannot find this texture by its path,
         // so the texture comes from the material that MatLoader loads, as GenDraw does.
         private const string FieldEdgeMaterialPath = "Misc/FieldEdge";
@@ -29,7 +26,7 @@ namespace ZLevelsRimatomics
         private static readonly ConditionalWeakTable<Map, HashSet<string>> loggedFailures = new ConditionalWeakTable<Map, HashSet<string>>();
         // The outcome of the last frame that ran for a map, for the validation harness. LastMap is the map that frame ran for. FinishedLastFrame is
         // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. DrawCallsLastFrame has one entry for each
-        // of those calls, with the cell and the colour that the call's material had, so the harness compares the colours that reached the draw.
+        // of those calls, with the cell, the side, and the colour that the call's material had, so the harness compares the planes that reached the draw.
         public static Map LastMap;
         public static bool FinishedLastFrame;
         public static int PlanesLastFrame;
@@ -54,29 +51,23 @@ namespace ZLevelsRimatomics
             return texture;
         }
 
-        // One plane per open side, drawn with Graphics.DrawMesh. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced.
-        // With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does not use instancing.
-        // The sides come from OutlineRule, which skips a side that leads off the map or onto another cell of the list, as DrawFieldEdges does.
-        // Each Graphics.DrawMesh call adds one entry to DrawCallsLastFrame. The entry takes the colour of the material that the call receives, read back
-        // from that material, so it records the colour that reached the draw, not the colour the hook meant to use.
-        private static void DrawOutline(List<IntVec3> cells, Color color, Map map)
+        // One Graphics.DrawMesh call for each plane that OutlineRule.PlaneCalls plans for the group. GenDraw.DrawFieldEdges draws the same planes with
+        // Graphics.DrawMeshInstanced. With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does
+        // not use instancing. Each call adds one entry to DrawCallsLastFrame, with the cell, the side it faces, and the colour that its material read back.
+        private static void DrawOutline(List<IntVec3> cells, bool paired, Map map)
         {
             if (cells.Count == 0) return;
-            Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, color, OutlineRenderQueue);
-            foreach (IntVec3 cell in cells)
+            OutlineColour palette = paired ? OutlineRule.PairedColour : OutlineRule.UnpairedColour;
+            Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, ToColor(palette), OutlineRenderQueue);
+            var group = new List<OutlineCell>(cells.Count);
+            foreach (IntVec3 cell in cells) group.Add(new OutlineCell(cell.x, cell.z, paired));
+            foreach (OutlineDraw call in OutlineRule.PlaneCalls(group, palette, (x, z) => new IntVec3(x, 0, z).InBounds(map)))
             {
-                Vector3 position = cell.ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
-                int openSides = OutlineRule.OpenSides(cell.x, cell.z,
-                    (x, z) => new IntVec3(x, 0, z).InBounds(map),
-                    (x, z) => cells.Contains(new IntVec3(x, 0, z)));
-                for (int side = 0; side < 4; side++)
-                {
-                    if ((openSides & (1 << side)) == 0) continue;
-                    Material callMaterial = material;
-                    Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(side).AsQuat, Vector3.one), callMaterial, 0);
-                    PlanesLastFrame++;
-                    DrawCallsLastFrame.Add(new OutlineDraw(cell.x, cell.z, ColourOf(callMaterial)));
-                }
+                Vector3 position = new IntVec3(call.X, 0, call.Z).ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
+                Material callMaterial = material;
+                Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(call.Side).AsQuat, Vector3.one), callMaterial, 0);
+                PlanesLastFrame++;
+                DrawCallsLastFrame.Add(new OutlineDraw(call.X, call.Z, call.Side, ColourOf(callMaterial)));
             }
         }
 
@@ -110,8 +101,8 @@ namespace ZLevelsRimatomics
                     if (target.Paired) pairedCells.Add(target.Cell);
                     else unpairedCells.Add(target.Cell);
                 }
-                DrawOutline(pairedCells, PairedColor, ___map);
-                DrawOutline(unpairedCells, UnpairedColor, ___map);
+                DrawOutline(pairedCells, true, ___map);
+                DrawOutline(unpairedCells, false, ___map);
                 FinishedLastFrame = true;
             }
             catch (Exception exception)

@@ -36,25 +36,27 @@ namespace ZLevelsRimatomics
         }
     }
 
-    // One Graphics.DrawMesh call for an outline plane. X and Z are the cell the plane belongs to. Colour is the colour that the call's material had.
-    // The hook records each call from the material that the call receives, so a record shows the colour that reached the draw.
+    // One plane. X and Z are the cell the plane belongs to. Side is the direction the plane faces, numbered as Rot4 numbers it: 0 north, 1 east,
+    // 2 south, 3 west. Colour is the colour of the plane. A planned call carries the palette colour of its group. The hook records each call with the
+    // colour its material read back, so a record shows the colour that reached the draw.
     public struct OutlineDraw
     {
         public readonly int X;
         public readonly int Z;
+        public readonly int Side;
         public readonly OutlineColour Colour;
 
-        public OutlineDraw(int x, int z, OutlineColour colour)
+        public OutlineDraw(int x, int z, int side, OutlineColour colour)
         {
             X = x;
             Z = z;
+            Side = side;
             Colour = colour;
         }
     }
 
-    // The outline rule for one cell, with no game types, so a standalone check can compile and run it. A cell draws one plane on each side that
+    // The outline rule. It has no game types, so the hook, the harness, and the standalone check run the same code. A cell draws one plane on each side that
     // leads onto the map and does not lead onto another cell of the same state. A cell whose four sides all lead onto other cells draws no plane.
-    // Side numbers match Rot4: 0 is north, 1 east, 2 south, 3 west.
     public static class OutlineRule
     {
         // The two outline colours. The hook draws with these, and the drawn row expects these.
@@ -69,7 +71,7 @@ namespace ZLevelsRimatomics
         // Two colours are the same when every channel is within one step. The two palette colours differ by far more than one step.
         private const float ChannelTolerance = 1f / 255f;
 
-        // Returns one bit for each side that gets a plane. Bit 0 is north, bit 1 east, bit 2 south, and bit 3 west. Zero means no plane.
+        // The sides of one cell that draw a plane, as bits. Bit 0 is north, bit 1 east, bit 2 south, and bit 3 west. Zero means no plane.
         public static int OpenSides(int x, int z, Func<int, int, bool> onMap, Func<int, int, bool> listed)
         {
             int openSides = 0;
@@ -82,21 +84,25 @@ namespace ZLevelsRimatomics
             return openSides;
         }
 
-        // The cells of one state that draw at least one plane. The cells of that state form the list that each cell's sides are checked against.
-        public static List<OutlineCell> DrawnCells(IList<OutlineCell> cellsOfOneState, Func<int, int, bool> onMap)
+        // The plane calls for one state group, in cell order and then side order. Each open side of each cell gives one call, in the colour of the group.
+        // The hook calls this for its paired cells and for its unpaired cells. ExpectedCalls calls it for the scenario's cells. One rule decides both.
+        public static List<OutlineDraw> PlaneCalls(IList<OutlineCell> group, OutlineColour colour, Func<int, int, bool> onMap)
         {
-            var drawn = new List<OutlineCell>();
-            foreach (OutlineCell cell in cellsOfOneState)
+            var calls = new List<OutlineDraw>();
+            foreach (OutlineCell cell in group)
             {
-                int openSides = OpenSides(cell.X, cell.Z, onMap, (x, z) => Listed(cellsOfOneState, x, z));
-                if (openSides != 0) drawn.Add(cell);
+                int openSides = OpenSides(cell.X, cell.Z, onMap, (x, z) => Contains(group, x, z));
+                for (int side = 0; side < 4; side++)
+                {
+                    if ((openSides & (1 << side)) != 0) calls.Add(new OutlineDraw(cell.X, cell.Z, side, colour));
+                }
             }
-            return drawn;
+            return calls;
         }
 
-        // The cells that the outline should draw for the placed cells. The hook draws each state on its own, so each state is checked on its own here.
-        // A cell listed more than once counts once, and its first entry sets its state.
-        public static List<OutlineCell> ExpectedCells(IList<OutlineCell> placed, Func<int, int, bool> onMap)
+        // The plane calls that the scenario expects. A cell listed twice counts once, and its first entry sets its state. Each state runs through
+        // PlaneCalls on its own, so a side that meets a cell of the other state still draws.
+        public static List<OutlineDraw> ExpectedCalls(IList<OutlineCell> placed, Func<int, int, bool> onMap)
         {
             var paired = new List<OutlineCell>();
             var unpaired = new List<OutlineCell>();
@@ -107,41 +113,35 @@ namespace ZLevelsRimatomics
                 if (cell.Paired) paired.Add(cell);
                 else unpaired.Add(cell);
             }
-            List<OutlineCell> expected = DrawnCells(paired, onMap);
-            expected.AddRange(DrawnCells(unpaired, onMap));
+            List<OutlineDraw> expected = PlaneCalls(paired, PairedColour, onMap);
+            expected.AddRange(PlaneCalls(unpaired, UnpairedColour, onMap));
             return expected;
         }
 
-        // The draws that the scenario expects: one for each expected cell, in the colour of its state.
-        public static List<OutlineDraw> ExpectedDraws(IList<OutlineCell> expected)
-        {
-            var draws = new List<OutlineDraw>();
-            foreach (OutlineCell cell in expected)
-            {
-                draws.Add(new OutlineDraw(cell.X, cell.Z, cell.Paired ? PairedColour : UnpairedColour));
-            }
-            return draws;
-        }
-
-        // The verdict for the drawn row. It passes only when the (cell, colour) pairs of the draw calls are the expected pairs, as sets, and at least one
-        // plane drew. A count cannot tell two different cells apart, and a call in the other colour is a different pair, so both are compared. The row
-        // prints the distinct pairs that were drawn and the distinct pairs that were expected, each counted from its own list.
-        public static string DrawnRowVerdict(IList<OutlineCell> expected, IList<OutlineDraw> drawn, int planes)
+        // The verdict for the drawn row. It passes only when the drawn planes equal the expected planes, counted by (cell, side, colour). Each expected
+        // plane must be drawn once. A plane drawn twice, or drawn without being expected, fails the row. A colour counts by palette, so a readback one
+        // 8-bit step away still matches. planesCounted is the hook's own count of draw calls, and it must equal the number of records.
+        public static string DrawnRowVerdict(IList<OutlineDraw> expected, IList<OutlineDraw> drawn, int planesCounted)
         {
             if (expected.Count == 0) return "FAIL: no cooling column stands on the adjacent level, so the outline has nothing to match";
-            List<OutlineDraw> expectedDraws = ExpectedDraws(expected);
-            var expectedPairs = new HashSet<PairKey>();
-            foreach (OutlineDraw draw in expectedDraws) expectedPairs.Add(new PairKey(draw));
-            var drawnPairs = new HashSet<PairKey>();
-            foreach (OutlineDraw draw in drawn) drawnPairs.Add(new PairKey(draw));
-            List<OutlineDraw> missing = NotIn(expectedDraws, drawnPairs);
-            List<OutlineDraw> extra = NotIn(drawn, expectedPairs);
-            if (missing.Count > 0 || extra.Count > 0)
+            if (planesCounted != drawn.Count) return "FAIL: the hook counted " + planesCounted + " draw calls but recorded " + drawn.Count;
+            Dictionary<PlaneKey, int> expectedCounts = CountsOf(expected);
+            Dictionary<PlaneKey, int> drawnCounts = CountsOf(drawn);
+            var unexpected = new List<OutlineDraw>();
+            var repeated = new List<OutlineDraw>();
+            foreach (OutlineDraw extra in Beyond(drawn, expectedCounts))
             {
-                return "FAIL: the drawn cells are not the expected cells, drawn but not expected " + Describe(extra) + ", expected but not drawn " + Describe(missing);
+                if (CountIn(expectedCounts, new PlaneKey(extra)) == 0) unexpected.Add(extra);
+                else repeated.Add(extra);
             }
-            if (planes <= 0) return "FAIL: the expected cells drew no planes";
-            return "PASS: " + drawnPairs.Count + " cells of " + expectedPairs.Count + " expected, " + planes + " planes, " + PairedCount(drawn) + " paired";
+            List<OutlineDraw> missing = Beyond(expected, drawnCounts);
+            if (unexpected.Count > 0 || repeated.Count > 0 || missing.Count > 0)
+            {
+                return "FAIL: the drawn planes are not the expected planes, drawn but not expected " + Describe(unexpected) + ", drawn more than once "
+                    + Describe(repeated) + ", expected but not drawn " + Describe(missing);
+            }
+            return "PASS: " + drawn.Count + " planes match the " + expected.Count + " expected, " + CellCount(drawn, false) + " cells, "
+                + CellCount(drawn, true) + " paired";
         }
 
         // True when two colours match on every channel, to within one step of ChannelTolerance.
@@ -165,11 +165,6 @@ namespace ZLevelsRimatomics
             return (int)Math.Round(channel * 255f);
         }
 
-        private static bool Listed(IList<OutlineCell> cells, int x, int z)
-        {
-            return Contains(cells, x, z);
-        }
-
         private static bool Contains(IList<OutlineCell> cells, int x, int z)
         {
             foreach (OutlineCell cell in cells)
@@ -179,29 +174,49 @@ namespace ZLevelsRimatomics
             return false;
         }
 
-        // The draws whose (cell, colour) pair is not in pairs. Each distinct pair is listed once, even when draws lists it more than once.
-        private static List<OutlineDraw> NotIn(IList<OutlineDraw> draws, HashSet<PairKey> pairs)
+        // The number of times each (cell, side, colour) appears in a list.
+        private static Dictionary<PlaneKey, int> CountsOf(IList<OutlineDraw> draws)
         {
-            var result = new List<OutlineDraw>();
-            var listed = new HashSet<PairKey>();
+            var counts = new Dictionary<PlaneKey, int>();
             foreach (OutlineDraw draw in draws)
             {
-                var key = new PairKey(draw);
-                if (!pairs.Contains(key) && listed.Add(key)) result.Add(draw);
+                PlaneKey key = new PlaneKey(draw);
+                counts[key] = CountIn(counts, key) + 1;
+            }
+            return counts;
+        }
+
+        private static int CountIn(Dictionary<PlaneKey, int> counts, PlaneKey key)
+        {
+            int count;
+            return counts.TryGetValue(key, out count) ? count : 0;
+        }
+
+        // The draws in the list that go beyond the count that the other counts hold for the same (cell, side, colour). They keep the list's order.
+        private static List<OutlineDraw> Beyond(IList<OutlineDraw> draws, Dictionary<PlaneKey, int> otherCounts)
+        {
+            var result = new List<OutlineDraw>();
+            var seen = new Dictionary<PlaneKey, int>();
+            foreach (OutlineDraw draw in draws)
+            {
+                PlaneKey key = new PlaneKey(draw);
+                int before = CountIn(seen, key);
+                seen[key] = before + 1;
+                if (before >= CountIn(otherCounts, key)) result.Add(draw);
             }
             return result;
         }
 
-        // The number of distinct drawn pairs whose colour is the paired colour.
-        private static int PairedCount(IList<OutlineDraw> draws)
+        // The number of distinct cells among the draws. With pairedOnly set, it counts only the cells that are drawn in the paired colour.
+        private static int CellCount(IList<OutlineDraw> draws, bool pairedOnly)
         {
-            var seen = new HashSet<PairKey>();
-            int paired = 0;
+            var cells = new HashSet<long>();
             foreach (OutlineDraw draw in draws)
             {
-                if (seen.Add(new PairKey(draw)) && SameColour(draw.Colour, PairedColour)) paired++;
+                if (pairedOnly && PaletteOf(draw.Colour) != 1) continue;
+                cells.Add(CellKey(draw.X, draw.Z));
             }
-            return paired;
+            return cells.Count;
         }
 
         // One key for each cell. The low 32 bits hold z, and the high 32 bits hold x.
@@ -210,20 +225,22 @@ namespace ZLevelsRimatomics
             return ((long)x << 32) | (uint)z;
         }
 
-        // One key for each (cell, colour) pair. A colour in a palette is keyed by its palette, so readback error cannot split it in two. A colour in
-        // neither palette is keyed by its channels, so two such colours are the same pair only when their channels round alike.
-        private struct PairKey : IEquatable<PairKey>
+        // One key for each (cell, side, colour). A colour in a palette is keyed by its palette, so readback error cannot split it. A colour in neither
+        // palette is keyed by its rounded channels.
+        private struct PlaneKey : IEquatable<PlaneKey>
         {
             private readonly long cell;
+            private readonly int side;
             private readonly int palette;
             private readonly int red;
             private readonly int green;
             private readonly int blue;
             private readonly int alpha;
 
-            public PairKey(OutlineDraw draw)
+            public PlaneKey(OutlineDraw draw)
             {
                 cell = CellKey(draw.X, draw.Z);
+                side = draw.Side;
                 palette = PaletteOf(draw.Colour);
                 if (palette != 0)
                 {
@@ -239,15 +256,15 @@ namespace ZLevelsRimatomics
                 alpha = Step(draw.Colour.A);
             }
 
-            public bool Equals(PairKey other)
+            public bool Equals(PlaneKey other)
             {
-                return cell == other.cell && palette == other.palette && red == other.red && green == other.green && blue == other.blue
-                    && alpha == other.alpha;
+                return cell == other.cell && side == other.side && palette == other.palette && red == other.red && green == other.green
+                    && blue == other.blue && alpha == other.alpha;
             }
 
             public override bool Equals(object obj)
             {
-                return obj is PairKey && Equals((PairKey)obj);
+                return obj is PlaneKey && Equals((PlaneKey)obj);
             }
 
             public override int GetHashCode()
@@ -255,6 +272,7 @@ namespace ZLevelsRimatomics
                 unchecked
                 {
                     int hash = cell.GetHashCode();
+                    hash = hash * 31 + side;
                     hash = hash * 31 + palette;
                     hash = hash * 31 + red;
                     hash = hash * 31 + green;
@@ -268,8 +286,24 @@ namespace ZLevelsRimatomics
         {
             if (draws.Count == 0) return "none";
             var parts = new List<string>();
-            foreach (OutlineDraw draw in draws) parts.Add("(" + draw.X + "," + draw.Z + " " + ColourName(draw.Colour) + ")");
+            foreach (OutlineDraw draw in draws)
+            {
+                parts.Add("(" + draw.X + "," + draw.Z + " " + SideName(draw.Side) + " " + ColourName(draw.Colour) + ")");
+            }
             return string.Join(" ", parts);
+        }
+
+        // The name of a side, as the Rot4 number gives it.
+        private static string SideName(int side)
+        {
+            switch (side)
+            {
+                case 0: return "north";
+                case 1: return "east";
+                case 2: return "south";
+                case 3: return "west";
+                default: return "side " + side;
+            }
         }
 
         // The palette name of a colour, or its channels when it is neither palette colour.
