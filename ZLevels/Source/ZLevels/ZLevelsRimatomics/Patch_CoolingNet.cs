@@ -8,14 +8,17 @@ using ZLevels;
 namespace ZLevelsRimatomics
 {
     // Joins the cooling loops to the Rimatomics nets. Before each CoolingNet.Tick, the net takes the coolers and turbines of every net in the loops of its
-    // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. When the merge throws, or a column's
-    // loop is unknown, the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once. The
-    // original Tick then runs.
+    // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. A column outside its own loop forms no
+    // loop, so only that loop stays out, and the other loops still join. When the merge throws, the net takes its own coolers and turbines, so nothing
+    // joined stays in the ratio. Each distinct failure is logged once per game. The original Tick then runs, even when a call on the failure path throws.
     [HarmonyPatch]
     public static class Patch_CoolingNet
     {
-        // The failures already logged, by key. A failure logs once. A different failure has a different key, so it logs too.
+        // The failures already logged, by key. A key names the net, the exception type, and the top frame, so a second site logs too.
         private static readonly HashSet<string> loggedFailures = new HashSet<string>();
+
+        // The game that the set belongs to. A new game object clears the set, so each game logs its own first failures again.
+        private static Verse.Game loggedGame;
 
         static MethodBase TargetMethod()
         {
@@ -24,19 +27,21 @@ namespace ZLevelsRimatomics
 
         static void Prefix(Rimatomics.CoolingNet __instance)
         {
+            ForgetFailuresOfEarlierGames();
             try
             {
                 Merge(__instance);
             }
             catch (Exception exception)
             {
-                // The net's own lists come first, so the joined things leave the ratio before anything else runs.
-                UseOwnThings(__instance);
-                string key = exception.GetType().FullName + ": " + exception.Message;
+                // The net's own lists come first, so the joined things leave the ratio before anything else runs. Each call below has its own try.
+                bool ownThings = RunStep("own things", () => UseOwnThings(__instance));
+                string net = StepValue("describe the net", () => DescribeNet(__instance), "a net that could not be described");
+                string key = net + "|" + exception.GetType().FullName + "|" + TopFrame(exception);
                 if (loggedFailures.Add(key))
                 {
-                    Log.Error("Z-Levels cooling loop merge failed on the net of " + DescribeNet(__instance)
-                        + ", so the net uses its own coolers and turbines: " + exception);
+                    Log.Error("Z-Levels cooling loop merge failed on the net of " + net
+                        + (ownThings ? ", so the net uses its own coolers and turbines: " : ": ") + exception);
                 }
             }
         }
@@ -56,10 +61,9 @@ namespace ZLevelsRimatomics
                 List<CompCoolingColumn> loop = CoolingLoopRegistry.LoopOf(start, usable, tracker);
                 if (!loop.Contains(start))
                 {
-                    // A column with no loop cannot say what joins, so the net uses its own things for this tick.
+                    // An unusable column forms no loop. Only its own loop stays out, and the loops of the other columns still join.
                     LogUnknownLoopOnce(start);
-                    UseOwnThings(net);
-                    return;
+                    continue;
                 }
                 foreach (CompCoolingColumn member in loop)
                 {
@@ -123,6 +127,59 @@ namespace ZLevelsRimatomics
                 }
             }
             return first == null ? "a net with no things" : first.def.defName + " at " + first.Position;
+        }
+
+        // Runs one call from the failure path. A throw logs once, and the call returns false, so the prefix carries on and the original Tick runs.
+        private static bool RunStep(string step, Action call)
+        {
+            try
+            {
+                call();
+                return true;
+            }
+            catch (Exception failure)
+            {
+                LogStepFailureOnce(step, failure);
+                return false;
+            }
+        }
+
+        // Runs one call from the failure path and returns its value. A throw logs once, and the fallback is returned instead.
+        private static string StepValue(string step, Func<string> call, string fallback)
+        {
+            try
+            {
+                return call();
+            }
+            catch (Exception failure)
+            {
+                LogStepFailureOnce(step, failure);
+                return fallback;
+            }
+        }
+
+        private static void LogStepFailureOnce(string step, Exception failure)
+        {
+            if (!loggedFailures.Add("step " + step + "|" + failure.GetType().FullName + "|" + TopFrame(failure))) return;
+            Log.Error("Z-Levels cooling step " + step + " failed, so the original Tick runs with the lists it has: " + failure);
+        }
+
+        // The method and line where the exception was thrown. Two throws from two sites give two keys.
+        private static string TopFrame(Exception exception)
+        {
+            System.Diagnostics.StackFrame frame = new System.Diagnostics.StackTrace(exception, true).GetFrame(0);
+            if (frame == null) return "no frame";
+            MethodBase method = frame.GetMethod();
+            string name = method == null ? "unknown method" : method.DeclaringType + "." + method.Name;
+            return name + " line " + frame.GetFileLineNumber();
+        }
+
+        // A new game object clears the set, so each game logs its own first failures again. The comparison runs on each prefix call.
+        private static void ForgetFailuresOfEarlierGames()
+        {
+            if (ReferenceEquals(loggedGame, Current.Game)) return;
+            loggedGame = Current.Game;
+            loggedFailures.Clear();
         }
 
         private static void LogUnknownLoopOnce(CompCoolingColumn start)
