@@ -11,15 +11,21 @@ namespace ZLevelsRimatomics
     // Joins the cooling loops to the Rimatomics nets. Before each CoolingNet.Tick, the net takes the coolers and turbines of every net in the loops of its
     // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. A column outside its own loop forms no
     // loop, so only that loop stays out, and the other loops still join. A member whose pipe field is empty is skipped and logged. When the merge throws,
-    // the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once per game. Each read and call on
-    // the failure path that can run game or exception code is guarded, and a throw there logs its exception type. The fallback names come from IdentityOf,
-    // which runs no game code. No exception leaves the prefix, and the original Tick then runs.
+    // the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once per game, up to 64 distinct
+    // failures in a game. Each read and call on the failure path that can run game or exception code is guarded, and a throw there logs its exception
+    // type. A column whose name cannot be read is named by its cell and map. No exception leaves the prefix, and the original Tick then runs.
     [HarmonyPatch]
     public static class Patch_CoolingNet
     {
         // The lines already logged, by key. A key names the map and cell of the net or column, the exception type, the message, and the top frame's
-        // method and IL offset. A different key logs again.
+        // method and IL offset. A different key logs again, up to MaxFailureKeys keys in a game.
         private static readonly HashSet<string> loggedFailures = new HashSet<string>();
+
+        // The most distinct keys one game logs. The first key past the cap writes one line that says so, and then nothing else is written in the game.
+        private const int MaxFailureKeys = 64;
+
+        // Set once the cap line is written in this game.
+        private static bool capReported;
 
         // The game that the set belongs to. The reference is weak, so a game that is over can be collected while the main menu is open. A different
         // game clears the set.
@@ -245,26 +251,57 @@ namespace ZLevelsRimatomics
             string frame = Helper("top frame", () => TopFrame(exception), "frame unavailable");
             LogOnce(where + "|" + DescribeException(exception) + "|" + frame,
                 () => "Z-Levels cooling loop merge failed on the net of " + described
-                    + (ownThings ? ", so the net uses its own coolers and turbines: " : ": ") + ExceptionText(exception), false);
+                    + (ownThings ? ", so the net uses its own coolers and turbines: "
+                        : ", and the net keeps its last lists, which may still hold joined coolers: ") + ExceptionText(exception), false);
         }
 
-        // Logs one line for a key, once per game. The key is marked only after the logger returns. A line that cannot be built or logged leaves the key
-        // unmarked, so the next tick tries it again. Nothing else reaches the game log, so the caller carries on and the original Tick runs.
+        // Logs one line for a key, once per game. A line that cannot be built writes nothing, and the key stays unmarked, so the next tick builds it again.
+        // The key is marked before the Verse call, so a logger that fails is never asked for the same line twice.
         private static void LogOnce(string key, Func<string> line, bool warning)
         {
+            if (loggedFailures.Contains(key)) return;
+            string text;
             try
             {
-                if (loggedFailures.Contains(key)) return;
-                string text = line();
-                if (warning) Log.Warning(text);
-                else Log.Error(text);
-                loggedFailures.Add(key);
+                text = line();
             }
             catch (Exception)
             {
-                // The line or the logger threw, so the key stays unmarked and the next tick builds and logs the line again.
-                // Nothing else reaches the game log, so the caller carries on and the original Tick runs.
+                // The line could not be built, so nothing is written and the key stays unmarked. The next tick builds the line again.
                 return;
+            }
+            if (loggedFailures.Count >= MaxFailureKeys)
+            {
+                if (capReported) return;
+                capReported = true;
+                Write("Z-Levels cooling has logged " + MaxFailureKeys + " distinct failures in this game. Further distinct failures are not logged in this game.",
+                    true);
+                return;
+            }
+            loggedFailures.Add(key);
+            Write(text, warning);
+        }
+
+        // Writes one line through the Verse logger. The key is already marked, so a throw from the logger is never retried. If the Verse call throws,
+        // the text goes out once through UnityEngine.Debug.LogError with the exception type. If that call throws too, nothing is written.
+        private static void Write(string text, bool warning)
+        {
+            try
+            {
+                if (warning) Log.Warning(text);
+                else Log.Error(text);
+            }
+            catch (Exception loggerFailure)
+            {
+                try
+                {
+                    UnityEngine.Debug.LogError(text + " Logger threw " + TypeNameOf(loggerFailure) + ".");
+                }
+                catch (Exception)
+                {
+                    // Unity logging threw as well, so no channel is left. The key stays marked, so the line is not tried again.
+                    return;
+                }
             }
         }
 
@@ -334,12 +371,23 @@ namespace ZLevelsRimatomics
             if (loggedGame != null && loggedGame.TryGetTarget(out logged) && ReferenceEquals(logged, game)) return;
             loggedGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
             loggedFailures.Clear();
+            capReported = false;
+        }
+
+        // The name of a column for a line. When the name read fails, the cell and the map name the column instead, and each read is guarded.
+        private static string NameOrPlace(CompCoolingColumn column)
+        {
+            string name = Helper("column name", () => ColumnName(column), (string)null);
+            if (name != null) return name;
+            string cell = Helper("column cell", () => column.parent.Position.ToString(), "a cell that could not be read");
+            string map = Helper("column map", () => column.parent.Map.uniqueID.ToString(), "a map that could not be read");
+            return "at cell " + cell + " on map " + map;
         }
 
         // An unusable column forms no loop, so its loop is dropped. The other loops of its net still join.
         private static void LogUnknownLoopOnce(CompCoolingColumn start)
         {
-            string name = Helper("column name", () => ColumnName(start), "(name unavailable)");
+            string name = NameOrPlace(start);
             string key = Helper("column key", () => ColumnKey(start), "column " + IdentityOf(start));
             LogOnce("unknown loop|" + key,
                 () => "Z-Levels cooling column " + name + " is not usable, so its loop is dropped. The other loops of its net still join."
@@ -350,7 +398,7 @@ namespace ZLevelsRimatomics
         // placed. Joins start after the next pipe grid rebuild.
         private static void LogNoNetOnce(CompCoolingColumn column)
         {
-            string name = Helper("column name", () => ColumnName(column), "(name unavailable)");
+            string name = NameOrPlace(column);
             string key = Helper("column key", () => ColumnKey(column), "column " + IdentityOf(column));
             LogOnce("no net|" + key,
                 () => "Z-Levels cooling column " + name + " has no pipe net in its field yet. This is the normal case while a column is placed."
