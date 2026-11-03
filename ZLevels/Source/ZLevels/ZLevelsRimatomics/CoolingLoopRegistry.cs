@@ -88,11 +88,38 @@ namespace ZLevelsRimatomics
         // b sits on the level directly below or above a, on the same cell as a (ADR-0005). ConnectedPowerNets keeps its wider rule for power.
         // Both directions must hold, so Paired(a, b) and Paired(b, a) always agree. It returns false unless both columns are registered.
         // It throws when both are registered but the game has no ZLevelsManager, because a live game always has one.
-        public static bool Paired(CompCoolingColumn a, CompCoolingColumn b)
+        // The usable columns of this moment, as a set. A query that tests many pairs reads the set once and passes it to the overloads below, so the grid
+        // check runs once per entry and not once per pair. A set read before a change is stale, so each query reads its own.
+        public static HashSet<CompCoolingColumn> UsableColumns()
         {
-            if (!IsRegistered(a) || !IsRegistered(b)) return false;
+            var usable = new HashSet<CompCoolingColumn>();
+            foreach (Entry entry in entries)
+            {
+                if (Usable(entry)) usable.Add(entry.Column);
+            }
+            return usable;
+        }
+
+        // The ZLevelsManager of the current game. It throws when there is none, because a live game always has one.
+        public static ZLevelsManager TrackerOf()
+        {
             ZLevelsManager tracker = Current.Game?.GetComponent<ZLevelsManager>();
             if (tracker == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
+            return tracker;
+        }
+
+        // Paired(a, b) for this moment. It reads the usable set and the tracker itself.
+        public static bool Paired(CompCoolingColumn a, CompCoolingColumn b)
+        {
+            HashSet<CompCoolingColumn> usable = UsableColumns();
+            if (!usable.Contains(a) || !usable.Contains(b)) return false;
+            return Paired(a, b, usable, TrackerOf());
+        }
+
+        // Paired(a, b) with the usable set and the tracker passed in, so one tick does not repeat the grid check or the tracker lookup for each pair.
+        public static bool Paired(CompCoolingColumn a, CompCoolingColumn b, HashSet<CompCoolingColumn> usable, ZLevelsManager tracker)
+        {
+            if (!usable.Contains(a) || !usable.Contains(b)) return false;
             return SitsOnSameCellOfAdjacentLevel(tracker, a, b) && SitsOnSameCellOfAdjacentLevel(tracker, b, a);
         }
 
@@ -100,15 +127,23 @@ namespace ZLevelsRimatomics
         // when start is registered. An unregistered start returns an empty list, so a caller that reads the loop must check that start is in it.
         public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start)
         {
+            HashSet<CompCoolingColumn> usable = UsableColumns();
+            if (!usable.Contains(start)) return new List<CompCoolingColumn>();
+            return LoopOf(start, usable, TrackerOf());
+        }
+
+        // LoopOf with the usable set and the tracker passed in (see Paired). The group includes start when start is in the usable set.
+        public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start, HashSet<CompCoolingColumn> usable, ZLevelsManager tracker)
+        {
             var loop = new List<CompCoolingColumn>();
-            if (!IsRegistered(start)) return loop;
+            if (!usable.Contains(start)) return loop;
             loop.Add(start);
             for (int i = 0; i < loop.Count; i++)
             {
                 CompCoolingColumn current = loop[i];
                 foreach (Entry entry in entries)
                 {
-                    if (!loop.Contains(entry.Column) && Paired(current, entry.Column)) loop.Add(entry.Column);
+                    if (!loop.Contains(entry.Column) && Paired(current, entry.Column, usable, tracker)) loop.Add(entry.Column);
                 }
             }
             return loop;

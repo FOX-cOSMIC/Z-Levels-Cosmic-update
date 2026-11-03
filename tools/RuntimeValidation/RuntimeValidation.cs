@@ -108,9 +108,10 @@ namespace ZLevelsValidation
         private float wealthTotalBefore;
         private float wealthStorytellerBefore;
 
-        // State for the cross-level cooling checks. It is not saved.
-        private readonly Dictionary<string, string> coolingResults = new Dictionary<string, string>();
-        private bool coolingChecksRecorded;
+        // State for the cross-level cooling checks. It is not saved. A save and reload makes a new RuntimeValidation, and the link sequence continues in
+        // that instance, so the fields it reads across the reload are static. They last for the process, which runs one scenario.
+        private static readonly Dictionary<string, string> coolingResults = new Dictionary<string, string>();
+        private static bool coolingChecksRecorded;
         private DateTime? coolingShotDue;
         private bool coolingShotTaken;
         // A core screenshot row is written once its file has had three seconds to appear, the same wait the cooling row uses.
@@ -118,9 +119,9 @@ namespace ZLevelsValidation
         private string pendingShotName;
         private DateTime pendingShotDue;
         // Set when the screenshot row fails, so the cooling link row cannot read PASS beside it.
-        private bool coolingScreenshotFailed;
+        private static bool coolingScreenshotFailed;
         // Set when the partner outline row fails, so the cooling link row cannot read PASS beside it.
-        private bool partnerDrawnFailed;
+        private static bool partnerDrawnFailed;
         // State for the partner highlight rows and look. It is not saved. partnerLookStage is 0 when the look is not running.
         private IntVec3 partnerCell = IntVec3.Invalid;
         private ThingDef partnerColumn;
@@ -2253,6 +2254,7 @@ namespace ZLevelsValidation
                 }
                 // The partner look follows the cooling column look. It holds the link row until its two screenshots are checked.
                 if (partnerLookStage != 0 && !AdvancePartnerLook()) return;
+                if (!AdvanceLinkStages()) return;
                 RecordCoolingLink();
             }
             catch (Exception exception)
@@ -2353,9 +2355,7 @@ namespace ZLevelsValidation
             RecordCooling("cooling column holds roof", column != null ? CoolingColumnRoofResult(column) : "FAIL: column missing");
             RecordCoolingPairing(column);
             RecordPartnerHighlight(column);
-            RecordCooling("lower turbine shares the surface tower's loop", "FAIL: loop merge into the Rimatomics nets is not built yet");
-            RecordCooling("cooling link breaks when a column is removed", "FAIL: loop split on column removal is not built yet");
-            RecordCooling("cooling link survives reload", "FAIL: loop check after reload is not built yet");
+            // The three link rows are written by AdvanceLinkStages, after the link scene is built and the game is settled, so they are not stubbed here.
             // The reactor labels. Task 6 replaces these rows with the reactor checks.
             RecordCooling("reactor runs on the lower level", "FAIL: not built yet");
             RecordCooling("loop ratio at or below 1", "FAIL: not built yet");
@@ -2387,6 +2387,7 @@ namespace ZLevelsValidation
                 if (manager == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
                 lower = CreateLevelBelow(manager, surface);
                 IntVec3 cell = surface.Center + new IntVec3(-12, 0, 0);
+                coolingPairCell = cell;
                 IntVec3 farCell = cell + new IntVec3(3, 0, 0);
                 if (!cell.InBounds(surface) || !cell.InBounds(lower) || !farCell.InBounds(surface) || !(cell + new IntVec3(0, 0, 1)).InBounds(surface))
                 {
@@ -2656,7 +2657,8 @@ namespace ZLevelsValidation
                 problem = "type ZLevelsRimatomics.CoolingLoopRegistry is not resolved";
                 return null;
             }
-            MethodInfo loopOf = registry.GetMethod("LoopOf", BindingFlags.Public | BindingFlags.Static);
+            // LoopOf has two overloads, so the lookup names the one-column signature.
+            MethodInfo loopOf = registry.GetMethod("LoopOf", new[] { typeof(ZLevelsRimatomics.CompCoolingColumn) });
             problem = loopOf == null ? "CoolingLoopRegistry.LoopOf is missing or not public static" : null;
             return loopOf;
         }
@@ -2940,6 +2942,302 @@ namespace ZLevelsValidation
             }
             var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
             Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
+        }
+
+        // The three link rows, and the sequence that writes them. A cooling tower stands on the surface and a Thor turbine on the lower level, each beside its
+        // column, so each joins the column's net. The sequence reads the lower turbine's net, saves and reloads, reads again, and then removes the surface
+        // column. A read is a membership check on the lower turbine's own net: the tower must be in its Coolers, and the turbine in its Turbines.
+        private static readonly string[] CoolingLinkLabels =
+        {
+            "lower turbine shares the surface tower's loop",
+            "cooling link survives reload",
+            "cooling link breaks when a column is removed",
+        };
+        // A footprint that holds any of these would lose it to SpawnBuilding's clearing, and each one changes the nets, so the scene refuses to start.
+        private static readonly string[] CoolingFootprintDefs = { "ZL_CoolingColumn", "coolingPipe", "coolingPipeHidden", "CoolingTower", "Turbine" };
+        private enum LinkStep { Scene, Settle, Shares, Save, AwaitLoad, SettleAfterLoad, ReloadCheck, Removal, SettleAfterRemoval, RemovalCheck, Done }
+        // The sequence's state. Static, because the reload continues the sequence in a new RuntimeValidation.
+        private static LinkStep linkStep = LinkStep.Scene;
+        private static DateTime linkDeadline;
+        private static int linkTickMark;
+        private static IntVec3 coolingPairCell = IntVec3.Invalid;
+        private static IntVec3 linkTowerCell = IntVec3.Invalid;
+        private static IntVec3 linkTurbineCell = IntVec3.Invalid;
+        private static bool linkSharedBeforeSave;
+        private static bool linkHeldBeforeRemoval;
+
+        // Advances the link sequence by one frame. Each step waits two game ticks where the nets have to settle: after the scene, after the load, and after
+        // the removal. It returns true once the sequence is over, so the link row can be written.
+        private bool AdvanceLinkStages()
+        {
+            if (CoolingNoColumns && linkStep != LinkStep.Done)
+            {
+                foreach (string label in CoolingLinkLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
+                linkStep = LinkStep.Done;
+            }
+            if (linkStep == LinkStep.Done) return true;
+            if (linkStep == LinkStep.Scene)
+            {
+                linkDeadline = DateTime.UtcNow.AddMinutes(6);
+                string problem = PlaceLinkScene();
+                if (problem != null)
+                {
+                    Record("cooling link scene", "FAIL: " + problem);
+                    foreach (string label in CoolingLinkLabels) RecordCooling(label, "FAIL: " + problem);
+                    linkStep = LinkStep.Done;
+                    return true;
+                }
+                linkTickMark = Find.TickManager.TicksGame;
+                linkStep = LinkStep.Settle;
+                return false;
+            }
+            if (DateTime.UtcNow > linkDeadline) throw new TimeoutException("the cooling link stage " + linkStep + " did not finish in time");
+            int ticks = Find.TickManager.TicksGame;
+            switch (linkStep)
+            {
+                case LinkStep.Settle:
+                    if (ticks < linkTickMark + 2) return false;
+                    RecordLinkScene();
+                    linkStep = LinkStep.Shares;
+                    return false;
+                case LinkStep.Shares:
+                    linkSharedBeforeSave = RecordSharesRow();
+                    linkStep = LinkStep.Save;
+                    return false;
+                case LinkStep.Save:
+                    GameDataSaveLoader.SaveGame("ZLevelsValidation");
+                    LongEventHandler.ExecuteWhenFinished(() => GameDataSaveLoader.LoadGame("ZLevelsValidation"));
+                    linkStep = LinkStep.AwaitLoad;
+                    return false;
+                case LinkStep.AwaitLoad:
+                    // Only the instance that the load creates has reloaded set. The instance that saved waits here until the load replaces it.
+                    if (!reloaded) return false;
+                    Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+                    linkTickMark = Find.TickManager.TicksGame;
+                    linkStep = LinkStep.SettleAfterLoad;
+                    return false;
+                case LinkStep.SettleAfterLoad:
+                    if (ticks < linkTickMark + 2) return false;
+                    linkStep = LinkStep.ReloadCheck;
+                    return false;
+                case LinkStep.ReloadCheck:
+                    RecordReloadRow();
+                    linkStep = LinkStep.Removal;
+                    return false;
+                case LinkStep.Removal:
+                    RemoveSurfaceColumn();
+                    linkTickMark = Find.TickManager.TicksGame;
+                    linkStep = LinkStep.SettleAfterRemoval;
+                    return false;
+                case LinkStep.SettleAfterRemoval:
+                    if (ticks < linkTickMark + 2) return false;
+                    linkStep = LinkStep.RemovalCheck;
+                    return false;
+                case LinkStep.RemovalCheck:
+                    RecordRemovalRow();
+                    linkStep = LinkStep.Done;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        // Places the link scene. It returns null when both buildings are placed, and the reason when they are not. Each footprint is set from the game's own
+        // OccupiedRect, so the anchor is right whatever the rotation convention is. The footprints are checked before anything spawns, because SpawnBuilding
+        // clears its footprint and would destroy a cooling thing in it.
+        private string PlaceLinkScene()
+        {
+            ThingDef towerDef = DefDatabase<ThingDef>.GetNamedSilentFail("CoolingTower");
+            ThingDef turbineDef = DefDatabase<ThingDef>.GetNamedSilentFail("Turbine");
+            if (towerDef == null || turbineDef == null) return "the CoolingTower or Turbine def is not loaded";
+            if (surface == null || lower == null) return "the surface or lower level is missing";
+            if (coolingPairCell == IntVec3.Invalid) return "the pairing check did not record the column cell";
+            if (FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn") == null || FindBuilding(lower, coolingPairCell, "ZL_CoolingColumn") == null)
+            {
+                return "a cooling column is missing on the pairing cell";
+            }
+            IntVec3 c = coolingPairCell;
+            // The tower covers the cell west of the surface column, so its pipe touches it. The turbine covers the cell south of the lower column.
+            CellRect towerRect = CellRect.FromLimits(c.x - 8, c.z - 5, c.x - 1, c.z + 2);
+            CellRect turbineRect = CellRect.FromLimits(c.x - 2, c.z - 7, c.x + 1, c.z - 1);
+            if (!RectInside(surface, towerRect) || !RectInside(lower, turbineRect)) return "the link scene is off the map";
+            string clash = FirstCoolingThingIn(surface, towerRect) ?? FirstCoolingThingIn(lower, turbineRect);
+            if (clash != null) return "the link scene would overlap " + clash;
+            IntVec3 towerAnchor = AnchorFor(towerDef.size, towerRect, out bool towerFits);
+            IntVec3 turbineAnchor = AnchorFor(turbineDef.size, turbineRect, out bool turbineFits);
+            if (!towerFits || !turbineFits) return "the game's footprint does not match the link scene";
+            SpawnBuilding(towerDef, surface, towerAnchor);
+            SpawnBuilding(turbineDef, lower, turbineAnchor);
+            linkTowerCell = towerAnchor;
+            linkTurbineCell = turbineAnchor;
+            surface.MapUpdate();
+            lower.MapUpdate();
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+            return null;
+        }
+
+        // Writes the scene row once the nets have formed. The tower must share a net with the surface column, and the turbine with the lower column,
+        // or the three link rows would test nothing.
+        private void RecordLinkScene()
+        {
+            Thing tower = FindBuilding(surface, linkTowerCell, "CoolingTower");
+            Thing turbine = FindBuilding(lower, linkTurbineCell, "Turbine");
+            Thing surfaceColumn = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
+            Thing lowerColumn = FindBuilding(lower, coolingPairCell, "ZL_CoolingColumn");
+            if (tower == null || turbine == null || surfaceColumn == null || lowerColumn == null)
+            {
+                Record("cooling link scene", "FAIL: a link building is missing after the settle");
+                return;
+            }
+            object towerNet = CoolingNetOf(tower);
+            object turbineNet = CoolingNetOf(turbine);
+            bool towerJoined = towerNet != null && ReferenceEquals(towerNet, ColumnNet(surfaceColumn));
+            bool turbineJoined = turbineNet != null && ReferenceEquals(turbineNet, ColumnNet(lowerColumn));
+            string verdict = towerJoined && turbineJoined
+                ? "PASS"
+                : "FAIL: the tower joined its column's net " + towerJoined + ", the turbine joined its column's net " + turbineJoined;
+            Record("cooling link scene", verdict + "; tower covers " + RectText(tower.OccupiedRect()) + " on the surface; turbine covers "
+                + RectText(turbine.OccupiedRect()) + " on the lower level");
+        }
+
+        // The first membership read, before the save. It returns whether the lower turbine's net holds the tower in Coolers.
+        private bool RecordSharesRow()
+        {
+            ReadLink(out bool holdsTower, out _, out string detail);
+            RecordCooling("lower turbine shares the surface tower's loop",
+                holdsTower ? "PASS" : "FAIL: the lower turbine's cooling net does not hold the surface tower in Coolers");
+            Record("cooling link shares evidence", "before the save: " + detail);
+            return holdsTower;
+        }
+
+        // The read after the reload. It passes when the tower was in Coolers before the save and is in it after the load, so the membership holds across
+        // the reload.
+        private void RecordReloadRow()
+        {
+            ReadLink(out bool holdsTower, out _, out string detail);
+            bool passed = linkSharedBeforeSave && holdsTower;
+            RecordCooling("cooling link survives reload", passed
+                ? "PASS"
+                : "FAIL: the tower was " + (linkSharedBeforeSave ? "" : "not ") + "in Coolers before the save, and " + (holdsTower ? "is" : "is not") + " after the load");
+            Record("cooling link reload evidence", "before the save: holds the surface tower " + (linkSharedBeforeSave ? "yes" : "no")
+                + "; after the load and two ticks: " + detail);
+        }
+
+        // Reads the link, then removes the surface column on the lower column's cell. The read first is the start of the change, so a passing removal row shows
+        // the tower in Coolers before the removal and out of Coolers two ticks after it.
+        private void RemoveSurfaceColumn()
+        {
+            ReadLink(out bool holdsTower, out _, out _);
+            linkHeldBeforeRemoval = holdsTower;
+            Thing column = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
+            if (column == null) throw new InvalidOperationException("the surface column is missing before the removal");
+            column.Destroy(DestroyMode.Vanish);
+        }
+
+        // The last read. It passes when the tower was in Coolers before the removal, is out of Coolers two ticks after it, and the lower turbine still holds its
+        // own turbine in Turbines.
+        private void RecordRemovalRow()
+        {
+            ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail);
+            string verdict;
+            if (!linkHeldBeforeRemoval) verdict = "FAIL: the tower was not in the lower turbine's Coolers before the removal, so no link broke";
+            else if (holdsTower) verdict = "FAIL: the tower is still in the lower turbine's Coolers two ticks after the removal";
+            else if (!holdsTurbine) verdict = "FAIL: the lower turbine left its own Turbines after the removal";
+            else verdict = "PASS";
+            RecordCooling("cooling link breaks when a column is removed", verdict);
+            Record("cooling link removal evidence", "before the removal: holds the surface tower " + (linkHeldBeforeRemoval ? "yes" : "no")
+                + "; the surface column at " + coolingPairCell + " was removed; two ticks after: " + detail);
+        }
+
+        // Reads the lower turbine's net and reports whether it holds the tower in Coolers and the turbine in Turbines. Each building is found by its cell, so a
+        // read after a reload finds the new objects.
+        private void ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail)
+        {
+            Thing tower = FindBuilding(surface, linkTowerCell, "CoolingTower");
+            Thing turbine = FindBuilding(lower, linkTurbineCell, "Turbine");
+            if (tower == null || turbine == null)
+            {
+                holdsTower = false;
+                holdsTurbine = false;
+                detail = "the tower or the lower turbine is missing from its cell";
+                return;
+            }
+            List<object> coolers = NetList(turbine, "Coolers");
+            List<object> turbines = NetList(turbine, "Turbines");
+            holdsTower = coolers.Any(cooler => ReferenceEquals(cooler, tower));
+            holdsTurbine = turbines.Any(listed => ReferenceEquals(listed, turbine));
+            detail = "Coolers " + coolers.Count + " (holds the surface tower: " + (holdsTower ? "yes" : "no") + "); Turbines " + turbines.Count
+                + " (holds the lower turbine: " + (holdsTurbine ? "yes" : "no") + ")";
+        }
+
+        // The building of this def on the cell, or null. A loaded save makes new objects, so each read finds its building again by its cell.
+        private static Thing FindBuilding(Map map, IntVec3 cell, string defName)
+        {
+            if (map == null || cell == IntVec3.Invalid) return null;
+            foreach (Thing thing in map.thingGrid.ThingsAt(cell))
+            {
+                if (thing.Spawned && thing.def.defName == defName) return thing;
+            }
+            return null;
+        }
+
+        // The cooling pipe net of a machine, read by name: its Cooling pipe's pipeNetRef. Null when the pipe has no net.
+        private static object CoolingNetOf(Thing machine)
+        {
+            object pipe = ReadField(machine, "Cooling");
+            return pipe == null ? null : ReadField(pipe, "pipeNetRef");
+        }
+
+        // The pipe net of a cooling column, read by name through its CompCoolingColumn's pipe.
+        private static object ColumnNet(Thing column)
+        {
+            var comp = ((ThingWithComps)column).GetComp<ZLevelsRimatomics.CompCoolingColumn>();
+            if (comp == null) throw new InvalidOperationException(column.def.defName + " has no CompCoolingColumn");
+            object pipe = ReadField(comp, "pipe");
+            return pipe == null ? null : ReadField(pipe, "pipeNetRef");
+        }
+
+        // One of a machine's net lists, Coolers or Turbines, read by name.
+        private static List<object> NetList(Thing machine, string listName)
+        {
+            object net = CoolingNetOf(machine);
+            if (net == null) throw new InvalidOperationException(machine.def.defName + " has no cooling net");
+            var items = new List<object>();
+            foreach (object item in (System.Collections.IEnumerable)ReadField(net, listName)) items.Add(item);
+            return items;
+        }
+
+        // The position whose footprint of this size is the rect. The offset is the game's own footprint at the origin, so no rotation rule is copied here.
+        private static IntVec3 AnchorFor(IntVec2 size, CellRect rect, out bool fits)
+        {
+            CellRect offset = GenAdj.OccupiedRect(IntVec3.Zero, Rot4.North, size);
+            IntVec3 anchor = new IntVec3(rect.minX - offset.minX, 0, rect.minZ - offset.minZ);
+            CellRect footprint = GenAdj.OccupiedRect(anchor, Rot4.North, size);
+            fits = footprint.minX == rect.minX && footprint.maxX == rect.maxX && footprint.minZ == rect.minZ && footprint.maxZ == rect.maxZ;
+            return anchor;
+        }
+
+        // The first cooling thing that stands on the rect, named with its def and cell, or null when the rect holds none.
+        private static string FirstCoolingThingIn(Map map, CellRect rect)
+        {
+            foreach (IntVec3 cell in rect)
+            {
+                foreach (Thing thing in cell.GetThingList(map))
+                {
+                    if (Array.IndexOf(CoolingFootprintDefs, thing.def.defName) >= 0) return thing.def.defName + " at " + thing.Position;
+                }
+            }
+            return null;
+        }
+
+        private static bool RectInside(Map map, CellRect rect)
+        {
+            return new IntVec3(rect.minX, 0, rect.minZ).InBounds(map) && new IntVec3(rect.maxX, 0, rect.maxZ).InBounds(map);
+        }
+
+        private static string RectText(CellRect rect)
+        {
+            return "x " + rect.minX + " to " + rect.maxX + ", z " + rect.minZ + " to " + rect.maxZ;
         }
 
         // The bridge type is named as a string, so this code compiles without a compile-time reference to ZLevelsRimatomics.
