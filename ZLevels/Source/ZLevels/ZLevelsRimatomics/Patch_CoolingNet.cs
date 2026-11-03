@@ -11,8 +11,9 @@ namespace ZLevelsRimatomics
     // Joins the cooling loops to the Rimatomics nets. Before each CoolingNet.Tick, the net takes the coolers and turbines of every net in the loops of its
     // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. A column outside its own loop forms no
     // loop, so only that loop stays out, and the other loops still join. A member whose pipe field is empty is skipped and logged. When the merge throws,
-    // the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once per game. Every call on the
-    // failure path runs in a wrapper, so no exception leaves the prefix, and the original Tick then runs.
+    // the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once per game. Each read and call on
+    // the failure path that can run game or exception code is guarded, and a throw there logs its exception type. The fallback names come from IdentityOf,
+    // which runs no game code. No exception leaves the prefix, and the original Tick then runs.
     [HarmonyPatch]
     public static class Patch_CoolingNet
     {
@@ -228,9 +229,9 @@ namespace ZLevelsRimatomics
                 string described = Helper("describe the net", () => DescribeNet(net), "a net that could not be described");
                 string where = Helper("key of the net", () => NetKey(net), "net " + IdentityOf(net));
                 string frame = Helper("top frame", () => TopFrame(failure), "frame unavailable");
-                LogOnce("step " + name + "|" + where + "|" + failure.GetType().FullName + "|" + failure.Message + "|" + frame,
+                LogOnce("step " + name + "|" + where + "|" + DescribeException(failure) + "|" + frame,
                     () => "Z-Levels cooling step " + name + " failed for the net of " + described
-                        + ", so the original Tick runs with the lists it has: " + failure, false);
+                        + ", so the original Tick runs with the lists it has: " + ExceptionText(failure), false);
                 return false;
             }
         }
@@ -242,32 +243,77 @@ namespace ZLevelsRimatomics
             string described = Helper("describe the net", () => DescribeNet(net), "a net that could not be described");
             string where = Helper("key of the net", () => NetKey(net), "net " + IdentityOf(net));
             string frame = Helper("top frame", () => TopFrame(exception), "frame unavailable");
-            LogOnce(where + "|" + exception.GetType().FullName + "|" + exception.Message + "|" + frame,
+            LogOnce(where + "|" + DescribeException(exception) + "|" + frame,
                 () => "Z-Levels cooling loop merge failed on the net of " + described
-                    + (ownThings ? ", so the net uses its own coolers and turbines: " : ": ") + exception, false);
+                    + (ownThings ? ", so the net uses its own coolers and turbines: " : ": ") + ExceptionText(exception), false);
         }
 
-        // Logs one line for a key, once per game. The line is built inside the try, so a throw while building it or logging it cannot escape the prefix.
-        // If the logger itself throws, no other channel reaches the game log, so the caller carries on and the original Tick runs.
+        // Logs one line for a key, once per game. The key is marked only after the logger returns. A line that cannot be built or logged leaves the key
+        // unmarked, so the next tick tries it again. Nothing else reaches the game log, so the caller carries on and the original Tick runs.
         private static void LogOnce(string key, Func<string> line, bool warning)
         {
             try
             {
-                if (!loggedFailures.Add(key)) return;
+                if (loggedFailures.Contains(key)) return;
                 string text = line();
                 if (warning) Log.Warning(text);
                 else Log.Error(text);
+                loggedFailures.Add(key);
             }
             catch (Exception)
             {
-                // The logger threw. Nothing else reaches the game log, so the caller carries on.
+                // The line or the logger threw, so the key stays unmarked and the next tick builds and logs the line again.
+                // Nothing else reaches the game log, so the caller carries on and the original Tick runs.
+                return;
             }
         }
 
         private static void LogHelperFailureOnce(string name, Exception failure)
         {
-            LogOnce("helper " + name + "|" + failure.GetType().FullName + "|" + failure.Message,
-                () => "Z-Levels cooling helper " + name + " failed, so the original Tick runs: " + failure, false);
+            LogOnce("helper " + name + "|" + DescribeException(failure),
+                () => "Z-Levels cooling helper " + name + " failed, so the original Tick runs: " + ExceptionText(failure), false);
+        }
+
+        // The type and message of an exception, for a key or a log line. Each read is guarded. A getter that throws is named by the type it threw, so
+        // the original type still reaches the log. This never throws.
+        private static string DescribeException(Exception exception)
+        {
+            string text;
+            try
+            {
+                text = exception.Message;
+            }
+            catch (Exception getterFailure)
+            {
+                text = "message getter threw " + TypeNameOf(getterFailure);
+            }
+            return TypeNameOf(exception) + ": " + text;
+        }
+
+        // The full type name of an exception. It is guarded like the other reads on the failure path, and it falls back to a fixed name.
+        private static string TypeNameOf(Exception exception)
+        {
+            try
+            {
+                return exception.GetType().FullName;
+            }
+            catch (Exception)
+            {
+                return "an exception of unknown type";
+            }
+        }
+
+        // The exception as text for a log line. ToString reads the message, so a throwing getter falls back to DescribeException. This never throws.
+        private static string ExceptionText(Exception exception)
+        {
+            try
+            {
+                return exception.ToString();
+            }
+            catch (Exception)
+            {
+                return DescribeException(exception);
+            }
         }
 
         // The method and IL offset of the exception's top frame. The offset is part of the frame, so it does not need a pdb.
@@ -293,18 +339,22 @@ namespace ZLevelsRimatomics
         // An unusable column forms no loop, so its loop is dropped. The other loops of its net still join.
         private static void LogUnknownLoopOnce(CompCoolingColumn start)
         {
-            string name = ColumnName(start);
-            LogOnce("unknown loop|" + ColumnKey(start),
+            string name = Helper("column name", () => ColumnName(start), "(name unavailable)");
+            string key = Helper("column key", () => ColumnKey(start), "column " + IdentityOf(start));
+            LogOnce("unknown loop|" + key,
                 () => "Z-Levels cooling column " + name + " is not usable, so its loop is dropped. The other loops of its net still join."
                     + " This is logged once for each column in each game.", true);
         }
 
-        // A column with an empty pipe field has no net that this merge can read, so the merge skips it.
+        // A column with an empty pipe field has no net that this merge can read, so the merge skips it. This is the normal case while a column is
+        // placed. Joins start after the next pipe grid rebuild.
         private static void LogNoNetOnce(CompCoolingColumn column)
         {
-            string name = ColumnName(column);
-            LogOnce("no net|" + ColumnKey(column),
-                () => "Z-Levels cooling column " + name + " has no pipe net in its field, so this merge skips it."
+            string name = Helper("column name", () => ColumnName(column), "(name unavailable)");
+            string key = Helper("column key", () => ColumnKey(column), "column " + IdentityOf(column));
+            LogOnce("no net|" + key,
+                () => "Z-Levels cooling column " + name + " has no pipe net in its field yet. This is the normal case while a column is placed."
+                    + " Joins start after the next pipe grid rebuild, so this merge skips the column until then."
                     + " This is logged once for each column in each game.", true);
         }
     }
