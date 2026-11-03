@@ -375,7 +375,7 @@ Plan: `docs/superpowers/plans/2026-10-31-colonist-autonomy.md`. Two harness flag
 | 20261031-201557 | `-OtherColonistsWork` (full chain) | PASS | Darby mined and built |
 | 20261031-201704 | `-OtherColonistsWork` (full chain) | PASS | Ash mined and built |
 
-`-FreeColonists` runs the full chain with every colonist's work on. `-OtherColonistsWork` runs the full chain with the validation colonist's hauling, mining, and building off. Other colonists have no work until the unforced haul, and then their work is restored. The chain passes only if a colonist other than the validation colonist came below during the haul, mined the wall, and built the campfire. The records `mined by` and `built by` name who did each job.
+`-FreeColonists` runs the full chain with every colonist's work on. `-OtherColonistsWork` runs the full chain with the validation colonist's hauling, mining, and building off. Other colonists have no work until the unforced haul, and then their work is restored. The chain passes only if a colonist other than the validation colonist carried the logs during the haul, mined the wall, and built the campfire. The records `mined by` and `built by` name who did each job.
 
 Before the hold change, `-OtherColonistsWork` failed five times: `195518` (stage 22, no frame ever started), `200303` and `200858` (stage 21, no colonist mined in four minutes), `200801` (stage 20, no colonist came below during the haul), and `200017` (stage 15, a start check that now applies only to `-AllColonistsHaul`). The only pass before the change was `195406`, where Lumi mined and built.
 
@@ -505,8 +505,280 @@ The map count is the measure. The monitor records only ZL haul jobs, and it saw 
 
 **Logs below, surface hauling stopped.** Scenario `-zlevelsmultibuild -zlevelsmultibuildlowerlogs`. The logs lie below, and surface items are removed at the start. Run `20261101-105502` passes: 3 of 3 walls, no surface item carried down, and 1277 surface items removed. Earlier runs of this variant are listed under "logs below" above.
 
+## Other mods (2026-11-01)
+
+`tools/Invoke-RuntimeValidation.ps1 -ModsConfigSource <ModsConfig.xml>` runs the core validation with the mod list from that file. The source is only read. The run loads the same mods in the same order, with Z-Levels last, in an isolated savedata folder.
+
+Readable Numbers (`7h0m4s.rimworldreadablenumbers`) is left out. It throws `NullReferenceException` in `RnGuiBackend.SetTextLanguage` during play-data load on a fresh save, even with the language set. Runs `20261101-133603` and `135707` stopped there.
+
+Run `20261101-141256` passes `core validation` with 78 mods. Other mods logged these errors:
+- `Aoba.DeadManSwitch.Core` is loaded from two Workshop copies. The game ignores the duplicate.
+- `Milira.MiliraGameComponent_OverallControl.CheckMiliraPermanentEnemyStatus` throws `NullReferenceException` at new game start and at reload. Neither stack has a Z-Levels frame.
+
+No error entry names Z-Levels code. The other-mod errors are in `other-mod-errors.txt` in the run folder.
+
+## Cross-level cooling: reactor research
+
+This section answers the research gate for Task 6 of the cross-level cooling plan. Rimatomics line numbers come from `.artifacts/ilspy/rimatomics-1.7-installed/Rimatomics/`, decompiled with `ilspycmd` from the installed `1.7/Assemblies/Rimatomics.dll`. RimWorld line numbers come from `.artifacts/ilspy/rimworld-1.7-installed-power/`, decompiled from the installed `Assembly-CSharp.dll` of RimWorld 1.7.4995 rev309.
+
+The Rimatomics DLL has SHA-256 `41a1887390ce39fd0c07719c8765b8ce580678823b3a74618636507647fe5b51`. The earlier decompile in `.artifacts/ilspy/rimatomics/` is identical to it. `diff -rq` finds no difference in its 209 files, so the names in the plan are the installed names.
+
+### Names match the installed code
+
+`CoolingNet` extends `BasePipeNet` at `CoolingNet.cs`, line 7. Its fields are `CoolingCapacity` at line 9, `CoolingLoopRatio` at line 11, `Coolers` at line 13, and `Turbines` at line 15. `Tick` sets the ratio to 0 at line 27. It computes the ratio only when `Coolers` holds a cooler, at line 28.
+
+`reactorCore` is declared at `reactorCore.cs`, line 14. Its fields are `FuelCount` at line 40, `IsShutdown` at line 50, `postReturnTemp` at line 80, `powerComp` at line 82, `SlotDesignations` at line 104, and `TargetControlRodTo` at line 111. The property `IsCoreMelt` is at line 157, and `IsOverheating` is at line 181. `Tick` starts at line 750.
+
+`CoreA` extends `reactorCore` at `CoreA.cs`, line 6. The def `ReactorCoreA` names that class at `Buildings_C_Power.xml`, line 150.
+
+`Turbine` is declared at `Turbine.cs`, line 10. Its fields are `UncappedPowerGeneration` at line 28 and `UncooledWater` at line 30. `Tick` starts at line 72. The def `Turbine` names the class `Thor` at `Buildings_C_Power.xml`, line 235.
+
+`CoolingTower` extends `CoolingSystem` at `CoolingTower.cs`, line 8. Its `coolingCapacity` property spans lines 14 to 37. `CoolingSystem` declares `powerComp` at `CoolingSystem.cs`, line 16, and `Stalled` at line 18.
+
+`Alert_ReactorAlerts` is declared at `Alert_ReactorAlerts.cs`, line 11. It adds the NOCOOLING text at line 89.
+
+`DubDef.BuildReactorCore` is declared at `DubDef.cs`, line 70. `Complete` is declared at `GameComp_RimatomicsResearch.cs`, line 310. `RimatomicsResearch._instance` is declared at `RimatomicsResearch.cs`, line 31.
+
+### The core and the tower need power
+
+`CompPowerTrader.PowerOn` is a property over the field `powerOnInt`, at `RimWorld.CompPowerTrader.cs`, lines 16 and 74 to 134. The setter stores the new value at line 86, before its own checks run.
+
+`PowerNet.PowerNetTick` sets `PowerOn` to true at line 240 of `RimWorld.PowerNet.cs`. It does so when the stored energy plus the net's gain covers the part's draw. One watt draws 1.6666667E-05 watt-days per tick, at `RimWorld.CompPower.cs`, line 20.
+
+The core draws 1337 W, at `Buildings_C_Power.xml`, line 96. The tower draws 550 W, at line 550. The scenario has no generator, so a charged battery supplies each net. The base game `Battery` stores 600 watt-days, at `Data/Core/Defs/ThingDefs_Buildings/Buildings_Power.xml`, line 475. Its stored energy starts at 0, at `RimWorld.CompPowerBattery.cs`, line 9. Calling `SetStoredEnergyPct` with `1f` fills it, at line 100.
+
+A connector joins a transmitting building within 6 cells, at `RimWorld.PowerConnectionMaker.cs`, lines 103 and 117.
+
+The tower needs power for its capacity too. `coolingCapacity` returns 0 unless `powerComp.PowerOn` is true, at `CoolingTower.cs`, lines 28 to 36. With a capacity of 0, `Turbine.Tick` sets `UncooledWater` to the full output, at `Turbine.cs`, lines 92 to 94. An unpowered tower cools nothing. The plan's Task 6 check list does not name this.
+
+### Layout for the tower, the turbine, and the core
+
+The tower is 8 by 8, at `Buildings_C_Power.xml`, line 534. Its only pipe is `Cooling`, at lines 544 to 546. A roofed cell in its footprint sets `Stalled`, which the game checks every 250 ticks, at `CoolingTower.cs`, lines 86 to 94. A stalled tower gives 25,000 capacity instead of 250,000, at lines 32 and 34.
+
+The `Turbine` def is 4 by 7, at `Buildings_C_Power.xml`, line 261. It has `HighVoltage`, `Steam`, `ColdWater`, and `Cooling` pipes, at lines 271 to 282. The `ReactorCoreA` def is 5 by 5, at line 157. It has `Steam`, `ColdWater`, and `Loom` pipes, at lines 85 to 93, and no `Cooling` pipe.
+
+Pipes of one mode join when their footprints touch side by side. The flood fill that builds a net is called at `UniversalPipeMapComp.cs`, line 208. The game's `FloodFiller` walks the cardinal neighbours through `GenAdj.CardinalDirectionsAround`, at line 72 of the `Verse.FloodFiller` decompile. A building with a pipe of one mode forms a net by itself. So the core needs no pipe to share the turbine's steam and cold-water nets.
+
+With `c` as the pairing cell, the core covers x `c-2` to `c+2` and z `c-12` to `c-8`. The turbine covers x `c-2` to `c+1` and z `c-7` to `c-1`. The two footprints touch along the rows at z `c-8` and `c-7`, for x `c-2` to `c+1`. The scenario uses no pipe. The pipe defs are `steamPipe` and `waterPipe` in Rimatomics' `Buildings_A_Pipes.xml`, at lines 181 and 255.
+
+### Startup clears the flag and nothing else
+
+`Startup()` sets `IsShutdown` to false and does nothing else, at `reactorCore.cs`, lines 503 to 506. The START button calls it, at `Dialog_ReactorConsole.cs`, line 515. `punchit()` also clears the flag, at `reactorCore.cs`, line 1026. The decompile has no call site for `punchit()`. `SCRAM()` and two automatic trips set the flag to true, at `reactorCore.cs`, lines 515, 806, and 811. The scenario calls `Startup()`.
+
+### Placement workers do not run on a code spawn
+
+`PlaceWorker_ResearchStage` appears only in the defs, at `Buildings_C_Power.xml`, lines 141 to 143 and 295 to 297. `Verse.GenSpawn` in the installed `Assembly-CSharp.dll` has no reference to a placement worker. So `GenSpawn.Spawn`, which the harness calls, skips the placement check.
+
+### Research gate
+
+`CoreA.IsBuilt` returns `DubDef.BuildReactorCore.IsFinished`, at `CoreA.cs`, line 12. While that is false, `reactorCore.Tick` returns before its own work, at `reactorCore.cs`, lines 763 to 766. `Complete` marks a step as completed, at `GameComp_RimatomicsResearch.cs`, lines 310 to 320.
+
+The research component is `RimatomicsResearch._instance`. Its constructor sets that field, at `RimatomicsResearch.cs`, lines 33 to 37. `DubUtils.GetResearch()` returns it, at `DubUtils.cs`, lines 271 to 274. The core's `SpawnSetup` method calls `DubUtils.GetResearch().NotifyResearch()`, at `reactorCore.cs`, line 405.
+
+### Fuel and control rods
+
+`InsertFuel(Item_NuclearFuel)` stores a fuel rod only in a slot designated `RodDesignate.Fuel`, at `reactorCore.cs`, lines 518 to 534. The designations live in the public list `SlotDesignations`, at line 104. `RefreshFuelGrid` sets `FuelCount`, at lines 356 to 362. The fuel def is `FuelRods`, at `ThingDefs_Misc/Nuclear.xml`, line 186.
+
+`TargetControlRodTo` is a public float, at `reactorCore.cs`, line 111. The rod request is 0 unless the core is powered, running, and holding fuel, at lines 270 to 280. `Interps()` moves the rod position toward `TargetControlRodTo`, at line 907.
+
+### The temperature path
+
+`Interps()` sets `postReturnTemp` to `RealTemp` plus `overheating`, at `reactorCore.cs`, line 927. With a turbine on the cold-water net, the `overheating` target is the cold-water feed return divided by 100, capped at `MaxPowerForFuelLevel`, at lines 918 to 921. The feed return sums the turbines' `UncooledWater` and divides by the core count, at `ColdWaterNet.cs`, line 26.
+
+`UncooledWater` is 0 when the net has cooling capacity and its ratio is below 1, at `Turbine.cs`, lines 81 to 86.
+
+`IsOverheating` is true above 500, at `reactorCore.cs`, line 181. `IsCoreMelt` is true above 2000, at line 157. Temperature predictions for 21 fresh rods do not apply to one rod. The runs record the real samples.
+
+## Cross-level cooling: reactor scenario
+
+The scenario runs after the reload in the cooling link sequence. The lower level holds the core and its battery, and the core's footprint touches the turbine's. A second battery powers the surface tower. A colonist is on the surface cell above the core.
+
+The scenario loads 21 `FuelRods`, one into each of the core's 21 `Fuel` slots, and sets `TargetControlRodTo` to 1. `Startup()` runs once the core and the surface tower both read `PowerOn` and the tower is not stalled. The scenario then takes 11 samples, one every 250 ticks from `Startup()` to 2500 ticks. Each `reactor sample` row holds `postReturnTemp`, `IsShutdown`, `IsOverheating`, the loop ratio, and the cooler count.
+
+The runner accepts one scenario switch per run. `-CoolingNoColumns` runs the same scenario without the column pair, and the no-columns run uses it alone. The reactor rows run in that variant too.
+
+The `cooling link` row passes only when every label it needs passes. With `-Cooling`, those labels include the seven reactor rows below.
+
+- `reactor runs on the lower level` passes when `IsShutdown` is false and `FuelCount` is 21 right after `Startup()`.
+- `loop ratio at or below 1` passes when `CoolingLoopRatio` in the lower loop is 1 or less in every sample.
+- `surface tower stays in the lower loop` passes when the surface tower is in the lower turbine's `Coolers` in every sample.
+- `no cooling alert` passes when the lower turbine's `Coolers` holds at least one cooler in every sample. The alert itself is not tested.
+- `no meltdown` passes when `IsCoreMelt` is false in every sample.
+- `surface colonist not irradiated` passes when the colonist on the surface cell has no `RimatomicsRadiation` hediff at the end.
+- `cooled core stays below overheating` passes when `IsOverheating` is false in every sample.
+
+The no-columns run has one overheating row of its own, `uncooled core overheats`. It passes when `IsOverheating` is true in at least one sample by 2500 ticks. This row is the positive control. It shows that the same load overheats the core with no cooling. Without this row, a pass on `cooled core stays below overheating` could come from a load too small to overheat anything.
+
+### Which checks can fail
+
+The no-columns run reads a loop ratio of 0.0000 in every sample, because its lower loop has no cooler and no capacity. The loop ratio check passes there by construction, so that run gives no evidence on the ratio. The cooled run measures the loop. Its ratio rises to 0.5948 by 2500 ticks.
+
+One unstalled tower caps the ratio near 0.6. The output of the 21-rod core peaked at about 148,700 W in both runs. One tower has a capacity of 250,000 W, so the ratio tops out near 0.595. The ratio can exceed 1 only if the tower stalls. No run has tested a stalled tower with the column pair in place.
+
+The melt check cannot fail in this scenario, because the uncooled peaks stay under the melt limit of 2000. Those peaks are 1364.6 in run `20261103-131225` and 1486.9 in run `20261103-130813`. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
+
+### Roof over the tower footprint
+
+The surface map differs from run to run, and the runner and the harness set no seed. A roof over any cell of the surface tower's footprint sets its `Stalled` flag. The flag updates at the tower's next 250-tick check, at `CoolingTower.cs`, lines 86 to 93. A stalled tower has a capacity of 25000, against 250000 when unstalled, at `CoolingTower.cs`, lines 30 to 34.
+
+Run `20261103-130813` read a stalled tower in every sample. That run had no column pair, so the tower never joined the lower loop, and the stall did not change the loop readings. With the column pair, a stalled tower gives a ratio of about 5.95, since 148,700 W over 25,000 W is 5.95. No run has tested that case.
+
+The scenario now clears the roof under the tower footprint and waits up to 1500 ticks for the `Stalled` flag to clear before `Startup()`. `OpenTowerFootprint` in `tools/RuntimeValidation/RuntimeValidation.cs` clears the cells and writes a `reactor tower footprint` row with the count. Run `20261103-131225` cleared 12 cells, and its tower read unstalled in every sample. Run `20261103-131411` found no roof to clear.
+
+### Final runs
+
+The two reactor runs used the 21-rod load and the roof handling above. The core run had no reactor.
+
+| Run | Switch | Result |
+|---|---|---|
+| `20261103-131225` | `-CoolingNoColumns` | Fails as expected. The rows that need a column pair fail, and so do `surface tower stays in the lower loop`, `no cooling alert`, and `cooling link`. `uncooled core overheats` passes. |
+| `20261103-131411` | `-Cooling` | Passes. All seven reactor rows and `cooling link` pass. |
+| `20261103-131550` | none | Passes. No row reads FAIL. |
+
+All runs in this section used the installed build, RimWorld 1.7.4995 rev309. The project target is 1.7.4990 rev1069.
+
+### Temperatures at 21 rods
+
+The table lists every sample from both reactor runs, from `Startup()` to 2500 ticks. The uncooled columns come from the no-columns run, and the cooled columns come from the cooled run.
+
+| Ticks | Uncooled postReturnTemp | Uncooled IsOverheating | Uncooled IsShutdown | Cooled postReturnTemp | Cooled ratio |
+|---|---|---|---|---|---|
+| 0 | 0.0 | no | no | 0.0 | 0.0000 |
+| 250 | 76.3 | no | no | 54.1 | 0.0909 |
+| 500 | 391.7 | no | no | 132.9 | 0.2486 |
+| 750 | 766.3 | yes | no | 212.7 | 0.3994 |
+| 1000 | 1128.1 | yes | yes | 277.4 | 0.5226 |
+| 1250 | 1364.6 | yes | yes | 304.0 | 0.5737 |
+| 1500 | 1359.0 | yes | yes | 312.1 | 0.5893 |
+| 1750 | 1305.2 | yes | yes | 314.3 | 0.5935 |
+| 2000 | 1194.7 | yes | yes | 314.8 | 0.5945 |
+| 2250 | 1010.4 | yes | yes | 315.0 | 0.5948 |
+| 2500 | 757.6 | yes | yes | 315.0 | 0.5948 |
+
+The cooled `postReturnTemp` matches the one-rod cooled run at every sample. `RealTemp` moves toward `StandardTemp` for any fuel count above zero, at `reactorCore.cs`, lines 258 to 268 and line 913. The cooled readings match `RealTemp` alone, because the loop ratio stays below 1 and the overheating term is 0.
+
+The no-columns run crossed 500 between the +500 and +750 samples. It peaked at 1364.6 at +1250 ticks. The cooled run peaked at 315.0 at +2500 ticks and never read `IsOverheating` as true.
+
+The no-columns run tripped once. `IsShutdown` first read true at the +1000 sample, so the trip came between the +750 and +1000 samples. The +750 sample read 766.3, and the +1000 sample read 1128.1, so the trip came after `postReturnTemp` passed 800. The only automatic trip this scene can reach is AutoScram. The flare trip needs an electricity outage, and the core and the tower stayed powered in every sample. The scram checks run every 240 ticks, at `reactorCore.cs`, line 802, so a trip can come up to 240 ticks after the threshold. After the trip, `UncappedPowerGeneration` fell to 0.0 by +2500 ticks, and `postReturnTemp` fell to 757.6, still above 500.
+
+At one rod, the uncooled core settled 17.5 above the cooled core. That gap matched `ColdWaterFeedReturn` divided by 100 for an uncooled output of 1750 W, at `reactorCore.cs`, lines 918 to 927, and `ColdWaterNet.cs`, line 26. At 21 rods, the output reached about 148,700 W. A model without a trip predicted a plateau near 1,802 at 21 rods. The temperature fell after the trip, so it never reached that plateau.
+
+### Earlier runs
+
+The one-rod runs did not show overheating. The uncooled core peaked at 332.5 in `20261103-124931`, far below 500, so the load was raised to 21 rods. The core has 21 fuel slots, at `reactorCore.cs`, line 159, so 21 is the most rods it takes. The 21-rod run crossed 500, so no higher load was tried.
+
+| Run | Load and switch | Result |
+|---|---|---|
+| `20261103-124931` | 1 rod, `-CoolingNoColumns` | The uncooled core peaked at 332.5 and never read `IsOverheating` as true. |
+| `20261103-125122` | 1 rod, `-Cooling` | The cooled core settled at 315.0, and the loop ratio reached 0.0070. |
+| `20261103-125300` | None | The core validation passed with 30 rows, and no row reads FAIL. |
+| `20261103-130813` | 21 rods, `-CoolingNoColumns` | The tower read stalled in every sample. The uncooled core peaked at 1486.9 at +1500 ticks, and the first trip read at +1250 ticks. |
+
+## Regression runs for cross-level cooling
+
+These runs check the cooling link beside the other regression runs. Each run starts a new colony in its own savedata folder, under `-quicktest`. The tree under test is commit `a613670`. Its code matches `d7e2e30`, because `a613670` changes only the plan.
+
+| Run | Command | Result |
+|---|---|---|
+| `20261103-134920` | Core validation, no switch | PASS. `core validation` reads PASS, and no row reads FAIL. |
+| `20261103-134331` | `-Cooling`, with Dubs Rimatomics only | PASS. `cooling link` and `cooled core stays below overheating` read PASS, and no row reads FAIL. The cross-check reads 45 result rows and 45 marker lines. |
+| `20261103-135031` | `-Cooling -RimatomicsPlusPlus` | PASS. `cooling link` and `cooled core stays below overheating` read PASS, and no row reads FAIL. The runner observes `rimatomics++ mod active` as PASS. |
+| `20261103-135227` | Core validation with `-ModsConfigSource` set to the user's `ModsConfig.xml` | Not passed. The game reset the mod list during play-data load, and the runner stopped. No results file was written. |
+
+The mod-list run stopped during play-data load. The game catches a `System.NullReferenceException` from `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage`, and it resets the mod config. The user's `ModsConfig.xml` lists `7h0m4s.rimworldreadablenumbers`, which the other-mods run `20261101-141256` did not list. That run used 80 mods, which is the user's 79 without that mod, plus the two Z-Levels entries. The runner has never filtered that mod, so the other-mods source did not list it.
+
+The language is not the cause. The user's `Prefs.xml` sets `English`, the run's `Config/Prefs.xml` copies it, and the exception still occurs.
+
+The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C6D3CC6BDEB7DD4A08B99B39EACBE2A` before and after the run, and its write time is the same.
+
+No run in this section tests the user's list with that mod removed. The expected line, `Runtime validation passed with other mods`, was not printed, so this section makes no claim that the user's list passes.
+
+## Partial mod-list run: the user's list minus RimworldReadableNumbers
+
+This is a partial run, and it does not show that the user's mod list passes. The full list fails at load in run `20261103-135227`. The exception comes from `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage`. The call path runs through `Verse.LanguageDatabase.InitAllMetadata` and `Verse.PlayDataLoader.DoPlayLoad`. The game then resets the mod config. The stack has no Z-Levels frame.
+
+The scratch copy is the user's `ModsConfig.xml` with `7h0m4s.rimworldreadablenumbers` removed, and nothing else changed. It lives at `%TEMP%\claude-scratch\task-7-modlist\ModsConfig.xml`. Its SHA-256 is `D041D62E6C7804B15A24D2E17A709007239E1EDB0346894C314AF19EF6108B3E`. The user's `Prefs.xml` sits beside it, so the run uses the same language as the failed run.
+
+| Run | Command | Result |
+|---|---|---|
+| `20261103-135706` | Core validation with `-ModsConfigSource` set to the scratch copy | Passed. `core validation` reads PASS, and no row reads FAIL. The runner printed `Runtime validation passed with other mods`. That line covers the scratch list only. |
+
+The run loaded 80 entries. The runner read them from the run's `Player.log`, after `Initializing new game with mods:`. They are the 78 entries of the scratch list, in order, plus `zlevels1.1` and `local.zlevels.validation`. They match the other-mods run `20261101-141256` exactly, IDs and notes. The game marks four entries with the note incompatible version: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`. The other-mods run marks the same four.
+
+The entries, in log order, are: `brrainz.harmony`, `Chezhou.RimUnity`, `Ludeon.RimWorld`, `Ludeon.RimWorld.Royalty`, `Ludeon.RimWorld.Biotech`, `adaptive.storage.framework`, `sbz.NeatStorageFridge`, `sbz.NeatStorage`, `Mlie.SdAdvancedPowergeneration`, `Mlie.XNDUseThatSniperScope`, `OskarPotocki.VanillaFactionsExpanded.Core`, `sarg.alphaanimals`, `Mlie.ApparelOrganizer`, `com.bymarcin.ArchitectIcons`, `void.charactereditor`, `Mlie.ChooseBiomeCommonality`, `CrashM.ColorCodedMoodBar.11`, `Mlie.ColourfulSterileTiles`, `com.lessprisonbreaks`, `DimonSever000.BackstoriesPlus.Specific`, `DimonSever000.Events.Specific`, `DimonSever000.PsionicPlus.Specific`, `CaesarV6.DamageIndicators`, `telardo.DragSelect`, `Dubwise.DubsMintMenus`, `Dubwise.DubsPerformanceAnalyzer.steam`, `Dubwise.Rimatomics`, `zeracronius.dynamictradeinterface`, `V1024.EBFramework`, `V1024.EliteArchotech`, `asunib.EnemyMechanitors`, `Aoba.Exosuit.Framework`, `AOBA.Framework`, `Aoba.Fortress.Industrial`, `Goji.GojisMiscGenes`, `bambaryla.AllBambaGuns`, `MaoSaur.ImplantsRipper`, `erdelf.HumanoidAlienRaces`, `chezhou.creature.hivelord`, `m00nl1ght.UnofficialUpdates.HugsLogPublisher`, `m00nl1ght.MapPreview`, `hyaukyuu.mechlinkreinforcement`, `CaptainMcMuffin.MHP`, `Haplo.Miscellaneous.Training`, `Yorbil.missingfabricationrecipes`, `IssacZhuang.MuzzleFlash`, `AmCh.NeedBarOverflow`, `Andromeda.NiceBillTab`, `Andromeda.MilkyWay`, `Andromeda.NiceHealthTab`, `Andromeda.NiceResearchTab`, `sk.noprisonersympathy`, `morton.NobleandPsycasterFurniture`, `AgentOrange.PassiveExoskeletons`, `cem.PositiveConnections`, `Mlie.PrisonersDontHaveKeys`, `Mlie.ProstheticNoMissingBodyParts`, `DawnsGlow.qualcolor`, `NachoToast.RimatomicsPlusPlus`, `Dubwise.Rimefeller`, `Mlie.RepairingPriority`, `forti.rimmarket`, `rimsenal.EVP`, `EdelweissPirate.traumateamcomplete`, `CH4AcKO3.SearchAndRescue`, `EBSG.Framework`, `Sov.Nephilim`, `Sovereign.SeraphimReborn`, `dhultgren.smarterconstruction`, `Indeed.StackXXL`, `Aoba.DeadManSwitch.Core`, `Aoba.DeadManSwitch.AncientCorps`, `Aoba.DeadManSwitch.MobileDragoon`, `Aoba.DeadManSwitch.Taktikmagier`, `TimmyLiang.TradeHelper`, `VanillaExpanded.VChemfuelE`, `Ancot.AncotLibrary`, `Ancot.MiliraRace`, `ZLevels1.1`, `local.zlevels.validation`
+
+The run logged three other-mod errors. They are in `other-mod-errors.txt` in the run folder, and none names Z-Levels code.
+
+The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C6D3CC6BDEB7DD4A08B99B39EACBE2A` before and after both runs, and its write time is the same.
+
+This section does not claim that the user's list passes. The user's list still contains `7h0m4s.rimworldreadablenumbers`, and that entry fails at load.
+
+## Cross-level cooling
+
+This section records the cross-level cooling work. The plan is `docs/superpowers/plans/2026-11-01-cross-level-cooling.md`. The design is in `docs/superpowers/specs/2026-11-01-cross-level-cooling-design.md`, and the decisions are in `docs/adr/0001` to `0005`. The detail sits in four earlier sections: "Cross-level cooling: reactor research", "Cross-level cooling: reactor scenario", "Regression runs for cross-level cooling", and "Partial mod-list run: the user's list minus RimworldReadableNumbers".
+
+### Installed game build
+
+The installed game is RimWorld 1.7.4995 rev309. The plan targets 1.7.4990 rev1069. All 167 run folders dated 2026-11-02 and 2026-11-03 that have a `Player.log` record 1.7.4995 rev309. The other-mods run `20261101-141256` records the same build. Every run cited in this section uses the installed build.
+
+### Red and green runs
+
+Each row gives the run that failed before the change and the run that passed after it. Run IDs are folders under `.artifacts/runs/`.
+
+| Step | Red run | Green run | Notes |
+|---|---|---|---|
+| Task 3, column def | `20261102-104330`: the three def rows FAIL, column missing | `20261102-105720`: the three def rows PASS | The look is under Untested cases. |
+| Task 4, pairing within three cells | `20261102-115623`: pairing rows FAIL, registry not built | `20261102-115859`: the four Task 4 rows PASS | Replaced by the same-cell rule. |
+| Task 4, same cell only | `20261102-125457`: `column one cell away stays unpaired` FAIL, the column one cell away shares the loop | `20261102-125613`: that row PASS, and the other Task 4 rows still PASS | Commit `dd55200`. |
+| Task 4b, partner highlight | `20261102-214741`: both highlight rows FAIL, highlight not built | `20261102-221308`: both highlight rows PASS, and the six Task 4 rows PASS | The look run is `20261102-221353`. |
+| Task 5, loop merge | `20261103-041745`: the three link rows FAIL | `20261103-041951`: the three link rows PASS | The reactor rows were still stubs. The last in-game run, `20261103-120341`, shows the three link rows PASS. |
+| Task 6, round 1 | `20261103-124931`, no columns: the link, tower, and alert rows FAIL | `20261103-125122`: all rows PASS | One fuel rod. Round 2 replaced this scenario. |
+| Task 6, round 2 | `20261103-131225`, no columns, 21 rods: `uncooled core overheats` PASS, and the link, tower, and alert rows FAIL | `20261103-131411`, 21 rods: all rows PASS, including `cooled core stays below overheating` | Core validation `20261103-131550` passes. |
+| Task 6, round 3 | None. The red run was not repeated, and the uncooled row is unchanged. | `20261103-134331`: all rows PASS | The cooled check now fails when the core trips. |
+
+Round 1 could not show a cooling effect on temperature. With one fuel rod, the uncooled core peaked at 332.5 and never overheated. Round 2 raised the load to 21 rods. The uncooled core then overheated in run `20261103-131225`, and `IsOverheating` first read true at +750 ticks.
+
+### Research
+
+The Task 6 research summarizes the Dubs Rimatomics code that the reactor scenario depends on. The full file is `.superpowers/sdd/2026-11-01-cross-level-cooling/task-6-research.md`. The `.superpowers/` folder is git-ignored, so that file is not in the repository. These points come from the file.
+
+- `Startup()` clears `IsShutdown` and checks nothing else. The core also needs power, at least one fuel rod, and raised control rods.
+- `postReturnTemp` is `RealTemp` plus `overheating`. The thresholds are 500 for overheating, 2000 for melt, and 50 for cold.
+- An unstalled tower gives 250,000 W, and a stalled tower gives 25,000 W. With 21 rods, the core makes at most 148,750 W. One unstalled tower therefore gives a ratio of at most 0.595. A stalled tower gives about 5.95.
+- `emitRadiation` scans only the map it receives. The core does not reach the surface cell above it, as ADR-0004 states. A fallout condition can reach that cell, but only while it is active on the surface map.
+- A scratch model levels off at 315 with one unstalled tower. With no cooling, it passes 500 at tick 563. The model is not a game run, and it is not in the repository.
+- The file lists six points it could not confirm from the code. One is whether the decompile matches the installed Rimatomics DLL.
+
+### Untested cases
+
+- Water flow through the column is not simulated. The spec puts it out of scope, and ADR-0003 says the link moves capacity, not water.
+- The Remove Cooling designator is not run. The harness removes the surface column with `Destroy(DestroyMode.Vanish)` in `RemoveSurfaceColumn` instead.
+- The Task 3 look rests on one screenshot. Run `20261102-110012` shows a grey pipe with a red wheel on the column cell, read at twelve times zoom. The column covers about 20 pixels at game zoom. Runs `20261102-104827` and `20261102-105806` show nothing on that cell. Run `20261102-112616`, without `linkType` `None`, shows only the linked teal pipe art. The committed def therefore uses drawer `RealtimeOnly` and `linkType` `None`, which differs from the plan's Task 3 values. The comment-only commit `d19a012` has no run after it. The report does not record a check at normal zoom.
+- The Task 4b partner highlight look rests on run `20261102-221353`. The amber crop, taken before the lower column stands there, shows an amber square on the empty cell. The green crop, taken after it stands there, shows a green square on the same cell with the column's red wheel inside. Both crops are six times zoom. The look also clears cells and places a torch lamp, which the feature does not need. Open items: the report says a person still needs to check the screenshots by eye. The cause of the GPU device loss in two of five earlier look runs is unknown, and the hook avoids the call that caused it. The report lists no run that removes a column while the outline is drawn, or that saves and reloads with the outline showing.
+- Three Task 6 checks pass without the link:
+  - `loop ratio at or below 1` cannot fail with one unstalled tower, because the ratio is at most 0.595. It fails only if the tower stalls, and no run has stalled it on purpose. It passed in both no-columns red runs, `20261103-124931` and `20261103-131225`, where the ratio reads 0 with no coolers.
+  - `no meltdown` cannot fail in this scenario. The uncooled peaks were 1364.6 in run `20261103-131225` and 1486.9 in run `20261103-130813`, both under the melt limit of 2000. It passed in both no-columns red runs.
+  - `surface colonist not irradiated` passes by design under ADR-0004. It passed in both no-columns red runs, so it does not test the link.
+- The synthetic model is the only test of these Task 5 items. No game run covers them.
+  - The carried cap. A cap that is pending when the game changes writes a carried line in the next game. No run carried a cap, and the wording is unconfirmed.
+  - The missing-pipe path. A column with no Rimatomics pipe logs an error and does not join the registry.
+  - The flush postfix. Held lines flush from a postfix on `GameComponentUtility.GameComponentTick`. No run held a line, so the in-game flush did not run.
+  - The per-line stop at Verse's 10,000th message, the count carried across a game change, and the def and map key.
+  - A valid loop beside an unusable column. An unusable column forms no loop, and the other loops of its net still join, as spec decision 2 says. The report records no in-game run of this case.
+- The same-cell check for a column on a level above the surface is not run. The harness builds one level below the surface only.
+- Rimatomics++ has one cooled run. `20261103-135031` passes every row, including `cooling link`. No breakage was seen in that run, and no other Rimatomics++ run was made.
+
+### Mod-list status
+
+- The full user list fails at load in run `20261103-135227`. During play-data load, `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage` throws a `NullReferenceException`. The game then resets the mod config.
+- Run `20261103-135706` uses a scratch copy of the list without `7h0m4s.rimworldreadablenumbers`. Core validation passes. The runner printed `Runtime validation passed with other mods`, and that line covers the scratch list only.
+- The run loads 80 entries. They match run `20261101-141256` in order and in IDs, ignoring letter case.
+- Four entries load with the note `incompatible version`: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`.
+- The user's list still contains `7h0m4s.rimworldreadablenumbers`. Lucas has not decided whether to remove it, so this section does not claim that the user's list passes.
+
 ## Evidence
 
+- Other-mod run: `.artifacts/runs/20261101-141256/`
 - Build log: `.artifacts/build/release-build-final.log`
 - Final run: `.artifacts/runs/20261028-135603/` (`validation-results.txt`, `Player.log`, `Screenshots/`, `Config/`, `Saves/`)
 - Animal fallback runs: `.artifacts/runs/20261028-041107/`, `20261028-035000/`, `20261028-133324/`
@@ -515,3 +787,7 @@ The map count is the measure. The monitor records only ZL haul jobs, and it saw 
 - Stage 1 timeout: `.artifacts/runs/20261028-134553/`
 - Earlier runs: `.artifacts/runs/20261028-040440/`, `20261028-035409/`, `20261028-035538/`, `20261028-032903/`
 - Decompiles: `.artifacts/ilspy/` (git-ignored)
+- Cross-level cooling reactor runs: `.artifacts/runs/20261103-131225/` is the no-columns run, `.artifacts/runs/20261103-131411/` is the cooled run, and `.artifacts/runs/20261103-131550/` is the core validation run.
+- Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.
+- Task 7 regression runs: `.artifacts/runs/20261103-134920/`, `.artifacts/runs/20261103-134331/`, `.artifacts/runs/20261103-135031/`, and `.artifacts/runs/20261103-135227/`.
+- Partial mod-list run without RimworldReadableNumbers: `.artifacts/runs/20261103-135706/`.

@@ -1,0 +1,3 @@
+# Cooling columns pair on the same cell only
+
+A cooling column pairs only with the cooling column on the same cell of the level directly above or below it. The earlier rule paired any column less than 3 cells away, which is a 5 by 5 square of 25 cells. Power transmitter columns keep that rule (ADR-0001). We chose the same-cell rule on 2026-11-02 over the same cell plus the eight touching cells. A pipe runs straight through a floor, so the partner is the same spot on the other level and is easy to find. The cost is that the cell on the other level must be free, so natural rock there is mined first. A partner highlight on the adjacent level marks the cell (spec decision 14).

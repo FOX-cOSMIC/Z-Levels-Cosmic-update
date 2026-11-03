@@ -21,7 +21,8 @@ Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. On
 
 ## Commands
 
-- Build: `dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release`. Output: `ZLevels/1.7/Assemblies/`. The Harmony DLL defaults to the Steam Workshop path; override with `-p:HarmonyAssembly=<path>`.
+- Build (main mod only): `dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release`. Output: `ZLevels/1.7/Assemblies/`. The Harmony DLL defaults to the Steam Workshop path; override with `-p:HarmonyAssembly=<path>`.
+- Full build, which covers every project the validation harness references, including any optional assemblies: `dotnet build tools/RuntimeValidation/RuntimeValidation.csproj -c Release`. The validation runner runs this before each run.
 - Runtime validation: close RimWorld, then run `tools/Invoke-RuntimeValidation.ps1` (`-Visual` adds screenshots). Evidence: the run folder under `.artifacts/runs/`.
 - Decompile installed game code: `ilspycmd`, a dotnet global tool. Write output under `.artifacts/`.
 

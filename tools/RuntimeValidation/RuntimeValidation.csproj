@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj" Private="false" />
+    <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj" Private="false" />
     <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4990-unstable" PrivateAssets="all" />
   </ItemGroup>
 </Project>
