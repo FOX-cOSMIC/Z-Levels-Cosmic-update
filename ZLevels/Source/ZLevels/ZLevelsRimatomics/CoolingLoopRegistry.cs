@@ -129,21 +129,27 @@ namespace ZLevelsRimatomics
         }
 
         // LoopOf with the usable set and the tracker passed in (see Paired). The group includes start when start is in the usable set. A column joins the group
-        // through either link: it pairs with a column in the group, or it stands on the same Rimatomics pipe net as a column in the group. The Patch then takes
-        // every pipe net that holds a member, so each net of the loop gets the whole loop's coolers and turbines.
+        // through either link: it pairs with a column in the group, or it stands on the same Rimatomics pipe net as a column in the group. The Patch reads
+        // every pipe net that holds a member, and it writes the joined lists to the net that is ticking. The members also sit in a set, so each membership
+        // test is a hash lookup. The list keeps the order in which the search added the members.
         public static List<CompCoolingColumn> LoopOf(CompCoolingColumn start, HashSet<CompCoolingColumn> usable, ZLevelsManager tracker)
         {
             var loop = new List<CompCoolingColumn>();
             if (!usable.Contains(start)) return loop;
             loop.Add(start);
+            var members = new HashSet<CompCoolingColumn> { start };
             for (int i = 0; i < loop.Count; i++)
             {
                 CompCoolingColumn current = loop[i];
                 foreach (Entry entry in entries)
                 {
                     CompCoolingColumn other = entry.Column;
-                    if (loop.Contains(other)) continue;
-                    if (Paired(current, other, usable, tracker) || SharePipeNet(current, other, usable)) loop.Add(other);
+                    if (members.Contains(other)) continue;
+                    if (Paired(current, other, usable, tracker) || SharePipeNet(current, other, usable))
+                    {
+                        loop.Add(other);
+                        members.Add(other);
+                    }
                 }
             }
             return loop;
