@@ -71,6 +71,9 @@ namespace ZLevelsRimatomics
             public bool CapWanted;
             public bool CapReported;
 
+            // Set when the cap was wanted in an earlier game and is reported in this one. Its line then says so.
+            public bool CapCarried;
+
             public KeyBook(int max, string capText)
             {
                 Max = max;
@@ -83,6 +86,17 @@ namespace ZLevelsRimatomics
                 Dropped.Clear();
                 CapWanted = false;
                 CapReported = false;
+                CapCarried = false;
+            }
+
+            // A new game starts with no keys. A cap that is wanted and not yet reported stays wanted, so the next flush that can
+            // write reports it. A cap that was already reported is not carried, because each game reports its cap once.
+            public void ClearForNewGame()
+            {
+                bool pendingCap = CapWanted && !CapReported;
+                Clear();
+                CapWanted = pendingCap;
+                CapCarried = pendingCap;
             }
         }
 
@@ -105,6 +119,9 @@ namespace ZLevelsRimatomics
         // The game that the books belong to. The reference is weak, so a game that is over can be collected while the main menu is open. A change from an
         // earlier game clears the books.
         private static System.WeakReference<Verse.Game> loggedGame;
+
+        // The game that the last tick failure was reported for, so that one line is written for each game. The reference is weak.
+        private static System.WeakReference<Verse.Game> tickFailureGame;
 
         // A number that names an object with no map and cell. The table holds the object weakly, so the number lasts as long as the object does.
         private sealed class Numbered
@@ -481,16 +498,22 @@ namespace ZLevelsRimatomics
             UnityWrite("Z-Levels cooling could not check whether the log will write (" + TypeNameOf(checkFailure) + "), so it tries the write.", true);
         }
 
-        // Writes a book's cap line once, when a key past the cap was tried and the log will write.
+        // The cap line for a cap that was wanted in an earlier game. The books of the new game are empty, so this line does not say
+        // "in this game".
+        private const string CarriedCapText = "Z-Levels cooling reached the limit of 64 distinct lines in an earlier game, "
+            + "so further lines from that game were not logged.";
+
+        // Writes a book's cap line once, when a key past the cap was tried and the log will write. A cap carried from an earlier game
+        // has its own line.
         private static void ReportCapIfWanted(KeyBook book)
         {
             if (!book.CapWanted || book.CapReported) return;
             if (!WillWrite()) return;
             book.CapReported = true;
-            Write(book.CapText, true);
+            Write(book.CapCarried ? CarriedCapText : book.CapText, true);
         }
 
-        // Runs after each game tick, from the postfix of GameComponentUtility.GameComponentTick (CoolingLogTickPatch). It writes the held lines even when no
+        // Runs after each DoSingleTick call, from the postfix of GameComponentUtility.GameComponentTick (CoolingLogTickPatch). It writes the held lines even when no
         // cooling net ticks. With nothing pending it returns first, before the game check, and it reads no log flag, so the common tick costs a few field reads.
         internal static void FlushOnGameTick()
         {
@@ -673,6 +696,8 @@ namespace ZLevelsRimatomics
         // so a game that is over can be collected. The first game of the process has no earlier game, so it clears nothing, and a line held before the first
         // check is kept. A change from an earlier game counts the held lines as not kept. The count and the overflow flag describe the same lines, so they carry
         // over together, and the next flush that can write reports them. The dropped keys are cleared, because keys belong to one game.
+        // A cap that is wanted and not yet reported carries over the same way. A cap that was already reported does not, because each
+        // game reports its cap once.
         private static void ForgetFailuresOfEarlierGames()
         {
             Verse.Game game = Current.Game;
@@ -682,7 +707,7 @@ namespace ZLevelsRimatomics
             {
                 droppedSinceReport += held.Count;
                 held.Clear();
-                foreach (KeyBook book in allBooks) book.Clear();
+                foreach (KeyBook book in allBooks) book.ClearForNewGame();
             }
             loggedGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
         }
@@ -725,17 +750,47 @@ namespace ZLevelsRimatomics
             return Helper("grace period", () => column.SpawnedAtTick.HasValue
                 && Find.TickManager.TicksGame - column.SpawnedAtTick.Value >= NoNetGraceTicks, false);
         }
+
+        // Reports a throw from the game tick hook with one fixed-text line through Unity. The line is written once per game. Later ticks
+        // of the same game stay silent. The game is marked before the write, so a write that throws is not tried again on the next tick.
+        internal static void ReportTickFailure(Exception failure)
+        {
+            Verse.Game game = Current.Game;
+            Verse.Game reported;
+            if (tickFailureGame != null && tickFailureGame.TryGetTarget(out reported) && ReferenceEquals(reported, game)) return;
+            tickFailureGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
+            UnityWrite("Z-Levels cooling game tick hook threw " + TypeNameOf(failure)
+                + ". Held log lines may be delayed. Later ticks in this game do not log this again.", true);
+        }
     }
 
-    // A postfix on the static GameComponentUtility.GameComponentTick, which RimWorld calls once per game tick from TickManager.DoSingleTick. The postfix
-    // flushes the held cooling log lines, so a held line does not wait for a cooling net to tick. PatchAll applies it only when a Rimatomics mod is active,
-    // through RimatomicsBridge. This class names no Rimatomics type.
+    // A postfix on the static GameComponentUtility.GameComponentTick. RimWorld calls that method once for each DoSingleTick call, so the
+    // postfix runs once for each call. Under DebugSettings.fastEcology, one call advances the tick counter by 2000, and the postfix still
+    // runs once for that call. The postfix flushes the held cooling log lines, so a held line does not wait for a cooling net to tick.
+    // PatchAll applies it only when a Rimatomics mod is active, through RimatomicsBridge. This class names no Rimatomics type.
     [HarmonyPatch(typeof(GameComponentUtility), nameof(GameComponentUtility.GameComponentTick))]
     public static class CoolingLogTickPatch
     {
+        // The postfix runs inside TickManager.DoSingleTick, outside any try block, so nothing may escape it. A throw is reported once
+        // per game, and the tick goes on.
         static void Postfix()
         {
-            Patch_CoolingNet.FlushOnGameTick();
+            try
+            {
+                Patch_CoolingNet.FlushOnGameTick();
+            }
+            catch (Exception failure)
+            {
+                try
+                {
+                    Patch_CoolingNet.ReportTickFailure(failure);
+                }
+                catch (Exception)
+                {
+                    // Last resort. If UnityWrite throws, or the report throws for any other reason, no channel is left. The throw is
+                    // dropped here, so that it cannot reach the tick. UnityWrite catches its own throws, so this is not expected to run.
+                }
+            }
         }
     }
 }
