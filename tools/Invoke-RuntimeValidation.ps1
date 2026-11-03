@@ -66,17 +66,19 @@ function Assert-SwitchesRead {
 # drawn match the planes expected, with the cell and paired counts matching too. Its two partner tint rows, which Add-OutlineTintRows writes from the
 # screenshots, must also read PASS.
 function Get-RequiredLabels {
-    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
+    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false, [bool]$CoolingNoColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
-    # A -Cooling run names its three link rows and its six reactor rows, so a missing row fails the gate by name. The cooling link row alone would hide which row is missing.
+    # A -Cooling run names its three link rows and its seven reactor rows, the last of which is the overheating row, so a missing row fails the gate by name. The cooling link row alone would hide which row is missing.
     if ($CoolingColumns) {
         $labels += [pscustomobject]@{ Label = "lower turbine shares the surface tower's loop"; Accept = 'PASS' }
         $labels += [pscustomobject]@{ Label = 'cooling link survives reload'; Accept = 'PASS' }
         $labels += [pscustomobject]@{ Label = 'cooling link breaks when a column is removed'; Accept = 'PASS' }
-        foreach ($reactorLabel in @('reactor runs on the lower level', 'loop ratio at or below 1', 'surface tower stays in the lower loop', 'no cooling alert', 'no meltdown', 'surface colonist not irradiated')) {
+        foreach ($reactorLabel in @('reactor runs on the lower level', 'loop ratio at or below 1', 'surface tower stays in the lower loop', 'no cooling alert', 'no meltdown', 'surface colonist not irradiated', 'cooled core stays below overheating')) {
             $labels += [pscustomobject]@{ Label = $reactorLabel; Accept = 'PASS' }
         }
     }
+    # A -CoolingNoColumns run names its positive control row, which must read PASS.
+    if ($CoolingNoColumns) { $labels += [pscustomobject]@{ Label = 'uncooled core overheats'; Accept = 'PASS' } }
     if ($FreeColonists) { $labels += [pscustomobject]@{ Label = 'colonist work recorded'; Accept = 'PASS' } }
     if ($OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
     if ($RimatomicsPlusPlus) { $labels += [pscustomobject]@{ Label = 'rimatomics++ mod active'; Accept = 'PASS' } }
@@ -569,7 +571,7 @@ $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'm
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
-$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)))
+$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)) -CoolingNoColumns ([bool]$CoolingNoColumns))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)

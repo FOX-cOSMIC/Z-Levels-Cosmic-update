@@ -591,41 +591,88 @@ The research component is `RimatomicsResearch._instance`. Its constructor sets t
 
 ## Cross-level cooling: reactor scenario
 
-The scenario runs after the reload in the cooling link sequence. The core and its battery stand on the lower level, and the core's footprint touches the turbine's. A second battery powers the tower on the surface. A colonist stands on the surface cell above the core. The core starts with one `FuelRods` rod in a `Fuel` slot, and `TargetControlRodTo` is set to 1. `Startup()` runs once the core and the tower both read `PowerOn`. The scenario then samples every 250 ticks for 2500 ticks, which gives 11 samples.
+The scenario runs after the reload in the cooling link sequence. The lower level holds the core and its battery, and the core's footprint touches the turbine's. A second battery powers the surface tower. A colonist is on the surface cell above the core.
 
-The `cooling link` row passes only when every label in `CoolingLabels` passes. With `-Cooling`, the runner also requires these six reactor rows.
+The scenario loads 21 `FuelRods`, one into each of the core's 21 `Fuel` slots, and sets `TargetControlRodTo` to 1. `Startup()` runs once the core and the surface tower both read `PowerOn` and the tower is not stalled. The scenario then takes 11 samples, one every 250 ticks from `Startup()` to 2500 ticks. Each `reactor sample` row holds `postReturnTemp`, `IsShutdown`, `IsOverheating`, the loop ratio, and the cooler count.
 
-- `reactor runs on the lower level` passes when `IsShutdown` is false and `FuelCount` is above 0 right after `Startup()`.
-- `loop ratio at or below 1` passes when `CoolingLoopRatio` on the lower turbine's net is 1 or less in every sample.
+The runner accepts one scenario switch per run. `-CoolingNoColumns` runs the same scenario without the column pair, and the no-columns run uses it alone. The reactor rows run in that variant too.
+
+The `cooling link` row passes only when every label it needs passes. With `-Cooling`, those labels include the seven reactor rows below.
+
+- `reactor runs on the lower level` passes when `IsShutdown` is false and `FuelCount` is 21 right after `Startup()`.
+- `loop ratio at or below 1` passes when `CoolingLoopRatio` in the lower loop is 1 or less in every sample.
 - `surface tower stays in the lower loop` passes when the surface tower is in the lower turbine's `Coolers` in every sample.
 - `no cooling alert` passes when the lower turbine's `Coolers` holds at least one cooler in every sample. The alert itself is not tested.
 - `no meltdown` passes when `IsCoreMelt` is false in every sample.
 - `surface colonist not irradiated` passes when the colonist on the surface cell has no `RimatomicsRadiation` hediff at the end.
+- `cooled core stays below overheating` passes when `IsOverheating` is false in every sample.
 
-The runner accepts one scenario switch per run. `-CoolingNoColumns` runs the same scenario without the column pair, and the red run uses it alone. The six reactor rows still run in that variant.
+The no-columns run has one overheating row of its own, `uncooled core overheats`. It passes when `IsOverheating` is true in at least one sample by 2500 ticks. This row is the positive control. It shows that the same load overheats the core with no cooling. Without this row, a pass on `cooled core stays below overheating` could come from a load too small to overheat anything.
 
-Three checks cannot fail at this fuel level, so they are weak. One rod gives a loop ratio of about 0.007. The core peaks at 332.5 without cooling, far below the melt limit of 2000. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
+### Which checks can fail
 
-### Runs
+The no-columns run reads a loop ratio of 0.0000 in every sample, because its lower loop has no cooler and no capacity. The loop ratio check passes there by construction, so that run gives no evidence on the ratio. The cooled run measures the loop. Its ratio rises to 0.5948 by 2500 ticks.
+
+One unstalled tower caps the ratio near 0.6. The output of the 21-rod core peaked at about 148,700 W in both runs. One tower has a capacity of 250,000 W, so the ratio tops out near 0.595. The ratio can exceed 1 only if the tower stalls. No run has tested a stalled tower with the column pair in place.
+
+The melt check did not fail in any run, because the uncooled peaks stayed below 1500, against a melt limit of 2000. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
+
+### Roof over the tower footprint
+
+The surface map differs from run to run, and the runner and the harness set no seed. A roof over any cell of the surface tower's footprint sets its `Stalled` flag. The flag updates at the tower's next 250-tick check, at `CoolingTower.cs`, lines 86 to 93. A stalled tower has a capacity of 25000, against 250000 when unstalled, at `CoolingTower.cs`, lines 30 to 34.
+
+Run `20261103-130813` read a stalled tower in every sample. That run had no column pair, so the tower never joined the lower loop, and the stall did not change the loop readings. With the column pair, a stalled tower gives a ratio of about 5.95, since 148,700 W over 25,000 W is 5.95. No run has tested that case.
+
+The scenario now clears the roof under the tower footprint and waits up to 1500 ticks for the `Stalled` flag to clear before `Startup()`. `OpenTowerFootprint` in `tools/RuntimeValidation/RuntimeValidation.cs` clears the cells and writes a `reactor tower footprint` row with the count. Run `20261103-131225` cleared 12 cells, and its tower read unstalled in every sample. Run `20261103-131411` found no roof to clear.
+
+### Final runs
+
+The two reactor runs used the 21-rod load and the roof handling above. The core run had no reactor.
 
 | Run | Switch | Result |
 |---|---|---|
-| `20261103-124931` | `-CoolingNoColumns` | Fails as expected. `surface tower stays in the lower loop` and `no cooling alert` read FAIL at +0 ticks. |
-| `20261103-125122` | `-Cooling` | Passes. All six reactor rows read PASS, and `cooling link` reads PASS. |
-| `20261103-125300` | none | The core validation passes. It has 30 rows, and no row reads FAIL. |
+| `20261103-131225` | `-CoolingNoColumns` | Fails as expected. The rows that need a column pair fail, and so do `surface tower stays in the lower loop`, `no cooling alert`, and `cooling link`. `uncooled core overheats` passes. |
+| `20261103-131411` | `-Cooling` | Passes. All seven reactor rows and `cooling link` pass. |
+| `20261103-131550` | none | Passes. No row reads FAIL. |
 
-All three runs used the installed build, RimWorld 1.7.4995 rev309. The project target is 1.7.4990 rev1069.
+All runs in this section used the installed build, RimWorld 1.7.4995 rev309. The project target is 1.7.4990 rev1069.
 
-The reactor readings at 500, 1000, 1500, and 2500 ticks after `Startup()`:
+### Temperatures at 21 rods
 
-| Ticks | No columns: postReturnTemp | No columns: uncooled | Cooled: postReturnTemp | Cooled: ratio | Cooled: uncooled |
+The table lists every sample from both reactor runs, from `Startup()` to 2500 ticks. The uncooled columns come from the no-columns run, and the cooled columns come from the cooled run.
+
+| Ticks | Uncooled postReturnTemp | Uncooled IsOverheating | Uncooled IsShutdown | Cooled postReturnTemp | Cooled ratio |
 |---|---|---|---|---|---|
-| 500 | 135.5 | 749.1 | 132.9 | 0.0029 | 0.0 |
-| 1000 | 288.3 | 1599.6 | 277.4 | 0.0061 | 0.0 |
-| 1500 | 328.6 | 1750.0 | 312.1 | 0.0069 | 0.0 |
-| 2500 | 332.5 | 1750.0 | 315.0 | 0.0070 | 0.0 |
+| 0 | 0.0 | no | no | 0.0 | 0.0000 |
+| 250 | 76.3 | no | no | 54.1 | 0.0909 |
+| 500 | 391.7 | no | no | 132.9 | 0.2486 |
+| 750 | 766.3 | yes | no | 212.7 | 0.3994 |
+| 1000 | 1128.1 | yes | yes | 277.4 | 0.5226 |
+| 1250 | 1364.6 | yes | yes | 304.0 | 0.5737 |
+| 1500 | 1359.0 | yes | yes | 312.1 | 0.5893 |
+| 1750 | 1305.2 | yes | yes | 314.3 | 0.5935 |
+| 2000 | 1194.7 | yes | yes | 314.8 | 0.5945 |
+| 2250 | 1010.4 | yes | yes | 315.0 | 0.5948 |
+| 2500 | 757.6 | yes | yes | 315.0 | 0.5948 |
 
-The cooled run settles at 315.0, and the no-column run settles at 332.5. The 17.5 difference matches `ColdWaterFeedReturn` divided by 100 for an uncooled output of 1750 W, from `reactorCore.cs`, lines 918 to 927, and `ColdWaterNet.cs`, line 26. The one-rod predictions held. One fresh rod gave 1750 W, and the cooled core levelled at 315. No run tripped. `IsShutdown` stayed false in all 11 samples of both runs.
+The cooled `postReturnTemp` matches the one-rod cooled run at every sample. `RealTemp` moves toward `StandardTemp` for any fuel count above zero, at `reactorCore.cs`, lines 258 to 268 and line 913. The cooled readings match `RealTemp` alone, because the loop ratio stays below 1 and the overheating term is 0.
+
+The no-columns run crossed 500 between the +500 and +750 samples. It peaked at 1364.6 at +1250 ticks. The cooled run peaked at 315.0 at +2500 ticks and never read `IsOverheating` as true.
+
+The no-columns run tripped once. `IsShutdown` first read true at the +1000 sample, so the trip came between the +750 and +1000 samples. The +750 sample read 766.3, and the +1000 sample read 1128.1, so the trip came after `postReturnTemp` passed 800. The only automatic trip this scene can reach is AutoScram. The flare trip needs an electricity outage, and the core and the tower stayed powered in every sample. The scram checks run every 240 ticks, at `reactorCore.cs`, line 802, so a trip can come up to 240 ticks after the threshold. After the trip, `UncappedPowerGeneration` fell to 0.0 by +2500 ticks, and `postReturnTemp` fell to 757.6, still above 500.
+
+At one rod, the uncooled core settled 17.5 above the cooled core. That gap matched `ColdWaterFeedReturn` divided by 100 for an uncooled output of 1750 W, at `reactorCore.cs`, lines 918 to 927, and `ColdWaterNet.cs`, line 26. At 21 rods, the output reached about 148,700 W. A model without a trip predicted a plateau near 1,802 at 21 rods. The temperature fell after the trip, so it never reached that plateau.
+
+### Earlier runs
+
+The one-rod runs did not show overheating. The uncooled core peaked at 332.5 in `20261103-124931`, far below 500, so the load was raised to 21 rods. The core has 21 fuel slots, at `reactorCore.cs`, line 159, so 21 is the most rods it takes. The 21-rod run crossed 500, so no higher load was tried.
+
+| Run | Load and switch | Result |
+|---|---|---|
+| `20261103-124931` | 1 rod, `-CoolingNoColumns` | The uncooled core peaked at 332.5 and never read `IsOverheating` as true. |
+| `20261103-125122` | 1 rod, `-Cooling` | The cooled core settled at 315.0, and the loop ratio reached 0.0070. |
+| `20261103-125300` | None | The core validation passed with 30 rows, and no row reads FAIL. |
+| `20261103-130813` | 21 rods, `-CoolingNoColumns` | The tower read stalled in every sample. The uncooled core peaked at 1486.9 at +1500 ticks, and the first trip read at +1250 ticks. |
 
 ## Evidence
 
@@ -638,4 +685,5 @@ The cooled run settles at 315.0, and the no-column run settles at 332.5. The 17.
 - Stage 1 timeout: `.artifacts/runs/20261028-134553/`
 - Earlier runs: `.artifacts/runs/20261028-040440/`, `20261028-035409/`, `20261028-035538/`, `20261028-032903/`
 - Decompiles: `.artifacts/ilspy/` (git-ignored)
-- Cross-level cooling reactor runs: `.artifacts/runs/20261103-124931/` (no columns, red), `.artifacts/runs/20261103-125122/` (cooled, green), and `.artifacts/runs/20261103-125300/` (core validation)
+- Cross-level cooling reactor runs: `.artifacts/runs/20261103-131225/` is the no-columns run, `.artifacts/runs/20261103-131411/` is the cooled run, and `.artifacts/runs/20261103-131550/` is the core validation run.
+- Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.

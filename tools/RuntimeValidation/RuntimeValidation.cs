@@ -2277,7 +2277,7 @@ namespace ZLevelsValidation
                         Log.Error("Z-Levels cooling link row could not be recorded: " + linkException);
                     }
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
-                    var owed = new List<string>(CoolingLabels);
+                    var owed = new List<string>(RequiredCoolingLabels());
                     if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.AddRange(new[] { CoolingScreenshotLabel, PartnerAmberLabel, PartnerGreenLabel, PartnerDrawnLabel, PartnerDrawnPairedLabel });
                     foreach (string label in owed)
                     {
@@ -2934,7 +2934,13 @@ namespace ZLevelsValidation
             coolingResults[label] = result;
         }
 
-        // The final line passes only when every label in CoolingLabels has a PASS. Otherwise it names the labels that do not.
+        // The labels the cooling link needs: CoolingLabels, and this run's overheating row. The cooled run's row is the only one the link owes.
+        private static IEnumerable<string> RequiredCoolingLabels()
+        {
+            return CoolingLabels.Append(ReactorOverheatLabel);
+        }
+
+        // The final line passes only when every label RequiredCoolingLabels names has a PASS. Otherwise it names the labels that do not.
         private void RecordCoolingLink()
         {
             if (CoolingNoColumns)
@@ -2954,7 +2960,7 @@ namespace ZLevelsValidation
                 Record("cooling link", "FAIL: the partner outline row failed");
                 return;
             }
-            var notPassed = CoolingLabels.Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
+            var notPassed = RequiredCoolingLabels().Where(label => !coolingResults.TryGetValue(label, out string result) || result != "PASS").ToList();
             Record("cooling link", notPassed.Count == 0 ? "PASS" : "FAIL: not PASS: " + string.Join("; ", notPassed));
         }
 
@@ -3211,11 +3217,15 @@ namespace ZLevelsValidation
                 + "; the surface column at " + coolingPairCell + " was removed; two ticks after: " + detail);
         }
 
-        // The reactor checks. A reactor on the lower level is built after the reload, started with one fuel rod, and sampled every 250 ticks for 2500 ticks.
+        // The reactor checks. A reactor on the lower level is built after the reload, started with ReactorFuelRods fuel rods, and sampled every 250 ticks for 2500 ticks.
         // Each sample reads the surface tower and the lower turbine. The state is static, because it lasts across the reload.
         private const int ReactorSampleInterval = 250;
         private const int ReactorSampleCount = 11;
         private const int ReactorPowerWaitTicks = 1500;
+        // The fuel rods the reactor starts with. The core has 21 fuel slots, and the research sizes a full load at 21 rods.
+        private const int ReactorFuelRods = 21;
+        private const string UncooledOverheatLabel = "uncooled core overheats";
+        private const string CooledOverheatLabel = "cooled core stays below overheating";
         private const string ReactorRunsLabel = "reactor runs on the lower level";
         private const string ReactorRatioLabel = "loop ratio at or below 1";
         private const string ReactorTowerLabel = "surface tower stays in the lower loop";
@@ -3235,6 +3245,13 @@ namespace ZLevelsValidation
         private static string reactorAlertProblem;
         private static string reactorMeltProblem;
         private static int reactorShutdownOffset = -1;
+        // The first sample that read IsOverheating, the sample with the peak postReturnTemp, and the reason a sample could not be read.
+        private static int reactorOverheatOffset = -1;
+        private static int reactorPeakOffset = -1;
+        private static float reactorPeakTemp = float.MinValue;
+        private static string reactorUnreadProblem;
+        // The overheating row of this run. The uncooled run records its positive control, and the cooled run records that the core stays below 500.
+        private static string ReactorOverheatLabel => CoolingNoColumns ? UncooledOverheatLabel : CooledOverheatLabel;
 
         // The core on the lower level, found by its cell. A read after the reload finds the new object.
         private Thing FindReactorCore()
@@ -3318,6 +3335,7 @@ namespace ZLevelsValidation
             ThingWithComps towerBattery = SpawnBuilding(batteryDef, surface, towerBatteryAnchor);
             lowerBattery.GetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
             towerBattery.GetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
+            OpenTowerFootprint();
 
             reactorColonistCell = new IntVec3(coreAnchor.x, 0, coreAnchor.z);
             if (!reactorColonistCell.InBounds(surface)) return "the colonist cell is off the surface map";
@@ -3338,6 +3356,22 @@ namespace ZLevelsValidation
             return null;
         }
 
+        // The surface map is generated afresh in each run, and a roof over any cell of the tower's footprint stalls the tower, which cuts its capacity to 25000.
+        // The reactor scene clears the roof from those cells and records how many it cleared. The Stalled flag clears at the tower's next 250-tick check, and
+        // ReactorPowerProblem waits for that before Startup.
+        private void OpenTowerFootprint()
+        {
+            Thing tower = FindLinkTower();
+            int roofed = 0;
+            foreach (IntVec3 cell in GenAdj.OccupiedRect(tower).Cells)
+            {
+                if (!GridsUtility.Roofed(cell, surface)) continue;
+                surface.roofGrid.SetRoof(cell, (RoofDef)null);
+                roofed++;
+            }
+            Record("reactor tower footprint", roofed + " roofed cells cleared from under the surface tower, so its Stalled flag can clear");
+        }
+
         // Builds the reactor scene. It returns true when the scene stands. Otherwise it records FAIL on each reactor row, with the reason.
         private bool BuildReactor()
         {
@@ -3350,13 +3384,13 @@ namespace ZLevelsValidation
         // Records FAIL on each reactor row that no row has recorded yet, so a reactor that cannot be built or started fails by name.
         private void FailReactorChecks(string reason)
         {
-            foreach (string label in ReactorLabels)
+            foreach (string label in ReactorLabels.Append(ReactorOverheatLabel))
             {
                 if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + reason);
             }
         }
 
-        // The core and the tower need PowerOn before Startup. It returns null when both are on, and the reason when one is not.
+        // The core and the tower need PowerOn before Startup, and the tower must not be stalled by a roof. It returns null when all hold, and the reason when one does not.
         private string ReactorPowerProblem()
         {
             Thing core = FindReactorCore();
@@ -3364,8 +3398,9 @@ namespace ZLevelsValidation
             if (core == null || tower == null) return "the core or the tower is missing";
             bool corePowered = ((ThingWithComps)core).GetComp<CompPowerTrader>()?.PowerOn ?? false;
             bool towerPowered = ((ThingWithComps)tower).GetComp<CompPowerTrader>()?.PowerOn ?? false;
-            if (corePowered && towerPowered) return null;
-            return "the core is powered " + YesNo(corePowered) + " and the tower is powered " + YesNo(towerPowered);
+            bool towerStalled = (bool)ReadField(tower, "Stalled");
+            if (corePowered && towerPowered && !towerStalled) return null;
+            return "the core is powered " + YesNo(corePowered) + ", the tower is powered " + YesNo(towerPowered) + ", and the tower is stalled " + YesNo(towerStalled);
         }
 
         // Starts the reactor once both are powered. It returns the next link step: the sampling step once the reactor starts, the power step while the
@@ -3383,8 +3418,8 @@ namespace ZLevelsValidation
             return LinkStep.Removal;
         }
 
-        // Starts the reactor as the START button does. One fuel rod goes into a Fuel slot, the control rods are set to 1, and Startup runs. The reactor row
-        // reads PASS when IsShutdown is false and FuelCount is above 0 right after Startup.
+        // Starts the reactor as the START button does. One InsertFuel call puts a rod in the first Fuel slot for each of the ReactorFuelRods rods, the control
+        // rods are set to 1, and Startup runs. The reactor row reads PASS when IsShutdown is false and FuelCount is the full rod count right after Startup.
         private void StartReactor(int ticks)
         {
             reactorStartTick = ticks;
@@ -3397,21 +3432,29 @@ namespace ZLevelsValidation
             Type coreType = core.GetType();
             object slots = ReadField(core, "SlotDesignations");
             Type rodType = slots.GetType().GetGenericArguments()[0];
-            ((System.Collections.IList)slots)[0] = Enum.Parse(rodType, "Fuel");
+            var designations = (System.Collections.IList)slots;
+            if (designations.Count < ReactorFuelRods)
+            {
+                RecordCooling(ReactorRunsLabel, "FAIL: the core has " + designations.Count + " fuel slots, not " + ReactorFuelRods);
+                return;
+            }
+            object fuelDesignation = Enum.Parse(rodType, "Fuel");
+            for (int slot = 0; slot < ReactorFuelRods; slot++) designations[slot] = fuelDesignation;
             ThingDef fuelDef = DefDatabase<ThingDef>.GetNamedSilentFail("FuelRods");
             if (fuelDef == null)
             {
                 RecordCooling(ReactorRunsLabel, "FAIL: the FuelRods def is not loaded");
                 return;
             }
-            coreType.GetMethod("InsertFuel", BindingFlags.Public | BindingFlags.Instance).Invoke(core, new object[] { ThingMaker.MakeThing(fuelDef) });
+            MethodInfo insert = coreType.GetMethod("InsertFuel", BindingFlags.Public | BindingFlags.Instance);
+            for (int rod = 0; rod < ReactorFuelRods; rod++) insert.Invoke(core, new object[] { ThingMaker.MakeThing(fuelDef) });
             int fuelAfterInsert = (int)ReadField(core, "FuelCount");
             coreType.GetField("TargetControlRodTo", BindingFlags.Public | BindingFlags.Instance).SetValue(core, 1f);
             coreType.GetMethod("Startup", BindingFlags.Public | BindingFlags.Instance).Invoke(core, null);
             bool shutdown = (bool)ReadField(core, "IsShutdown");
             int fuel = (int)ReadField(core, "FuelCount");
-            RecordCooling(ReactorRunsLabel, !shutdown && fuel > 0 ? "PASS" : "FAIL: IsShutdown is " + YesNo(shutdown) + " and FuelCount is " + fuel + " after Startup");
-            Record("reactor start evidence", "FuelCount " + fuelAfterInsert + " after InsertFuel; TargetControlRodTo 1; IsShutdown " + YesNo(shutdown)
+            RecordCooling(ReactorRunsLabel, !shutdown && fuel == ReactorFuelRods ? "PASS" : "FAIL: IsShutdown is " + YesNo(shutdown) + " and FuelCount is " + fuel + " after Startup, not " + ReactorFuelRods);
+            Record("reactor start evidence", "FuelCount " + fuelAfterInsert + " after " + ReactorFuelRods + " InsertFuel calls; TargetControlRodTo 1; IsShutdown " + YesNo(shutdown)
                 + " and FuelCount " + fuel + " after Startup");
         }
 
@@ -3430,6 +3473,7 @@ namespace ZLevelsValidation
                 reactorTowerProblem = reactorTowerProblem ?? gone;
                 reactorAlertProblem = reactorAlertProblem ?? gone;
                 reactorMeltProblem = reactorMeltProblem ?? gone;
+                reactorUnreadProblem = reactorUnreadProblem ?? gone;
                 Record("reactor sample", "+" + offset + " ticks; the core, the tower, or the turbine is missing");
                 return;
             }
@@ -3437,6 +3481,7 @@ namespace ZLevelsValidation
             bool shutdown = (bool)ReadField(core, "IsShutdown");
             int fuel = (int)ReadField(core, "FuelCount");
             bool melted = (bool)core.GetType().GetProperty("IsCoreMelt", BindingFlags.Public | BindingFlags.Instance).GetValue(core);
+            bool overheating = (bool)core.GetType().GetProperty("IsOverheating", BindingFlags.Public | BindingFlags.Instance).GetValue(core);
             object net = CoolingNetOf(turbine);
             float ratio = (float)ReadField(net, "CoolingLoopRatio");
             float capacity = (float)ReadField(net, "CoolingCapacity");
@@ -3452,11 +3497,17 @@ namespace ZLevelsValidation
             if (coolers.Count == 0) reactorAlertProblem = reactorAlertProblem ?? "at +" + offset + " ticks the lower turbine's Coolers is empty";
             if (melted) reactorMeltProblem = reactorMeltProblem ?? "at +" + offset + " ticks IsCoreMelt is true, with postReturnTemp " + temperature.ToString("F1");
             if (shutdown && reactorShutdownOffset < 0) reactorShutdownOffset = offset;
+            if (overheating && reactorOverheatOffset < 0) reactorOverheatOffset = offset;
+            if (temperature > reactorPeakTemp)
+            {
+                reactorPeakTemp = temperature;
+                reactorPeakOffset = offset;
+            }
             Record("reactor sample", "+" + offset + " ticks; postReturnTemp " + temperature.ToString("F1") + "; ratio " + ratio.ToString("F4")
                 + "; capacity " + capacity.ToString("F0") + "; uncapped " + uncapped.ToString("F1") + "; uncooled " + uncooled.ToString("F1")
                 + "; coolers " + coolers.Count + "; tower listed " + YesNo(listed) + "; tower stalled " + YesNo(stalled)
                 + "; tower powered " + YesNo(towerPowered) + "; core powered " + YesNo(corePowered) + "; IsShutdown " + YesNo(shutdown)
-                + "; fuel " + fuel + "; core melt " + YesNo(melted));
+                + "; IsOverheating " + YesNo(overheating) + "; fuel " + fuel + "; core melt " + YesNo(melted));
         }
 
         // Writes the whole-run checks and the colonist check. A check passes when no sample failed it. The trip row says whether IsShutdown turned true.
@@ -3467,9 +3518,27 @@ namespace ZLevelsValidation
             RecordCooling(ReactorAlertLabel, reactorAlertProblem == null ? "PASS" : "FAIL: " + reactorAlertProblem);
             RecordCooling(ReactorMeltLabel, reactorMeltProblem == null ? "PASS" : "FAIL: " + reactorMeltProblem);
             RecordCooling(ReactorColonistLabel, ColonistResult());
+            RecordCooling(ReactorOverheatLabel, OverheatResult());
+            Record("reactor peak evidence", reactorPeakOffset < 0
+                ? "no sample read the core, so there is no peak"
+                : "peak postReturnTemp " + reactorPeakTemp.ToString("F1") + " at +" + reactorPeakOffset + " ticks; first IsOverheating true at "
+                    + (reactorOverheatOffset < 0 ? "no sample" : "+" + reactorOverheatOffset + " ticks"));
             Record("reactor trip evidence", reactorShutdownOffset < 0
                 ? "IsShutdown stayed false in " + reactorSamplesTaken + " samples, so no trip was seen"
                 : "IsShutdown turned true at +" + reactorShutdownOffset + " ticks");
+        }
+
+        // The overheating row. The uncooled run passes when a sample at or before +2500 ticks read IsOverheating true, so the heat path is shown to pass 500.
+        // The cooled run passes when no sample read IsOverheating and every sample was read, so the cooled core is shown to stay below 500.
+        private string OverheatResult()
+        {
+            if (CoolingNoColumns)
+            {
+                if (reactorOverheatOffset >= 0) return "PASS";
+                return "FAIL: no sample reached IsOverheating by +2500 ticks" + (reactorPeakOffset < 0 ? "" : ", and the peak postReturnTemp was " + reactorPeakTemp.ToString("F1"));
+            }
+            if (reactorOverheatOffset >= 0) return "FAIL: IsOverheating was true at +" + reactorOverheatOffset + " ticks, with the peak postReturnTemp " + reactorPeakTemp.ToString("F1");
+            return reactorUnreadProblem == null ? "PASS" : "FAIL: " + reactorUnreadProblem;
         }
 
         // The colonist stands on the surface cell above the core, and it must have no RimatomicsRadiation hediff at the end. The core's radiation scans
