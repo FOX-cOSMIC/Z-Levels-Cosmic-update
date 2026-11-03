@@ -2562,8 +2562,8 @@ namespace ZLevelsValidation
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) coolingScreenshotFailed = true;
         }
 
-        // Writes the drawn row. It passes when the cells that draw a plane are the cells the scenario expects on the adjacent level, as sets. A FAIL
-        // also fails the cooling link row.
+        // Writes the drawn row. It passes when the cells that draw a plane, each with the colour it was drawn in, are the cells and colours the scenario
+        // expects on the adjacent level, as sets. A FAIL also fails the cooling link row.
         private void RecordPartnerDrawn(Map viewed)
         {
             string result = PartnerDrawnResult(viewed, surface);
@@ -2573,7 +2573,8 @@ namespace ZLevelsValidation
 
         // Reads the outline by name, so a missing field is a row failure with its cause. The drawn cells come from the frame that ran for the viewed map.
         // The expected cells come from the columns the scenario placed on the adjacent level, minus the enclosed ones. They come from the scenario, not
-        // from the registry, so a target that the registry returns in place of a correct one fails the row, even when the count still matches.
+        // from the registry, so a target that the registry returns in place of a correct one fails the row, even when the count still matches, and a cell
+        // in the wrong colour fails it too.
         private static string PartnerDrawnResult(Map viewed, Map adjacent)
         {
             Type hook = Type.GetType("ZLevelsRimatomics.CoolingColumnHighlight, ZLevelsRimatomics");
@@ -2590,12 +2591,9 @@ namespace ZLevelsValidation
             if (missing.Count > 0) return "FAIL: partner outline not built yet: these fields of CoolingColumnHighlight are missing: " + string.Join(", ", missing);
             if (!object.ReferenceEquals(lastMap.GetValue(null), viewed)) return "FAIL: the outline pass did not run on the viewed level";
             if (!(bool)finished.GetValue(null)) return "FAIL: the outline pass threw before it finished";
+            // Each item is an OutlineCell with the colour it was drawn in, so the colour reaches the verdict.
             var drawnCells = new List<ZLevelsRimatomics.OutlineCell>();
-            foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null))
-            {
-                IntVec3 cell = (IntVec3)item;
-                drawnCells.Add(new ZLevelsRimatomics.OutlineCell(cell.x, cell.z, false));
-            }
+            foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null)) drawnCells.Add((ZLevelsRimatomics.OutlineCell)item);
             List<ZLevelsRimatomics.OutlineCell> expected = ExpectedOutline(viewed, adjacent);
             return ZLevelsRimatomics.OutlineRule.DrawnRowVerdict(expected, drawnCells, (int)planes.GetValue(null));
         }

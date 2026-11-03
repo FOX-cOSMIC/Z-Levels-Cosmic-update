@@ -62,8 +62,8 @@ function Assert-SwitchesRead {
 # TAKEN with the file it wrote. The scenario's own label always counts. A -FreeColonists run must record colonist work recorded, and a
 # -OtherColonistsWork run must record other colonists work recorded. The core run writes each after its mining and building checks. A haul
 # run ends before those checks and records the label as FAIL. A run with -RimatomicsPlusPlus must show the mod in its game log. A run with
-# -Visual must write each of its screenshot rows. A -Visual run with cooling columns must also write its outline row, which reads PASS with the
-# cells drawn and the cells expected, and the two must match. Its two partner screenshots must also carry the outline tint.
+# -Visual must write each of its screenshot rows. A -Visual run with cooling columns must also write its outline row, which reads PASS when the cells and colours drawn match the cells and colours
+# expected. Its two partner tint rows, which Add-OutlineTintRows writes from the screenshots, must also read PASS.
 function Get-RequiredLabels {
     param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
@@ -74,11 +74,12 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
-        # The outline row compares the cells drawn with the cells the scenario expects. The two tint checks read the partner screenshots.
+        # The outline row compares the cells and colours drawn with the cells and colours the scenario expects. The two tint rows are written from the
+        # partner screenshots after the game exits, and the gate reads them with the other rows.
         if ($CoolingColumns) {
-            $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS with matching counts' }
-            $labels += [pscustomobject]@{ Label = 'partner highlight amber tint'; Accept = 'PASS' }
-            $labels += [pscustomobject]@{ Label = 'partner highlight green tint'; Accept = 'PASS' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS with planes' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight tint amber'; Accept = 'PASS with values' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight tint green'; Accept = 'PASS with values' }
         }
     }
     return $labels
@@ -96,9 +97,10 @@ function Get-GateProblems {
             continue
         }
         # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. The outline row reads PASS with the
-        # cells drawn and the cells expected. The two numbers must be equal, and above zero.
-        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with matching counts' { 'PASS: ([1-9][0-9]*) cells of \1 expected, [1-9][0-9]* planes$' } default { 'PASS$' } }
-        $passed = @($Results | Where-Object { $_ -match ('[|] ' + [regex]::Escape($label) + ' [|] ' + $accepted) })
+        # cells, planes and paired cells it drew. A tint row reads PASS with the values it measured. The label must be the whole label, at the start of the
+        # row or after "| ", so a longer label does not satisfy it. The row's own PASS or FAIL is the authority, so no count is compared here.
+        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with planes' { 'PASS: [1-9][0-9]* cells of [1-9][0-9]* expected, [1-9][0-9]* planes, [0-9]+ paired$' } 'PASS with values' { 'PASS: .+$' } default { 'PASS$' } }
+        $passed = @($Results | Where-Object { $_ -match ('(^|[|] )' + [regex]::Escape($label) + ' [|] ' + $accepted) })
         if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
     }
     return $problems
@@ -108,18 +110,21 @@ function Get-GateProblems {
 # cooling column stands in the middle 7 by 7 block (x 636 to 642 and y 356 to 362), so that block is left out. The rest of the cell is sampled.
 # The tint is measured against a baseline: the same ring BaselineShiftX pixels to the right, two cells east of the highlight cell. The look clears
 # and lights the cells within two cells of the highlight cell, and no outline reaches the baseline, so the baseline shows the flat ground. A cell
-# passes only when its tint exceeds the baseline by the margin, so a flat warm or flat green surface fails.
-# Calibrated on run 20261102-230106, where the amber cell averages RGB 107.6,86.7,16.6 and the green cell 38.6,98.3,33.5. The no-outline runs
-# 20261102-224947 and 20261102-225711 average 56.5,56.6,53.4 for amber and 43.3,53.7,51.8 for green. The baseline averages 46.3,48.1 in red and
-# green in every run, with or without an outline, so no outline reaches it. Its blue runs from 34 to 47 with the light, as the target's blue does.
+# A cell passes only when each channel clears its own margin against the baseline, so a flat surface cannot pass on a sum of channels. Amber needs a
+# red excess of at least AmberRedExcess, a green excess of at least AmberGreenExcess, and a red of at least AmberRedMin. Green needs a green excess of
+# at least GreenGreenExcess and a red deficit of at least GreenRedDeficit, because a green overlay lowers red. Blue is not judged.
+# Calibrated on the proof runs 20261102-230106, 20261102-233927, 20261102-234045 and 20261103-002454. Their amber cells have a red excess of 61.4 and a
+# green excess of 38.6, and their green cells a green excess of 50.2 and a red deficit of 7.6. The failing runs 20261102-224947, 20261102-225711 and
+# 20261103-001533 have amber red excesses of 10.2 and green excesses of 8.5, and green cells with a green excess of 5.6 or less and a red deficit of 3.0.
+# The baseline averages 46.3 in red and 48.1 in green in every run, so no outline reaches it. Its blue runs from 34 to 47 with the light.
 function Get-OutlineTintSettings {
     return @{
         ImageWidth = 1280; ImageHeight = 720
         CellLeft = 632; CellTop = 352; CellRight = 646; CellBottom = 366
         ColumnLeft = 636; ColumnTop = 356; ColumnRight = 642; ColumnBottom = 362
         BaselineShiftX = 30
-        AmberRedMinusBlue = 40; AmberRedMin = 70
-        GreenMinusRed = 25; GreenMinusBlue = 25
+        AmberRedExcess = 40; AmberGreenExcess = 25; AmberRedMin = 70
+        GreenGreenExcess = 25; GreenRedDeficit = 5
     }
 }
 
@@ -149,7 +154,8 @@ function Get-RingAverage {
     return [pscustomobject]@{ Red = $redTotal / $count; Green = $greenTotal / $count; Blue = $blueTotal / $count; Count = $count }
 }
 
-# Returns PASS when the highlight cell has the tint for its colour, measured against its baseline. Otherwise it returns FAIL with the measured averages.
+# Returns PASS with the measured values when the highlight cell has the tint for its colour, judged per channel against its baseline. Otherwise it returns
+# FAIL, naming the screenshot, the measured averages and the margins it missed.
 # A file that is not a complete PNG, or that the decoder rejects, returns FAIL and names the file, so the gate and the summary still run.
 function Get-OutlineTintResult {
     param([string]$Path, [ValidateSet('amber', 'green')][string]$Color)
@@ -176,15 +182,37 @@ function Get-OutlineTintResult {
     $average = (@($target.Red, $target.Green, $target.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
     $baselineText = (@($baseline.Red, $baseline.Green, $baseline.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
     Write-Host ('Partner tint for ' + $Color + ': average RGB ' + $average + ' over ' + $target.Count + ' pixels. Baseline RGB ' + $baselineText + ' over ' + $baseline.Count + ' pixels.')
+    # Each channel is judged on its own against the baseline, and each margin applies to its own channel, so a sum of channels cannot carry a flat
+    # surface. A green overlay lowers red, so the red check for green is a deficit: the baseline red less the target red.
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $redExcess = $target.Red - $baseline.Red
+    $greenExcess = $target.Green - $baseline.Green
+    $redDeficit = $baseline.Red - $target.Red
+    $measured = 'average RGB ' + $average + ' over baseline RGB ' + $baselineText
     if ($Color -eq 'amber') {
-        $excessRedMinusBlue = ($target.Red - $target.Blue) - ($baseline.Red - $baseline.Blue)
-        if ($excessRedMinusBlue -ge $settings.AmberRedMinusBlue -and $target.Red -ge $settings.AmberRedMin) { return 'PASS' }
-        return 'FAIL: the cell averages RGB ' + $average + ', which lacks the amber tint over its baseline RGB ' + $baselineText
+        $redText = $redExcess.ToString('F1', $culture)
+        $greenText = $greenExcess.ToString('F1', $culture)
+        if ($redExcess -ge $settings.AmberRedExcess -and $greenExcess -ge $settings.AmberGreenExcess -and $target.Red -ge $settings.AmberRedMin) {
+            return 'PASS: ' + $measured + ', red excess ' + $redText + ', green excess ' + $greenText
+        }
+        return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the amber tint: red excess ' + $redText + ' needs ' + $settings.AmberRedExcess + ', green excess ' + $greenText + ' needs ' + $settings.AmberGreenExcess + ', red ' + $target.Red.ToString('F1', $culture) + ' needs ' + $settings.AmberRedMin
     }
-    $excessGreenMinusRed = ($target.Green - $target.Red) - ($baseline.Green - $baseline.Red)
-    $excessGreenMinusBlue = ($target.Green - $target.Blue) - ($baseline.Green - $baseline.Blue)
-    if ($excessGreenMinusRed -ge $settings.GreenMinusRed -and $excessGreenMinusBlue -ge $settings.GreenMinusBlue) { return 'PASS' }
-    return 'FAIL: the cell averages RGB ' + $average + ', which lacks the green tint over its baseline RGB ' + $baselineText
+    $greenText = $greenExcess.ToString('F1', $culture)
+    $deficitText = $redDeficit.ToString('F1', $culture)
+    if ($greenExcess -ge $settings.GreenGreenExcess -and $redDeficit -ge $settings.GreenRedDeficit) {
+        return 'PASS: ' + $measured + ', green excess ' + $greenText + ', red deficit ' + $deficitText
+    }
+    return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the green tint: green excess ' + $greenText + ' needs ' + $settings.GreenGreenExcess + ', red deficit ' + $deficitText + ' needs ' + $settings.GreenRedDeficit
+}
+
+# Appends the two partner tint verdicts to validation-results.txt as rows of their own, after the game exits. A tint row has no timestamp, so the log
+# cross-check does not count it, and the gate reads it like the other rows. Each verdict names the screenshot it read.
+function Add-OutlineTintRows {
+    param([string]$ResultsPath, [string]$ShotFolder)
+    $amber = Get-OutlineTintResult -Path (Join-Path $ShotFolder 'zlevels-partner-amber.png') -Color amber
+    $green = Get-OutlineTintResult -Path (Join-Path $ShotFolder 'zlevels-partner-green.png') -Color green
+    Add-Content -LiteralPath $ResultsPath -Value ('partner highlight tint amber | ' + $amber) -Encoding ASCII
+    Add-Content -LiteralPath $ResultsPath -Value ('partner highlight tint green | ' + $green) -Encoding ASCII
 }
 
 # The mod check reads the game log. RimWorld writes the mod list when it starts a new game, so the list after that line is the set of mods the
@@ -469,6 +497,8 @@ if (!(Test-Path -LiteralPath $resultsPath)) { throw "Game exited without validat
 # The result rows and the game log's marker lines must agree. This reads only the two files, so it applies to every run.
 $cross = Assert-ResultsMatchLog -ResultsPath $resultsPath -LogPath (Join-Path $runDirectory 'Player.log')
 Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Player.log: $($cross.MarkerLines)."
+# The partner tint rows of a -Visual cooling run are written from its two partner screenshots after the cross-check, so the cross-check does not count them.
+if ($Visual -and $Cooling -and -not $CoolingNoColumns) { Add-OutlineTintRows -ResultsPath $resultsPath -ShotFolder (Join-Path $runDirectory 'Screenshots') }
 $results = Get-Content -LiteralPath $resultsPath
 $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } else { 'core validation' }
 $results
@@ -477,12 +507,6 @@ $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column scre
 $requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
-# The partner tint checks read the two partner screenshots of a -Visual cooling run. A screenshot without the outline tint fails the gate.
-if ($Visual -and $Cooling -and -not $CoolingNoColumns) {
-    $shotFolder = Join-Path $runDirectory 'Screenshots'
-    $observed['partner highlight amber tint'] = Get-OutlineTintResult -Path (Join-Path $shotFolder 'zlevels-partner-amber.png') -Color amber
-    $observed['partner highlight green tint'] = Get-OutlineTintResult -Path (Join-Path $shotFolder 'zlevels-partner-green.png') -Color green
-}
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
 Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } elseif ($_.Accept -eq 'PASS or TAKEN') { $_.Label + ' (PASS or TAKEN)' } else { $_.Label + ' (' + $_.Accept + ')' } }) -join ', ') + '.')
 foreach ($label in $observed.Keys) { Write-Host "Observed by the runner: $label = $($observed[$label])." }
