@@ -4428,6 +4428,56 @@ namespace ZLevelsValidation
                 {
                     Record("combat containment: shoot line restores target", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
                 }
+                // TryCastShot. The caster is a turret on the surface. The target is a second turret on the lower level at the same cell, so the
+                // Prefix moves the target up to the caster's map. The Postfix puts it back, and the finalizer does after a fault.
+                Thing castCaster = null;
+                Thing castTarget = null;
+                try
+                {
+                    IntVec3 castCell = FindSharedOpenCell(surface, lower);
+                    castCaster = SpawnMiniTurret(turretDef, castCell, surface);
+                    castTarget = SpawnMiniTurret(turretDef, castCell, lower);
+                    Verb castVerb = ((Building_TurretGun)castCaster).AttackVerb;
+                    typeof(Verb).GetField("currentTarget", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(castVerb, new LocalTargetInfo(castTarget));
+                    // The Prefix sets teleportBack when it moves a thing. Clearing it first makes the flag a record of this call alone.
+                    TryCastShot_Patch.teleportBack = false;
+                    bool returned = false;
+                    Exception thrown = null;
+                    try
+                    {
+                        MethodInfo tryCastShot = typeof(Verb_LaunchProjectile).GetMethod("TryCastShot", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                        returned = (bool)tryCastShot.Invoke(castVerb, null);
+                    }
+                    catch (TargetInvocationException wrapped)
+                    {
+                        thrown = wrapped.InnerException ?? wrapped;
+                    }
+                    catch (Exception exception)
+                    {
+                        thrown = exception;
+                    }
+                    bool teleported = TryCastShot_Patch.teleportBack;
+                    bool targetHome = castTarget.Map == lower;
+                    bool casterHome = castCaster.Map == surface;
+                    string placement = "; target on " + castTarget.Map + ", back on own map: " + targetHome + "; caster on " + castCaster.Map + ", back on own map: " + casterHome;
+                    if (thrown != null) Record("combat containment: TryCastShot restores target", "FAIL: " + DescribeOrTypeName(thrown) + placement);
+                    else if (!teleported) Record("combat containment: TryCastShot restores target", "FAIL: the Prefix did not teleport, so this row proves nothing" + placement);
+                    else if (!targetHome || !casterHome) Record("combat containment: TryCastShot restores target", "FAIL: a thing was left on the wrong map" + placement);
+                    else Record("combat containment: TryCastShot restores target", "PASS: target and caster back on their own maps, prefix teleported, returned " + returned);
+                }
+                catch (Exception exception)
+                {
+                    Record("combat containment: TryCastShot restores target", "FAIL: setup: " + DescribeOrTypeName(exception));
+                }
+                finally
+                {
+                    // The rows above have recorded where each thing was. A thing left on the other map goes back before it is destroyed.
+                    MethodInfo teleport = TeleportThingMethod();
+                    if (castTarget != null && castTarget.Map != lower) teleport.Invoke(null, new object[] { castTarget, lower, castTarget.Position });
+                    if (castCaster != null && castCaster.Map != surface) teleport.Invoke(null, new object[] { castCaster, surface, castCaster.Position });
+                    if (castTarget != null && castTarget.Spawned) castTarget.Destroy(DestroyMode.Vanish);
+                    if (castCaster != null && castCaster.Spawned) castCaster.Destroy(DestroyMode.Vanish);
+                }
             }
             catch (Exception exception)
             {
@@ -4447,6 +4497,26 @@ namespace ZLevelsValidation
                 if (cell.InBounds(map) && cell.Walkable(map) && cell.GetThingList(map).Count == 0) return cell;
             }
             throw new InvalidOperationException("no open cell near the middle of " + map);
+        }
+
+        // The cell nearest the middle of the second map that is open on both maps, so a turret can stand at it on each map. The lower
+        // level is mostly rock, so the search starts from its middle. It stops at radius 79.5, inside the radial pattern's limit of 79.8.
+        private static IntVec3 FindSharedOpenCell(Map first, Map second)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(second.Center, 79.5f, true))
+            {
+                if (cell.InBounds(first) && cell.InBounds(second) && cell.Walkable(first) && cell.Walkable(second)
+                    && cell.GetThingList(first).Count == 0 && cell.GetThingList(second).Count == 0) return cell;
+            }
+            throw new InvalidOperationException("no cell open on both " + first + " and " + second);
+        }
+
+        // A mini turret made from its default stuff, as the TryFindNewTarget row makes its turret, placed at the cell on the map.
+        private static Building_TurretGun SpawnMiniTurret(ThingDef turretDef, IntVec3 cell, Map map)
+        {
+            Thing turret = ThingMaker.MakeThing(turretDef, turretDef.MadeFromStuff ? GenStuff.DefaultStuffFor(turretDef) : null);
+            turret.SetFaction(Faction.OfPlayer);
+            return (Building_TurretGun)GenSpawn.Spawn(turret, cell, map);
         }
 
         private static void Record(string scenario, string result)
