@@ -183,8 +183,29 @@ namespace ZLevelsValidation
         private const string PartnerGreenName = "zlevels-partner-green";
         // The highlight cell, offset from the surface centre. It is 4 cells north of the pairing cell and clear of the pairing layout and its pipe.
         private static readonly IntVec3 PartnerOffset = new IntVec3(-12, 0, 4);
-        // Every cooling column the scenario spawns. The outline row expects one outlined cell for each one that still stands on the adjacent level.
-        private static readonly List<Thing> scenarioColumns = new List<Thing>();
+        // Every cooling column the scenario spawns, with the map and cell it was placed on. The outline row is built from these records, so a column that goes
+        // missing fails the row and names its cell, instead of dropping out of the expectation.
+        private static readonly List<ColumnPlacement> scenarioPlacements = new List<ColumnPlacement>();
+
+        // One placed cooling column. It is usable only while it stands on the map and cell where the scenario placed it.
+        private sealed class ColumnPlacement
+        {
+            public readonly Thing Column;
+            public readonly Map PlacedOn;
+            public readonly IntVec3 Cell;
+
+            public ColumnPlacement(Thing column, Map placedOn, IntVec3 cell)
+            {
+                Column = column;
+                PlacedOn = placedOn;
+                Cell = cell;
+            }
+
+            public bool Usable
+            {
+                get { return Column != null && Column.Spawned && Column.Map == PlacedOn && Column.Position == Cell; }
+            }
+        }
 
         // The colonist's level, job and queue from the mining stage on, for a stall's timeout message. It is not saved.
         private readonly List<string> campfireTrail = new List<string>();
@@ -1729,7 +1750,7 @@ namespace ZLevelsValidation
             building.SetFaction(Faction.OfPlayer);
             var spawned = (ThingWithComps)GenSpawn.Spawn(building, cell, map);
             if (spawned == null) throw new InvalidOperationException("GenSpawn.Spawn returned no thing for " + definition.defName + " at " + cell);
-            if (definition.defName == "ZL_CoolingColumn") scenarioColumns.Add(spawned);
+            if (definition.defName == "ZL_CoolingColumn") scenarioPlacements.Add(new ColumnPlacement(spawned, map, cell));
             return spawned;
         }
 
@@ -2529,7 +2550,7 @@ namespace ZLevelsValidation
                     return false;
                 case 2:
                     if (DateTime.UtcNow < partnerShotDue) return false;
-                    RecordPartnerDrawn(lower, PartnerDrawnLabel);
+                    RecordPartnerDrawn(lower, PartnerDrawnLabel, false);
                     ScreenshotTaker.TakeNonSteamShot(PartnerAmberName);
                     partnerShotDue = DateTime.UtcNow.AddSeconds(3);
                     partnerLookStage = 3;
@@ -2543,7 +2564,7 @@ namespace ZLevelsValidation
                     return false;
                 case 4:
                     if (DateTime.UtcNow < partnerShotDue) return false;
-                    RecordPartnerDrawn(lower, PartnerDrawnPairedLabel);
+                    RecordPartnerDrawn(lower, PartnerDrawnPairedLabel, true);
                     ScreenshotTaker.TakeNonSteamShot(PartnerGreenName);
                     partnerShotDue = DateTime.UtcNow.AddSeconds(3);
                     partnerLookStage = 5;
@@ -2567,19 +2588,20 @@ namespace ZLevelsValidation
         }
 
         // Writes one calls row. It passes when the draw calls of the last frame are the planes the scenario expects on the adjacent level, counted by cell,
-        // side, and colour. The row counts the calls issued, not the pixels on screen. The look writes it at the amber stage and again at the green stage,
-        // after the pair is placed. A FAIL also fails the cooling link row.
-        private void RecordPartnerDrawn(Map viewed, string label)
+        // side, and colour, and the cell and paired counts match the scenario's. The row counts the calls issued, not the pixels on screen. The look writes it
+        // at the amber stage and again at the green stage, after the pair is placed. The green row also requires a paired cell to be drawn. A FAIL also fails
+        // the cooling link row.
+        private void RecordPartnerDrawn(Map viewed, string label, bool requirePaired)
         {
-            string result = PartnerDrawnResult(viewed, surface);
+            string result = PartnerDrawnResult(viewed, surface, requirePaired);
             RecordCooling(label, result);
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) partnerDrawnFailed = true;
         }
 
         // Reads the outline by name, so a missing field is a row failure with its cause. The calls come from the frame that ran for the viewed map.
-        // The expected planes come from the columns the scenario placed on the adjacent level, with the sides the rule draws. They come from the scenario,
-        // not from the registry, so a target that the registry returns in place of a correct one fails the row, even when the count still matches.
-        private static string PartnerDrawnResult(Map viewed, Map adjacent)
+        // The expected planes come from the columns the scenario placed, not from the registry, so a target that the registry returns in place of a correct
+        // one fails the row, and a placed column that goes missing fails it too.
+        private static string PartnerDrawnResult(Map viewed, Map adjacent, bool requirePaired)
         {
             Type hook = Type.GetType("ZLevelsRimatomics.CoolingColumnHighlight, ZLevelsRimatomics");
             if (hook == null) return "FAIL: partner outline not built yet: the type ZLevelsRimatomics.CoolingColumnHighlight is missing";
@@ -2598,24 +2620,30 @@ namespace ZLevelsValidation
             // Each item is one draw call, with its side and the colour its material had at the call. The verdict compares the calls with the expected planes.
             var drawCalls = new List<ZLevelsRimatomics.OutlineDraw>();
             foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null)) drawCalls.Add((ZLevelsRimatomics.OutlineDraw)item);
-            List<ZLevelsRimatomics.OutlineDraw> expected = ExpectedOutline(viewed, adjacent);
-            return ZLevelsRimatomics.OutlineRule.DrawnRowVerdict(expected, drawCalls, (int)planes.GetValue(null));
+            List<ZLevelsRimatomics.OutlineCell> placed;
+            List<ZLevelsRimatomics.OutlineCell> lost;
+            ExpectedOutline(viewed, adjacent, out placed, out lost);
+            float altitude = AltitudeLayer.MetaOverlays.AltitudeFor();
+            return ZLevelsRimatomics.OutlineRule.RowVerdict(placed, lost, drawCalls, (int)planes.GetValue(null),
+                (x, z) => new IntVec3(x, 0, z).InBounds(viewed), altitude, requirePaired);
         }
 
-        // The planes the scenario expects. Each column the scenario placed on the adjacent level that still stands there gives its cell. A cell is paired
-        // when a column the scenario placed stands on the same cell of the viewed level. Each cell counts once. OutlineRule gives the sides it draws.
-        private static List<ZLevelsRimatomics.OutlineDraw> ExpectedOutline(Map viewed, Map adjacent)
+        // The row's expectation, built from every cooling column the scenario placed, whatever its state now. A column placed on the adjacent level gives its cell
+        // a plane cell, once for each cell. A cell is paired when a column the scenario placed stands on the same cell of the viewed level. A placed column that
+        // no longer stands where it was placed goes into lost, whichever level it was on, so the row fails and names its cell.
+        private static void ExpectedOutline(Map viewed, Map adjacent, out List<ZLevelsRimatomics.OutlineCell> placed, out List<ZLevelsRimatomics.OutlineCell> lost)
         {
-            var placed = new List<ZLevelsRimatomics.OutlineCell>();
+            placed = new List<ZLevelsRimatomics.OutlineCell>();
+            lost = new List<ZLevelsRimatomics.OutlineCell>();
             var seen = new HashSet<IntVec3>();
-            foreach (Thing column in scenarioColumns)
+            foreach (ColumnPlacement placement in scenarioPlacements)
             {
-                if (!column.Spawned || column.Map != adjacent || !seen.Add(column.Position)) continue;
-                IntVec3 cell = column.Position;
-                bool paired = scenarioColumns.Exists(other => other.Spawned && other.Map == viewed && other.Position == cell);
+                if (!placement.Usable) lost.Add(new ZLevelsRimatomics.OutlineCell(placement.Cell.x, placement.Cell.z, false));
+                if (placement.PlacedOn != adjacent || !seen.Add(placement.Cell)) continue;
+                IntVec3 cell = placement.Cell;
+                bool paired = scenarioPlacements.Exists(other => other.PlacedOn == viewed && other.Cell == cell);
                 placed.Add(new ZLevelsRimatomics.OutlineCell(cell.x, cell.z, paired));
             }
-            return ZLevelsRimatomics.OutlineRule.ExpectedCalls(placed, (x, z) => new IntVec3(x, 0, z).InBounds(viewed));
         }
 
         // LoopOf is read by name, so a missing or renamed method is a row failure with its cause, not a compile error. When LoopOf cannot

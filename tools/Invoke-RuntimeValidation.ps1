@@ -62,8 +62,9 @@ function Assert-SwitchesRead {
 # TAKEN with the file it wrote. The scenario's own label always counts. A -FreeColonists run must record colonist work recorded, and a
 # -OtherColonistsWork run must record other colonists work recorded. The core run writes each after its mining and building checks. A haul
 # run ends before those checks and records the label as FAIL. A run with -RimatomicsPlusPlus must show the mod in its game log. A run with
-# -Visual must write each of its screenshot rows. A -Visual run with cooling columns must also write its outline row, which reads PASS when the cells and colours drawn match the cells and colours
-# expected. Its two partner tint rows, which Add-OutlineTintRows writes from the screenshots, must also read PASS.
+# -Visual must write each of its screenshot rows. A -Visual run with cooling columns must also write its two calls rows, which read PASS when the planes
+# drawn match the planes expected, with the cell and paired counts matching too. Its two partner tint rows, which Add-OutlineTintRows writes from the
+# screenshots, must also read PASS.
 function Get-RequiredLabels {
     param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
@@ -74,16 +75,37 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
-        # The calls rows compare the (cell, side, colour) planes of the draw calls with the planes the scenario expects. One row is written at the amber
-        # stage, and one at the green stage after the lower column stands. The two tint rows are written from the partner screenshots after the game exits.
+        # The calls rows compare the planes of the draw calls, one for each cell, side and colour, with the planes the scenario expects, and they compare the
+        # cell and paired counts too. One row is written at the amber stage, and one at the green stage after the lower column stands, and the green row must
+        # draw a paired cell. The two tint rows are written from the partner screenshots after the game exits.
         if ($CoolingColumns) {
-            $labels += [pscustomobject]@{ Label = 'partner highlight calls'; Accept = 'PASS with planes' }
-            $labels += [pscustomobject]@{ Label = 'partner highlight calls with pair'; Accept = 'PASS with planes' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight calls'; Accept = 'PASS with counts' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight calls with pair'; Accept = 'PASS with counts and a pair' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint amber'; Accept = 'PASS with values' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint green'; Accept = 'PASS with values' }
         }
     }
     return $labels
+}
+# A calls row reads PASS with three pairs of counts: the planes, the cells and the paired cells, each beside the count the scenario expected. The row passes
+# only when each drawn count equals its expected count, and a row that needs a pair must draw at least one paired cell. This returns the problem, or
+# nothing when the counts are sound.
+function Get-CallsRowProblem {
+    param([string]$Text, [bool]$NeedsPair)
+    $counted = [regex]::Match($Text, '^PASS: ([0-9]+) planes match the ([0-9]+) expected planes, ([0-9]+) cells of ([0-9]+) expected cells, ([0-9]+) paired of ([0-9]+) expected paired$')
+    if (!$counted.Success) { return 'the row does not read as PASS with its planes, cells and paired cells counted: ' + $Text }
+    $planes = [int]$counted.Groups[1].Value
+    $expectedPlanes = [int]$counted.Groups[2].Value
+    $cells = [int]$counted.Groups[3].Value
+    $expectedCells = [int]$counted.Groups[4].Value
+    $paired = [int]$counted.Groups[5].Value
+    $expectedPaired = [int]$counted.Groups[6].Value
+    if ($planes -lt 1 -or $expectedPlanes -lt 1) { return 'no plane was drawn or expected' }
+    if ($planes -ne $expectedPlanes) { return "$planes planes drawn, $expectedPlanes expected" }
+    if ($cells -ne $expectedCells) { return "$cells cells drawn, $expectedCells expected" }
+    if ($paired -ne $expectedPaired) { return "$paired paired cells drawn, $expectedPaired expected" }
+    if ($NeedsPair -and $paired -lt 1) { return 'no paired cell was drawn, so the pair did not draw' }
+    return $null
 }
 # The problems that fail a run. Any FAIL row fails it. A required label fails it unless a row records one of the results it accepts. A label
 # that the runner observed itself counts by its observed value. No problem means the run passes.
@@ -97,12 +119,20 @@ function Get-GateProblems {
             if ($Observed[$label] -ne 'PASS') { $problems += 'required label not PASS: ' + $label + ' (' + $Observed[$label] + ')' }
             continue
         }
-        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. A calls row reads PASS with the planes,
-        # cells and paired cells that matched the expected planes. A tint row reads PASS with the values it measured. The label must be the whole label, at the start of the
-        # row or after "| ", so a longer label does not satisfy it. The row's own PASS or FAIL is the authority, so no count is compared here.
-        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with planes' { 'PASS: [1-9][0-9]* planes match the [1-9][0-9]* expected, [1-9][0-9]* cells, [0-9]+ paired$' } 'PASS with values' { 'PASS: .+$' } default { 'PASS$' } }
+        # A screenshot row reads TAKEN and the path it wrote, so its text must start with TAKEN: and name a file. A calls row reads PASS with its counts, and
+        # Get-CallsRowProblem checks each count after the match. A tint row reads PASS with the values it measured. The label must be the whole label, at the
+        # start of the row or after "| ", so a longer label does not satisfy it.
+        $accepted = switch ($required.Accept) { 'PASS or TAKEN' { '(PASS$|TAKEN: .+$)' } 'PASS with counts' { 'PASS: .+$' } 'PASS with counts and a pair' { 'PASS: .+$' } 'PASS with values' { 'PASS: .+$' } default { 'PASS$' } }
         $passed = @($Results | Where-Object { $_ -match ('(^|[|] )' + [regex]::Escape($label) + ' [|] ' + $accepted) })
-        if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label }
+        if ($passed.Count -eq 0) { $problems += 'required label missing or not ' + $required.Accept + ': ' + $label; continue }
+        if ($required.Accept -like 'PASS with counts*') {
+            $needsPair = $required.Accept -eq 'PASS with counts and a pair'
+            foreach ($row in $passed) {
+                $text = [regex]::Match($row, [regex]::Escape($label) + ' [|] (PASS: .+)$').Groups[1].Value
+                $problem = Get-CallsRowProblem -Text $text -NeedsPair $needsPair
+                if ($problem) { $problems += 'calls row not counted: ' + $label + ': ' + $problem }
+            }
+        }
     }
     return $problems
 }

@@ -19,14 +19,14 @@ namespace ZLevelsRimatomics
         private const int OutlineRenderQueue = 2900;
         private static Texture2D edgeTexture;
         private static InvalidOperationException edgeTextureFault;
-        private static readonly List<IntVec3> pairedCells = new List<IntVec3>();
-        private static readonly List<IntVec3> unpairedCells = new List<IntVec3>();
+        private static readonly List<OutlineCell> targetCells = new List<OutlineCell>();
         // The failures already logged on each map. A failure is one exception type with one message. The same failure on the same map logs once,
         // and a different failure on the same map logs again.
         private static readonly ConditionalWeakTable<Map, HashSet<string>> loggedFailures = new ConditionalWeakTable<Map, HashSet<string>>();
         // The outcome of the last frame that ran for a map, for the validation harness. LastMap is the map that frame ran for. FinishedLastFrame is
         // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. DrawCallsLastFrame has one entry for each
-        // of those calls, with the cell, the side, and the colour that the call's material had, so the harness compares the planes that reached the draw.
+        // of those calls, with the cell, the side, the colour that the call's material had, and the pose of the matrix that reached the draw. The harness
+        // compares those entries with the planes it expects.
         public static Map LastMap;
         public static bool FinishedLastFrame;
         public static int PlanesLastFrame;
@@ -51,24 +51,36 @@ namespace ZLevelsRimatomics
             return texture;
         }
 
-        // One Graphics.DrawMesh call for each plane that OutlineRule.PlaneCalls plans for the group. GenDraw.DrawFieldEdges draws the same planes with
-        // Graphics.DrawMeshInstanced. With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does
-        // not use instancing. Each call adds one entry to DrawCallsLastFrame, with the cell, the side it faces, and the colour that its material read back.
-        private static void DrawOutline(List<IntVec3> cells, bool paired, Map map)
+        // One Graphics.DrawMesh call for each plane that OutlineRule.PlannedCalls plans for the targets, in the colour of its state. The matrix is built from the
+        // game's own position and rotation, and the pose that reaches the call is read back from that matrix, so the row compares what reached the draw with
+        // the plan. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced. With that call, two of five look runs lost the GPU device
+        // (20261102-215009 and 20261102-215926), so this draw does not use instancing. Each call adds one entry to DrawCallsLastFrame.
+        private static void DrawOutline(List<OutlineCell> cells, Map map)
         {
-            if (cells.Count == 0) return;
-            OutlineColour palette = paired ? OutlineRule.PairedColour : OutlineRule.UnpairedColour;
-            Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, ToColor(palette), OutlineRenderQueue);
-            var group = new List<OutlineCell>(cells.Count);
-            foreach (IntVec3 cell in cells) group.Add(new OutlineCell(cell.x, cell.z, paired));
-            foreach (OutlineDraw call in OutlineRule.PlaneCalls(group, palette, (x, z) => new IntVec3(x, 0, z).InBounds(map)))
+            float altitude = AltitudeLayer.MetaOverlays.AltitudeFor();
+            foreach (OutlineDraw planned in OutlineRule.PlannedCalls(cells, (x, z) => new IntVec3(x, 0, z).InBounds(map), altitude))
             {
-                Vector3 position = new IntVec3(call.X, 0, call.Z).ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
-                Material callMaterial = material;
-                Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(call.Side).AsQuat, Vector3.one), callMaterial, 0);
+                Material material = MaterialFor(planned.Colour);
+                Vector3 position = new IntVec3(planned.X, 0, planned.Z).ToVector3ShiftedWithAltitude(AltitudeLayer.MetaOverlays);
+                Matrix4x4 matrix = Matrix4x4.TRS(position, new Rot4(planned.Side).AsQuat, Vector3.one);
+                Graphics.DrawMesh(MeshPool.plane10, matrix, material, 0);
                 PlanesLastFrame++;
-                DrawCallsLastFrame.Add(new OutlineDraw(call.X, call.Z, call.Side, ColourOf(callMaterial)));
+                DrawCallsLastFrame.Add(new OutlineDraw(planned.X, planned.Z, planned.Side, ColourOf(material), PoseOf(matrix)));
             }
+        }
+
+        // The material of an outline colour, from the field-edge texture and the transparent shader.
+        private static Material MaterialFor(OutlineColour colour)
+        {
+            return MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, ToColor(colour), OutlineRenderQueue);
+        }
+
+        // The position and rotation that a matrix carries, read back from the matrix that reached Graphics.DrawMesh.
+        private static OutlinePose PoseOf(Matrix4x4 matrix)
+        {
+            Vector4 position = matrix.GetColumn(3);
+            Quaternion rotation = matrix.rotation;
+            return new OutlinePose(position.x, position.y, position.z, rotation.x, rotation.y, rotation.z, rotation.w);
         }
 
         // The colour of a material, read back from it, as the four channels of an outline colour.
@@ -94,15 +106,12 @@ namespace ZLevelsRimatomics
                 FinishedLastFrame = false;
                 PlanesLastFrame = 0;
                 DrawCallsLastFrame.Clear();
-                pairedCells.Clear();
-                unpairedCells.Clear();
+                targetCells.Clear();
                 foreach (CoolingTarget target in CoolingLoopRegistry.HighlightTargets(___map))
                 {
-                    if (target.Paired) pairedCells.Add(target.Cell);
-                    else unpairedCells.Add(target.Cell);
+                    targetCells.Add(new OutlineCell(target.Cell.x, target.Cell.z, target.Paired));
                 }
-                DrawOutline(pairedCells, true, ___map);
-                DrawOutline(unpairedCells, false, ___map);
+                DrawOutline(targetCells, ___map);
                 FinishedLastFrame = true;
             }
             catch (Exception exception)
