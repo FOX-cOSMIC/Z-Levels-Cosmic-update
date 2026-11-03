@@ -13,8 +13,9 @@ namespace ZLevelsRimatomics
     // loop, so only that loop stays out, and the other loops still join. A member with no pipe net is skipped, and a notice is logged once the column has
     // had NoNetGraceTicks to join. When the merge throws, the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct
     // failure is logged once per game, up to 64 distinct failures in a game. A line that Verse or Unity will not write is held when it happens, up to 64
-    // held lines, and the held lines are written in order on the first tick that the log will write. A held line past that limit is dropped and counted.
-    // A count line says how many, and it clears the dropped keys, so a key that happens again is logged after it, up to the cap of its book.
+    // held lines. A game tick and a cooling net tick each write the held lines in order while the log will write, and each stops at the first line that the
+    // log will not write. A held line past that limit is dropped and counted. A count line says how many, and it clears the dropped keys, so a key that
+    // happens again is logged after it, up to the cap of its book.
     // A builder that throws writes one fixed-text line for its key, and a log check that
     // throws writes one fixed-text line for the process, both through UnityEngine.Debug. A column whose name cannot be read is named by its cell and map.
     // No exception leaves the prefix, and the original Tick then runs.
@@ -134,14 +135,16 @@ namespace ZLevelsRimatomics
         }
 
         // Logs a column whose pipe comp is missing. It runs at spawn, so it runs the game check first, and then it goes through the same gate as the other lines.
+        // The key is the column's def and map, so one broken def logs once on each map, and the line names the first such column that it logs.
         internal static void LogMissingPipe(CompCoolingColumn column)
         {
             Guard("forget earlier games", ForgetFailuresOfEarlierGames);
             Guard("log a column with no pipe", () =>
             {
-                string key = Helper("column key", () => ColumnKey(column), "column " + IdentityOf(column));
+                string key = Helper("column key", () => DefAndMapKey(column), "unreadable column");
                 LogOnce(failures, "no pipe|" + key,
-                    () => "Z-Levels cooling column " + NameOrPlace(column) + " has no Rimatomics pipe comp, so it does not join a loop.", false);
+                    () => "Z-Levels cooling column " + NameOrPlace(column) + " has no Rimatomics pipe comp, so it does not join a loop."
+                        + " Further columns of this definition on this map are not logged again in this game.", false);
             });
         }
 
@@ -275,6 +278,16 @@ namespace ZLevelsRimatomics
             ThingWithComps thing = column.parent;
             if (thing == null || thing.Map == null) return "column " + IdentityOf(column);
             return "map " + thing.Map.uniqueID + ", " + thing.def.defName + " at " + thing.Position;
+        }
+
+        // The key of a column's def and map. Every column of one def on one map shares it, so one broken def uses one slot on each map. A column with no map is
+        // keyed by its def, and a column with no place shares one key.
+        private static string DefAndMapKey(CompCoolingColumn column)
+        {
+            ThingWithComps thing = column.parent;
+            if (thing == null) return "no place";
+            if (thing.Map == null) return "no map, " + thing.def.defName;
+            return "map " + thing.Map.uniqueID + ", " + thing.def.defName;
         }
 
         // A number that names one object for as long as the object lives.
@@ -418,8 +431,9 @@ namespace ZLevelsRimatomics
             return false;
         }
 
-        // A builder that throws writes one fixed-text line through Unity, with the exception type. The key is marked only when Unity is on, because only then
-        // is the line written. Otherwise the next tick builds the line again.
+        // A builder that throws writes one fixed-text line through Unity, with the exception type. The key is marked only when Unity is on. With Unity off, the
+        // line is not written, so the next tick builds it again. The key is marked before the Unity write. That write is the last channel, and a throw from it
+        // is dropped inside UnityWrite with no channel left to retry through. The key stays marked, so the line is not built again.
         private static void ReportBuildFailure(KeyBook book, string key, Exception buildFailure)
         {
             if (!UnityLoggerOn()) return;
@@ -476,28 +490,59 @@ namespace ZLevelsRimatomics
             Write(book.CapText, true);
         }
 
-        // Writes the held lines, in the order they happened, on the first tick that the log will write. A key that is marked by now is skipped. A key past the
-        // cap of its book is not written, and that book's cap line is written. Then one count line says how many lines were not kept since the last count. The
-        // count line clears the dropped keys, so a key that happens again is logged after it.
+        // Runs on every game tick, from CoolingLogComponent. It writes the held lines even when no cooling net ticks, so a held line does not wait for a net.
+        // With nothing pending it reads no log flag and builds nothing.
+        internal static void TickFromComponent()
+        {
+            Guard("forget earlier games", ForgetFailuresOfEarlierGames);
+            if (NothingPending()) return;
+            Guard("write the held lines", FlushHeld);
+        }
+
+        // Whether a flush has anything to write: a held line, a count line, or a cap line.
+        private static bool NothingPending()
+        {
+            if (held.Count > 0 || droppedSinceReport > 0) return false;
+            foreach (KeyBook book in allBooks)
+            {
+                if (book.CapWanted && !book.CapReported) return false;
+            }
+            return true;
+        }
+
+        // Writes the held lines in the order they happened, then the cap lines and the count line. Each line is checked on its own. The first line that the log
+        // will not write stops the flush, and the rest stay held. Only the lines written are marked. The cap lines and the count line are written only when the
+        // log will write. The count line clears the dropped keys, so a key that happens again is logged after it.
         private static void FlushHeld()
         {
-            if (!WillWrite()) return;
             while (held.Count > 0)
             {
                 HeldLine line = held[0];
-                held.RemoveAt(0);
-                if (line.Book.Keys.Contains(line.Key)) continue;
+                if (line.Book.Keys.Contains(line.Key))
+                {
+                    held.RemoveAt(0);
+                    continue;
+                }
                 if (line.Book.Keys.Count >= line.Book.Max)
                 {
                     line.Book.CapWanted = true;
+                    held.RemoveAt(0);
                     continue;
                 }
+                if (!WillWrite()) return;
+                held.RemoveAt(0);
                 line.Book.Keys.Add(line.Key);
                 Write(line.Text, line.Warning);
             }
-            foreach (KeyBook book in allBooks) ReportCapIfWanted(book);
+            foreach (KeyBook book in allBooks)
+            {
+                if (!book.CapWanted || book.CapReported) continue;
+                if (!WillWrite()) return;
+                ReportCapIfWanted(book);
+            }
             if (droppedSinceReport > 0)
             {
+                if (!WillWrite()) return;
                 Write(DroppedText(), true);
                 droppedSinceReport = 0;
                 droppedOverflow = false;
@@ -626,7 +671,8 @@ namespace ZLevelsRimatomics
 
         // The game check. A game other than the one the books belong to is a change, and the books and the held lines are forgotten. The reference is weak,
         // so a game that is over can be collected. The first game of the process has no earlier game, so it clears nothing, and a line held before the first
-        // check is kept. A change from an earlier game counts the held lines as not kept, and the next flush that can write reports the count.
+        // check is kept. A change from an earlier game counts the held lines as not kept. The count and the overflow flag describe the same lines, so they carry
+        // over together, and the next flush that can write reports them. The dropped keys are cleared, because keys belong to one game.
         private static void ForgetFailuresOfEarlierGames()
         {
             Verse.Game game = Current.Game;
@@ -636,7 +682,6 @@ namespace ZLevelsRimatomics
             {
                 droppedSinceReport += held.Count;
                 held.Clear();
-                droppedOverflow = false;
                 foreach (KeyBook book in allBooks) book.Clear();
             }
             loggedGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
