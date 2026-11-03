@@ -15,16 +15,47 @@ using Verse.AI.Group;
 
 namespace ZLevels
 {
+    // A fault that a combat patch contains. The patch logs one error line per distinct failure, keyed by the patch, the exception type,
+    // the message and the IL offset, so a repeated fault does not flood the log. The game keeps its own result.
+    internal static class CombatFaults
+    {
+        private static readonly HashSet<string> loggedFaults = new HashSet<string>();
+
+        public static void Log(string patch, Exception exception)
+        {
+            int offset = new System.Diagnostics.StackTrace(exception, false).GetFrame(0)?.GetILOffset() ?? -1;
+            string key = patch + "|" + exception.GetType().FullName + "|" + exception.Message + "|" + offset;
+            if (loggedFaults.Add(key))
+            {
+                ZLogger.Error("Combat patch " + patch + " faulted and was contained: " + exception.GetType().FullName + ": " + exception.Message + " (IL offset " + offset + ")");
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(AttackTargetFinder), "BestShootTargetFromCurrentPosition")]
     public static class BestShootTargetFromCurrentPosition_Patch
     {
         private static void Prefix()
         {
-            CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+            try
+            {
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("BestShootTargetFromCurrentPosition.Prefix", exception);
+            }
         }
         private static void Postfix()
         {
-            CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+            try
+            {
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("BestShootTargetFromCurrentPosition.Postfix", exception);
+            }
         }
     }
     
@@ -33,11 +64,25 @@ namespace ZLevels
     {
         private static void Prefix()
         {
-            CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+            try
+            {
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("FindAttackTarget.Prefix", exception);
+            }
         }
         private static void Postfix()
         {
-            CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+            try
+            {
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("FindAttackTarget.Postfix", exception);
+            }
         }
     }
     
@@ -51,41 +96,57 @@ namespace ZLevels
                 float maxTravelRadiusFromLocus = float.MaxValue, bool canBashDoors = false, bool canTakeTargetsCloserThanEffectiveMinRange = true, bool canBashFences = false, bool onlyRanged = false)
         {
             bool result = true;
-            if (!recursiveTrap && multiMapSearch)
+            try
             {
-                recursiveTrap = true;
-                Map oldMap = searcher.Thing.Map;
-                IntVec3 oldPosition = searcher.Thing.Position;
-                bool dontCheckForStairs = searcher.Thing is Building;
-                foreach (var map in ZUtils.GetAllMapsInClosestOrder(searcher.Thing, oldMap, oldPosition, dontCheckForStairs: dontCheckForStairs))
+                if (!recursiveTrap && multiMapSearch)
                 {
-                    if (map != oldMap)
+                    recursiveTrap = true;
+                    Map oldMap = searcher.Thing.Map;
+                    IntVec3 oldPosition = searcher.Thing.Position;
+                    bool dontCheckForStairs = searcher.Thing is Building;
+                    try
                     {
-                        if (ZUtils.ZTracker.GetZIndexFor(map) < ZUtils.ZTracker.GetZIndexFor(oldMap))
+                        foreach (var map in ZUtils.GetAllMapsInClosestOrder(searcher.Thing, oldMap, oldPosition, dontCheckForStairs: dontCheckForStairs))
                         {
-                            CanBeSeenOverFast_Patch.checkLevels = true;
-                            CanBeSeenOverFast_Patch.upperMap = oldMap;
-                            CanBeSeenOverFast_Patch.lowerMap = map;
-                            CanBeSeenOverFast_Patch.caster = searcher.Thing;
-                        }
-                        var target = AttackTargetFinder.BestAttackTarget(searcher, flags, validator, minDist,
-                                maxDist, locus, maxTravelRadiusFromLocus, canBashDoors, canTakeTargetsCloserThanEffectiveMinRange, canBashFences, onlyRanged);
-                        //ZLogger.Message(searcher.Thing + " - 1: " + ZUtils.ZTracker.GetMapInfo(searcher.Thing.Map) + " - result: " + target);
-                        if (target != null)
-                        {
-                            __result = target;
-                            result = false;
-                            break;
+                            if (map != oldMap)
+                            {
+                                if (ZUtils.ZTracker.GetZIndexFor(map) < ZUtils.ZTracker.GetZIndexFor(oldMap))
+                                {
+                                    CanBeSeenOverFast_Patch.checkLevels = true;
+                                    CanBeSeenOverFast_Patch.upperMap = oldMap;
+                                    CanBeSeenOverFast_Patch.lowerMap = map;
+                                    CanBeSeenOverFast_Patch.caster = searcher.Thing;
+                                }
+                                var target = AttackTargetFinder.BestAttackTarget(searcher, flags, validator, minDist,
+                                        maxDist, locus, maxTravelRadiusFromLocus, canBashDoors, canTakeTargetsCloserThanEffectiveMinRange, canBashFences, onlyRanged);
+                                //ZLogger.Message(searcher.Thing + " - 1: " + ZUtils.ZTracker.GetMapInfo(searcher.Thing.Map) + " - result: " + target);
+                                if (target != null)
+                                {
+                                    __result = target;
+                                    result = false;
+                                    break;
+                                }
+                            }
                         }
                     }
+                    finally
+                    {
+                        // The loop moves the searcher from map to map. It goes back on every exit, including a fault inside the loop.
+                        recursiveTrap = false;
+                        CanBeSeenOverFast_Patch.checkLevels = false;
+                        CanBeSeenOverFast_Patch.upperMap = null;
+                        CanBeSeenOverFast_Patch.lowerMap = null;
+                        CanBeSeenOverFast_Patch.caster = null;
+                        //ZLogger.Message("1 Trying to get " + searcher.Thing + " back to " + oldMap + " - " + oldPosition);
+                        ZUtils.TeleportThing(searcher.Thing, oldMap, oldPosition);
+                    }
                 }
-                //ZLogger.Message("1 Trying to get " + searcher.Thing + " back to " + oldMap + " - " + oldPosition);
-                ZUtils.TeleportThing(searcher.Thing, oldMap, oldPosition);
-                recursiveTrap = false;
-                CanBeSeenOverFast_Patch.checkLevels = false;
-                CanBeSeenOverFast_Patch.upperMap = null;
-                CanBeSeenOverFast_Patch.lowerMap = null;
-                CanBeSeenOverFast_Patch.caster = null;
+            }
+            catch (Exception exception)
+            {
+                // The original search runs, so this Prefix returns true. __result is left for the original to write.
+                CombatFaults.Log("AttackTargetFinder.BestAttackTarget.Prefix", exception);
+                return true;
             }
             return result;
         }
@@ -103,31 +164,40 @@ namespace ZLevels
         public static Thing caster = null;
         public static bool Prefix(IntVec3 c, Map map, ref bool __result)
         {
-            if (checkLevels)
+            try
             {
-                __result = true;
-                return false;
+                if (checkLevels)
+                {
+                    __result = true;
+                    return false;
+                }
+                if (checkLevels && c.GetTerrain(upperMap) == ZLevelsDefOf.ZL_OutsideTerrain)
+                {
+                    ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
+                    ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
+                    __result = true;
+                    return false;
+                }
+                else if (checkLevels && c != caster.positionInt)
+                {
+                    ZLogger.Message(caster + " - " + c + " - Return false: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
+                    ZLogger.Message(caster + " - " + c + " - Return false: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
+                }
+                else if (checkLevels && c == caster.positionInt)
+                {
+                    ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
+                    ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
+                    __result = true;
+                    return false;
+                }
+                return true;
             }
-            if (checkLevels && c.GetTerrain(upperMap) == ZLevelsDefOf.ZL_OutsideTerrain)
+            catch (Exception exception)
             {
-                ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-                __result = true;
-                return false;
+                // The vanilla check runs, so this Prefix returns true. __result is left for the vanilla check to write.
+                CombatFaults.Log("GenGrid.CanBeSeenOverFast.Prefix", exception);
+                return true;
             }
-            else if (checkLevels && c != caster.positionInt)
-            {
-                ZLogger.Message(caster + " - " + c + " - Return false: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                ZLogger.Message(caster + " - " + c + " - Return false: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-            }
-            else if (checkLevels && c == caster.positionInt)
-            {
-                ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-                __result = true;
-                return false;
-            }
-            return true;
         }
     }
     
@@ -138,6 +208,7 @@ namespace ZLevels
         public static Map targetOldMap;
     
         public static bool teleportBack;
+        private static Thing movedThing;
         public static void Prefix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
         {
             //ZLogger.Message("__instance.caster: " + __instance.caster);
@@ -148,44 +219,86 @@ namespace ZLevels
             //ZLogger.Message("___currentTarget.Thing?.Map: " + ___currentTarget.Thing?.Map);
             //ZLogger.Message("___currentTarget.Thing?.Map.Tile: " + ___currentTarget.Thing?.Map.Tile);
         
-            if (__instance.caster.Map != ___currentTarget.Thing?.Map && __instance.caster.Map.Tile == ___currentTarget.Thing?.Map?.Tile)
+            try
             {
-                var ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
-                var ind2 = ZUtils.ZTracker.GetZIndexFor(___currentTarget.Thing.Map);
-                if (ind1 > ind2)
+                if (__instance.caster.Map != ___currentTarget.Thing?.Map && __instance.caster.Map.Tile == ___currentTarget.Thing?.Map?.Tile)
                 {
-                    teleportBack = true;
-                    targetOldMap = ___currentTarget.Thing.Map;
-                    ZUtils.TeleportThing(___currentTarget.Thing, __instance.caster.Map, ___currentTarget.Thing.Position);
-                    RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
+                    var ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
+                    var ind2 = ZUtils.ZTracker.GetZIndexFor(___currentTarget.Thing.Map);
+                    if (ind1 > ind2)
+                    {
+                        teleportBack = true;
+                        targetOldMap = ___currentTarget.Thing.Map;
+                        movedThing = ___currentTarget.Thing;
+                        ZUtils.TeleportThing(___currentTarget.Thing, __instance.caster.Map, ___currentTarget.Thing.Position);
+                        RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
+                    }
+                    else if (ind1 < ind2)
+                    {
+                        teleportBack = true;
+                        casterOldMap = __instance.caster.Map;
+                        movedThing = __instance.caster;
+                        ZUtils.TeleportThing(__instance.caster, ___currentTarget.Thing.Map, __instance.caster.Position);
+                        RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
+                    }
                 }
-                else if (ind1 < ind2)
-                {
-                    teleportBack = true;
-                    casterOldMap = __instance.caster.Map;
-                    ZUtils.TeleportThing(__instance.caster, ___currentTarget.Thing.Map, __instance.caster.Position);
-                    RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
-                }
+            }
+            catch (Exception exception)
+            {
+                // A teleport that happened is undone by Postfix, because teleportBack and the old map are already set. The fault is logged.
+                CombatFaults.Log("Verb_LaunchProjectile.TryCastShot.Prefix", exception);
             }
         }
         
         public static void Postfix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
         {
-            if (teleportBack)
+            try
             {
-                if (targetOldMap != null)
+                // Nothing is decided on this path. The undo of the Prefix's teleport is in the finally, so it runs on every exit.
+            }
+            finally
+            {
+                if (teleportBack)
                 {
-                    ZUtils.TeleportThing(___currentTarget.Thing, targetOldMap, ___currentTarget.Thing.Position);
-                    targetOldMap = null;
-                    RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = true;
+                    UndoTeleport();
                 }
-                else if (casterOldMap != null)
+            }
+        }
+
+        // Puts back the thing that the Prefix moved, then clears the pending move. The Postfix calls it on the normal path. The finalizer
+        // calls it after a fault in the Prefix or in the original method, because the Postfix does not run then. It does nothing when no move is pending.
+        private static void UndoTeleport()
+        {
+            try
+            {
+                if (movedThing != null)
                 {
-                    ZUtils.TeleportThing(__instance.caster, casterOldMap, __instance.caster.Position);
-                    casterOldMap = null;
+                    Map home = targetOldMap ?? casterOldMap;
+                    if (home != null)
+                    {
+                        ZUtils.TeleportThing(movedThing, home, movedThing.Position);
+                    }
                     RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = true;
                 }
             }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("Verb_LaunchProjectile.TryCastShot.UndoTeleport", exception);
+            }
+            finally
+            {
+                movedThing = null;
+                targetOldMap = null;
+                casterOldMap = null;
+            }
+        }
+
+        // Runs after a fault in the Prefix or in the original method. Harmony passes __exception by value, so this cannot clear it,
+        // and the exception still reaches the caller.
+        [HarmonyFinalizer]
+        private static void Finalizer(Exception __exception)
+        {
+            UndoTeleport();
         }
     }
     
@@ -225,7 +338,14 @@ namespace ZLevels
     {
         public static void Postfix(ref Building_TurretGun __instance, ref LocalTargetInfo __result)
         {
-            //ZLogger.Message(__instance + " got target " + __result);
+            try
+            {
+                //ZLogger.Message(__instance + " got target " + __result);
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("Building_TurretGun.TryFindNewTarget.Postfix", exception);
+            }
         }
     }
     
@@ -236,59 +356,106 @@ namespace ZLevels
         public static Map oldMap1;
         public static Map oldMap2;
         public static bool teleportBack;
+        private static Thing movedThing;
         public static int ind1 = 0;
         public static int ind2 = 0;
         public static void Prefix(Verb __instance, IntVec3 root, LocalTargetInfo targ, ref ShootLine resultingLine, ref bool __result)
         {
-            if (__instance.caster?.Map != targ.Thing?.Map && __instance.caster?.Map?.Tile == targ.Thing?.Map?.Tile)
+            try
             {
-                ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
-                ind2 = ZUtils.ZTracker.GetZIndexFor(targ.Thing.Map);
-                if (ind1 > ind2)
+                if (__instance.caster?.Map != targ.Thing?.Map && __instance.caster?.Map?.Tile == targ.Thing?.Map?.Tile)
                 {
-                    teleportBack = true;
-                    oldMap1 = targ.Thing.Map;
-                    ZUtils.TeleportThing(targ.Thing, __instance.caster.Map, targ.Thing.Position);
+                    ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
+                    ind2 = ZUtils.ZTracker.GetZIndexFor(targ.Thing.Map);
+                    if (ind1 > ind2)
+                    {
+                        teleportBack = true;
+                        oldMap1 = targ.Thing.Map;
+                        movedThing = targ.Thing;
+                        ZUtils.TeleportThing(targ.Thing, __instance.caster.Map, targ.Thing.Position);
+                    }
+                    else if (ind1 < ind2)
+                    {
+                        teleportBack = true;
+                        oldMap2 = __instance.caster.Map;
+                        movedThing = __instance.caster;
+                        ZUtils.TeleportThing(__instance.caster, targ.Thing.Map, __instance.caster.Position);
+                    }
                 }
-                else if (ind1 < ind2)
-                {
-                    teleportBack = true;
-                    oldMap2 = __instance.caster.Map;
-                    ZUtils.TeleportThing(__instance.caster, targ.Thing.Map, __instance.caster.Position);
-                }
+            }
+            catch (Exception exception)
+            {
+                // A teleport that happened is undone by Postfix, because teleportBack and the old map are already set. The fault is logged.
+                CombatFaults.Log("Verb.TryFindShootLineFromTo.Prefix", exception);
             }
         }
         public static void Postfix(Verb __instance, IntVec3 root, LocalTargetInfo targ, ref ShootLine resultingLine, ref bool __result)
         {
             if (teleportBack)
             {
-                if (oldMap1 != null)
+                try
                 {
-                    ZUtils.TeleportThing(targ.Thing, oldMap1, targ.Thing.Position);
-                    oldMap1 = null;
-                }
-                else if (oldMap2 != null)
-                {
-                    ZUtils.TeleportThing(__instance.caster, oldMap2, __instance.caster.Position);
-                    oldMap2 = null;
-                }
-            
-                if (__result)
-                {
-                    if (ind1 > ind2 && !IsVoidsEverywhereInShootingLine(resultingLine, __instance.caster.Map, __instance.caster, targ.Thing))
+                    if (__result)
                     {
-                        __result = false;
-                    }
-                    else if (ind1 < ind2 && !IsVoidsEverywhereInShootingLineInBackWard(resultingLine, targ.Thing.Map, __instance.caster, targ.Thing))
-                    {
-                        __result = false;
+                        if (ind1 > ind2 && !IsVoidsEverywhereInShootingLine(resultingLine, __instance.caster.Map, __instance.caster, targ.Thing))
+                        {
+                            __result = false;
+                        }
+                        else if (ind1 < ind2 && !IsVoidsEverywhereInShootingLineInBackWard(resultingLine, targ.Thing.Map, __instance.caster, targ.Thing))
+                        {
+                            __result = false;
+                        }
                     }
                 }
-            
+                catch (Exception exception)
+                {
+                    // The verdict stays as the game set it. The finally below still puts the teleported thing back.
+                    CombatFaults.Log("Verb.TryFindShootLineFromTo.Postfix", exception);
+                }
+                finally
+                {
+                    // The Prefix moved the target or the caster to another map. It goes back here on every exit.
+                    UndoTeleport();
+                }
+            }
+        }
+
+        // Puts back the thing that the Prefix moved, then clears the state of the call. The Postfix calls it on the normal path. The finalizer
+        // calls it after a fault in the Prefix or in the original method, because the Postfix does not run then. It does nothing when no move is pending.
+        private static void UndoTeleport()
+        {
+            try
+            {
+                if (movedThing != null)
+                {
+                    Map home = oldMap1 ?? oldMap2;
+                    if (home != null)
+                    {
+                        ZUtils.TeleportThing(movedThing, home, movedThing.Position);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("Verb.TryFindShootLineFromTo.UndoTeleport", exception);
+            }
+            finally
+            {
+                movedThing = null;
+                oldMap1 = null;
+                oldMap2 = null;
                 ind1 = 0;
                 ind2 = 0;
                 teleportBack = false;
             }
+        }
+
+        // Runs after a fault in the Prefix or in the original method. Harmony passes __exception by value, so this cannot clear it,
+        // and the exception still reaches the caller.
+        [HarmonyFinalizer]
+        private static void Finalizer(Exception __exception)
+        {
+            UndoTeleport();
         }
 
         public static bool IsVoidsEverywhereInShootingLine(ShootLine resultingLine, Map map, Thing caster, Thing target)
@@ -393,40 +560,55 @@ namespace ZLevels
         [HarmonyPostfix]
         private static void JobGiver_ConfigurableHostilityResponsePostfix(JobGiver_ConfigurableHostilityResponse __instance, ref Job __result, Pawn pawn)
         {
-            if (__result == null && !recursiveTrap)
+            try
             {
-                recursiveTrap = true;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
-                var job = __instance.TryGiveJob(pawn);
-                if (job != null)
+                if (__result == null && !recursiveTrap)
                 {
-                    ZLogger.Message("Second block: " + job);
-                    if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                    recursiveTrap = true;
+                    CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+                    try
                     {
-                        ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
-                        ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
-                        ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                        __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                        ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                        var job = __instance.TryGiveJob(pawn);
+                        if (job != null)
+                        {
+                            ZLogger.Message("Second block: " + job);
+                            if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                            {
+                                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                                ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
+                                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
+                                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                            }
+                            else
+                            {
+                                __result = job;
+                            }
+                        }
                     }
-                    else
+                    finally
                     {
-                        __result = job;
+                        // The flags go back on every exit, so a fault cannot leave the search switched on for later calls.
+                        recursiveTrap = false;
+                        CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
                     }
                 }
-                recursiveTrap = false;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+                else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
+                {
+                    ZLogger.Message("Second block: " + __result);
+                    ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                    ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
+                    ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
+                    ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                    __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                    ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                }
             }
-            else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
+            catch (Exception exception)
             {
-                ZLogger.Message("Second block: " + __result);
-                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
-                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
-                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                // The game keeps the result it has. __result is not written here.
+                CombatFaults.Log("JobGiver_ConfigurableHostilityResponse.TryGiveJob.Postfix", exception);
             }
         }
     }
@@ -439,43 +621,58 @@ namespace ZLevels
         [HarmonyPostfix]
         private static void JobGiver_AIGotoNearestHostilePostfix(JobGiver_AIGotoNearestHostile __instance, ref Job __result, Pawn pawn)
         {
-            ZLogger.Message(pawn + " got response 4: " + __result);
-            if (__result == null && !recursiveTrap)
+            try
             {
-                recursiveTrap = true;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
-                var job = __instance.TryGiveJob(pawn);
-                if (job != null)
+                ZLogger.Message(pawn + " got response 4: " + __result);
+                if (__result == null && !recursiveTrap)
                 {
-                    ZLogger.Message("Second block: " + job);
-                    if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                    recursiveTrap = true;
+                    CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+                    try
                     {
-                        ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
-                        ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
-                        ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                        __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                        ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                        var job = __instance.TryGiveJob(pawn);
+                        if (job != null)
+                        {
+                            ZLogger.Message("Second block: " + job);
+                            if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                            {
+                                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                                ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
+                                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
+                                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                            }
+                            else
+                            {
+                                __result = job;
+                            }
+                        }
                     }
-                    else
+                    finally
                     {
-                        __result = job;
+                        // The flags go back on every exit, so a fault cannot leave the search switched on for later calls.
+                        recursiveTrap = false;
+                        CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
                     }
                 }
-                recursiveTrap = false;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+                else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
+                {
+                    ZLogger.Message("Second block: " + __result);
+                    ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                    ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
+                    ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
+                    ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                    __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                    ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                }
+                ZLogger.Message(pawn + " got result 4: " + __result + " in " + pawn.Map + " - " + __result?.targetA.Thing?.Map + " - mind enemy: " + pawn.mindState.enemyTarget);
             }
-            else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
+            catch (Exception exception)
             {
-                ZLogger.Message("Second block: " + __result);
-                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
-                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
-                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                // The game keeps the result it has. __result is not written here.
+                CombatFaults.Log("JobGiver_AIGotoNearestHostile.TryGiveJob.Postfix", exception);
             }
-            ZLogger.Message(pawn + " got result 4: " + __result + " in " + pawn.Map + " - " + __result?.targetA.Thing?.Map + " - mind enemy: " + pawn.mindState.enemyTarget);
         }
     }
     
@@ -484,7 +681,14 @@ namespace ZLevels
     {
         private static void Postfix(ref JobGiver_AIDefendPawn __instance, ref Job __result, ref Pawn pawn)
         {
-            ZLogger.Message(pawn + " got response 4: " + __result);
+            try
+            {
+                ZLogger.Message(pawn + " got response 4: " + __result);
+            }
+            catch (Exception exception)
+            {
+                CombatFaults.Log("JobGiver_AIDefendPawn.TryGiveJob.Postfix", exception);
+            }
         }
     }
     
@@ -494,64 +698,79 @@ namespace ZLevels
         public static bool recursiveTrap = false;
         private static void Postfix(ref JobGiver_AIFightEnemy __instance, ref Job __result, ref Pawn pawn)
         {
-            if (__result == null && !recursiveTrap)
+            try
             {
-                recursiveTrap = true;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
-                var job = __instance.TryGiveJob(pawn);
-                if (job != null)
+                if (__result == null && !recursiveTrap)
                 {
-                    ZLogger.Message("Second block: " + job);
-                    if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                    recursiveTrap = true;
+                    CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
+                    try
                     {
-                        if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                        var job = __instance.TryGiveJob(pawn);
+                        if (job != null)
                         {
-                            activeJobs = new List<Job>()
-                        };
-                        ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                        ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
-                        ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
-                        ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                        __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                        ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                            ZLogger.Message("Second block: " + job);
+                            if (job.targetA.Thing?.Map != null && job.targetA.Thing.Map != pawn.Map)
+                            {
+                                if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                                {
+                                    activeJobs = new List<Job>()
+                                };
+                                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                                ZUtils.ZTracker.BuildJobListFor(pawn, job.targetA.Thing.Map, job);
+                                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(job.targetA.Thing);
+                                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                            }
+                            else
+                            {
+                                __result = job;
+                            }
+                        }
                     }
-                    else
+                    finally
                     {
-                        __result = job;
+                        // The flags go back on every exit, so a fault cannot leave the search switched on for later calls.
+                        recursiveTrap = false;
+                        CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
                     }
                 }
-                recursiveTrap = false;
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
-            }
-            else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
-            {
-                ZLogger.Message("Second block: " + __result);
-                if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                else if (__result != null && __result.targetA.Thing?.Map != null && __result.targetA.Thing.Map != pawn.Map)
                 {
-                    activeJobs = new List<Job>()
-                };
-                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
-                ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
-                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
-                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
-                ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
-            }
-            else if (__result == null && pawn.mindState.enemyTarget?.Map != null && pawn.mindState.enemyTarget.Map != pawn.Map)
-            {
-                ZLogger.Message("Third block: " + __result);
-                if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                    ZLogger.Message("Second block: " + __result);
+                    if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                    {
+                        activeJobs = new List<Job>()
+                    };
+                    ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                    ZUtils.ZTracker.BuildJobListFor(pawn, __result.targetA.Thing.Map, __result);
+                    ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(__result.targetA.Thing);
+                    ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                    __result = ZUtils.ZTracker.jobTracker[pawn].activeJobs[0];
+                    ZUtils.ZTracker.jobTracker[pawn].activeJobs.RemoveAt(0);
+                }
+                else if (__result == null && pawn.mindState.enemyTarget?.Map != null && pawn.mindState.enemyTarget.Map != pawn.Map)
                 {
-                    activeJobs = new List<Job>()
-                };
-                ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(pawn.mindState.enemyTarget);
-                ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
-                __result = JobMaker.MakeJob(ZLevelsDefOf.ZL_GoToMap);
-                ZUtils.ZTracker.jobTracker[pawn].mainJob = __result;
-                ZUtils.ZTracker.jobTracker[pawn].failIfTargetMapIsNotDest = true;
-                ZUtils.ZTracker.jobTracker[pawn].target = pawn.mindState.enemyTarget;
+                    ZLogger.Message("Third block: " + __result);
+                    if (!ZUtils.ZTracker.jobTracker.ContainsKey(pawn)) ZUtils.ZTracker.jobTracker[pawn] = new JobTracker
+                    {
+                        activeJobs = new List<Job>()
+                    };
+                    ZUtils.ZTracker.jobTracker[pawn].targetDest = new TargetInfo(pawn.mindState.enemyTarget);
+                    ZUtils.ZTracker.jobTracker[pawn].forceGoToDestMap = true;
+                    __result = JobMaker.MakeJob(ZLevelsDefOf.ZL_GoToMap);
+                    ZUtils.ZTracker.jobTracker[pawn].mainJob = __result;
+                    ZUtils.ZTracker.jobTracker[pawn].failIfTargetMapIsNotDest = true;
+                    ZUtils.ZTracker.jobTracker[pawn].target = pawn.mindState.enemyTarget;
+                }
+                ZLogger.Message(pawn + " got result 5: " + __result + " in " + pawn.Map + " - " + __result?.targetA.Thing?.Map + " - mind enemy: " + pawn.mindState.enemyTarget);
             }
-            ZLogger.Message(pawn + " got result 5: " + __result + " in " + pawn.Map + " - " + __result?.targetA.Thing?.Map + " - mind enemy: " + pawn.mindState.enemyTarget);
+            catch (Exception exception)
+            {
+                // The game keeps the result it has. __result is not written here.
+                CombatFaults.Log("JobGiver_AIFightEnemy.TryGiveJob.Postfix", exception);
+            }
         }
     }
 }

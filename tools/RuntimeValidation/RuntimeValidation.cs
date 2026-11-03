@@ -623,6 +623,7 @@ namespace ZLevelsValidation
                         if (FreeColonists) Record("colonist work recorded", "PASS");
                         if (OtherColonistsWork) Record("other colonists work recorded", "PASS");
                         if (pendingShotRow != null) { Record(pendingShotRow, ScreenshotResult(pendingShotName)); pendingShotRow = null; }
+                        RecordCombatContainment();
                         finished = true;
                         Record("core validation", "PASS");
                         Root.Shutdown();
@@ -4392,6 +4393,60 @@ namespace ZLevelsValidation
                 + " | lower " + lowerTransmitter.PowerOn + " " + lowerTransmitter.PowerOutput + " " + (lowerTransmitter.PowerNet == null ? "null" : lowerTransmitter.PowerNet.CurrentEnergyGainRate().ToString("F1"))
                 + " | lamp " + lamp.PowerOn;
             File.AppendAllText(Path.Combine(GenFilePaths.SaveDataFolderPath, "power-samples.txt"), line + Environment.NewLine);
+        }
+
+        // Combat patch containment. Each row calls a patched method directly, on the surface, with the lower level in reach, and reads what it
+        // returns. A fault that a patch body contains never reaches the caller, so a row that gets an exception back reads FAIL with it.
+        private void RecordCombatContainment()
+        {
+            Building_TurretGun gun = null;
+            try
+            {
+                ThingDef turretDef = DefDatabase<ThingDef>.GetNamed("Turret_MiniTurret");
+                Thing turret = ThingMaker.MakeThing(turretDef, turretDef.MadeFromStuff ? GenStuff.DefaultStuffFor(turretDef) : null);
+                turret.SetFaction(Faction.OfPlayer);
+                gun = (Building_TurretGun)GenSpawn.Spawn(turret, FindOpenCell(surface), surface);
+                try
+                {
+                    LocalTargetInfo found = gun.TryFindNewTarget();
+                    Record("combat containment: TryFindNewTarget", "PASS: returned " + found);
+                }
+                catch (Exception exception)
+                {
+                    Record("combat containment: TryFindNewTarget", "FAIL: " + DescribeOrTypeName(exception));
+                }
+                // The stairs are on the lower level, at the same tile as the turret. The shoot line check moves them up for the call.
+                Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
+                Map ownMap = stairs.Map;
+                try
+                {
+                    bool line = gun.AttackVerb.TryFindShootLineFromTo(gun.Position, new LocalTargetInfo(stairs), out ShootLine resultingLine);
+                    if (stairs.Map == ownMap) Record("combat containment: shoot line restores target", "PASS: target back on its own map, shoot line " + line);
+                    else Record("combat containment: shoot line restores target", "FAIL: target left on " + stairs.Map + " after the call, not on " + ownMap);
+                }
+                catch (Exception exception)
+                {
+                    Record("combat containment: shoot line restores target", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
+                }
+            }
+            catch (Exception exception)
+            {
+                Record("combat containment: setup", "FAIL: " + DescribeOrTypeName(exception));
+            }
+            finally
+            {
+                if (gun != null && gun.Spawned) gun.Destroy(DestroyMode.Vanish);
+            }
+        }
+
+        // The first cell near the middle of the map with nothing on it that a turret can stand on.
+        private static IntVec3 FindOpenCell(Map map)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(map.Center, 15f, true))
+            {
+                if (cell.InBounds(map) && cell.Walkable(map) && cell.GetThingList(map).Count == 0) return cell;
+            }
+            throw new InvalidOperationException("no open cell near the middle of " + map);
         }
 
         private static void Record(string scenario, string result)
