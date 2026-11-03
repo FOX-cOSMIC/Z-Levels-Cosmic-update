@@ -60,8 +60,8 @@ namespace ZLevelsRimatomics
         private static bool checkFailureReported;
 
         // The keys of one game, with the cap for that book. Keys holds the marked keys, which are written. Dropped holds the keys whose line was not kept,
-        // because the held lines were full. The count line clears Dropped. CapWanted is set when a key past the cap was tried, and CapReported keeps the cap
-        // line to one.
+        // because the held lines were full. The count line clears Dropped. CapWanted is set when a key past the cap was tried in this game, and
+        // CapReported keeps this game's cap line to one. CapCarried is set when a cap line from an earlier game is still to be written.
         private sealed class KeyBook
         {
             public readonly HashSet<string> Keys = new HashSet<string>();
@@ -71,8 +71,15 @@ namespace ZLevelsRimatomics
             public bool CapWanted;
             public bool CapReported;
 
-            // Set when the wanted cap came from an earlier game. Its line then says so, and it does not mark this game's cap as reported.
+            // Set when a cap that was wanted and not reported in an earlier game still has its line to write. That line says so, and only this
+            // flag marks it. The carried line reads and clears no other flag of the book.
             public bool CapCarried;
+
+            // Whether a cap line is still to be written: the carried line, or this game's own cap once it is wanted and not yet reported.
+            public bool CapPending
+            {
+                get { return CapCarried || (CapWanted && !CapReported); }
+            }
 
             public KeyBook(int max, string capText)
             {
@@ -89,14 +96,13 @@ namespace ZLevelsRimatomics
                 CapCarried = false;
             }
 
-            // A new game starts with no keys. A cap that is wanted and not yet reported stays wanted, so the next flush that can
-            // write reports it. A cap that was already reported is not carried, because each game reports its cap once.
+            // A new game starts with no keys, and its own cap starts unwanted. A cap line that is still pending becomes a carried line of the new
+            // game, so the next flush that can write reports it. A cap that was already reported is not carried, because each game reports its cap once.
             public void ClearForNewGame()
             {
-                bool pendingCap = CapWanted && !CapReported;
+                bool carry = CapPending;
                 Clear();
-                CapWanted = pendingCap;
-                CapCarried = pendingCap;
+                CapCarried = carry;
             }
         }
 
@@ -503,19 +509,17 @@ namespace ZLevelsRimatomics
         private const string CarriedCapText = "Z-Levels cooling reached the limit of 64 distinct lines in an earlier game, "
             + "so further lines from that game were not logged.";
 
-        // Writes a book's cap line once, when a key past the cap was tried and the log will write. A cap carried from an earlier game is
-        // written and then forgotten, without marking this game's cap as reported, so this game still writes its own cap line.
+        // Writes a book's cap lines when the log will write. The carried line comes first. It is written from its own flag, and it reads and clears
+        // no other flag of the book. Then this game's own cap line is written once, if a key past the cap was tried.
         private static void ReportCapIfWanted(KeyBook book)
         {
-            if (!book.CapWanted || book.CapReported) return;
-            if (!WillWrite()) return;
-            if (book.CapCarried)
+            if (book.CapCarried && WillWrite())
             {
                 Write(CarriedCapText, true);
-                book.CapWanted = false;
                 book.CapCarried = false;
-                return;
             }
+            if (!book.CapWanted || book.CapReported) return;
+            if (!WillWrite()) return;
             book.CapReported = true;
             Write(book.CapText, true);
         }
@@ -535,7 +539,7 @@ namespace ZLevelsRimatomics
             if (held.Count > 0 || droppedSinceReport > 0) return false;
             foreach (KeyBook book in allBooks)
             {
-                if (book.CapWanted && !book.CapReported) return false;
+                if (book.CapPending) return false;
             }
             return true;
         }
@@ -566,7 +570,7 @@ namespace ZLevelsRimatomics
             }
             foreach (KeyBook book in allBooks)
             {
-                if (!book.CapWanted || book.CapReported) continue;
+                if (!book.CapPending) continue;
                 if (!WillWrite()) return;
                 ReportCapIfWanted(book);
             }
@@ -703,8 +707,8 @@ namespace ZLevelsRimatomics
         // so a game that is over can be collected. The first game of the process has no earlier game, so it clears nothing, and a line held before the first
         // check is kept. A change from an earlier game counts the held lines as not kept. The count and the overflow flag describe the same lines, so they carry
         // over together, and the next flush that can write reports them. The dropped keys are cleared, because keys belong to one game.
-        // A cap that is wanted and not yet reported carries over the same way. A cap that was already reported does not, because each
-        // game reports its cap once.
+        // A cap line that is still pending carries over as a carried line, and the new game's own cap starts unwanted. A cap that was already
+        // reported does not carry over, because each game reports its cap once.
         private static void ForgetFailuresOfEarlierGames()
         {
             Verse.Game game = Current.Game;
