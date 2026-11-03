@@ -71,7 +71,7 @@ namespace ZLevelsRimatomics
             public bool CapWanted;
             public bool CapReported;
 
-            // Set when the cap was wanted in an earlier game and is reported in this one. Its line then says so.
+            // Set when the wanted cap came from an earlier game. Its line then says so, and it does not mark this game's cap as reported.
             public bool CapCarried;
 
             public KeyBook(int max, string capText)
@@ -503,14 +503,21 @@ namespace ZLevelsRimatomics
         private const string CarriedCapText = "Z-Levels cooling reached the limit of 64 distinct lines in an earlier game, "
             + "so further lines from that game were not logged.";
 
-        // Writes a book's cap line once, when a key past the cap was tried and the log will write. A cap carried from an earlier game
-        // has its own line.
+        // Writes a book's cap line once, when a key past the cap was tried and the log will write. A cap carried from an earlier game is
+        // written and then forgotten, without marking this game's cap as reported, so this game still writes its own cap line.
         private static void ReportCapIfWanted(KeyBook book)
         {
             if (!book.CapWanted || book.CapReported) return;
             if (!WillWrite()) return;
+            if (book.CapCarried)
+            {
+                Write(CarriedCapText, true);
+                book.CapWanted = false;
+                book.CapCarried = false;
+                return;
+            }
             book.CapReported = true;
-            Write(book.CapCarried ? CarriedCapText : book.CapText, true);
+            Write(book.CapText, true);
         }
 
         // Runs after each DoSingleTick call, from the postfix of GameComponentUtility.GameComponentTick (CoolingLogTickPatch). It writes the held lines even when no
@@ -751,16 +758,17 @@ namespace ZLevelsRimatomics
                 && Find.TickManager.TicksGame - column.SpawnedAtTick.Value >= NoNetGraceTicks, false);
         }
 
-        // Reports a throw from the game tick hook with one fixed-text line through Unity. The line is written once per game. Later ticks
-        // of the same game stay silent. The game is marked before the write, so a write that throws is not tried again on the next tick.
+        // Reports a throw from the game tick hook with one error line through Unity, with the exception text. The line is written once per
+        // game. The game is marked only when Unity logging is on, because only then does the line go out. Later ticks of the same game stay silent.
         internal static void ReportTickFailure(Exception failure)
         {
+            if (!UnityLoggerOn()) return;
             Verse.Game game = Current.Game;
             Verse.Game reported;
             if (tickFailureGame != null && tickFailureGame.TryGetTarget(out reported) && ReferenceEquals(reported, game)) return;
             tickFailureGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
-            UnityWrite("Z-Levels cooling game tick hook threw " + TypeNameOf(failure)
-                + ". Held log lines may be delayed. Later ticks in this game do not log this again.", true);
+            UnityWrite("Z-Levels cooling game tick hook failed, so held log lines may be delayed. "
+                + "Later ticks in this game do not log this again: " + ExceptionText(failure), false);
         }
     }
 
