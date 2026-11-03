@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-01. Order matters: finish a stage before starting the next. Port plan boxes refer to `docs/superpowers/plans/2026-10-27-zlevels-17.md`.
+Updated 2026-11-03. Order matters: finish a stage before starting the next. Port plan boxes refer to `docs/superpowers/plans/2026-10-27-zlevels-17.md`.
 
 ## Now
 
@@ -36,7 +36,7 @@ Updated 2026-11-01. Order matters: finish a stage before starting the next. Port
 ## Later
 
 - **Power generators inside the vault**, and power carried from the vault to a main level.
-- **Tubes between levels** (RimAtomics or similar), so structures on one level can use resources or power from another.
+- **Tubes between levels** (RimAtomics or similar), so structures on one level can use resources or power from another. Cooling across levels is done, as of 2026-11-03. Runs: `20261103-134331` for the Task 6 green run, `20261103-131411` for the round-2 proof, and `20261103-135031` for the Rimatomics++ cooled run. Resources and power are still open.
 - **Other mods.** Check which mod features touch levels, pocket maps or portals before building for them.
 
 ## Not goals now

@@ -713,6 +713,69 @@ The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C
 
 This section does not claim that the user's list passes. The user's list still contains `7h0m4s.rimworldreadablenumbers`, and that entry fails at load.
 
+## Cross-level cooling
+
+This section records the cross-level cooling work. The plan is `docs/superpowers/plans/2026-11-01-cross-level-cooling.md`. The design is in `docs/superpowers/specs/2026-11-01-cross-level-cooling-design.md`, and the decisions are in `docs/adr/0001` to `0005`. The detail sits in four earlier sections: "Cross-level cooling: reactor research", "Cross-level cooling: reactor scenario", "Regression runs for cross-level cooling", and "Partial mod-list run: the user's list minus RimworldReadableNumbers".
+
+### Installed game build
+
+The installed game is RimWorld 1.7.4995 rev309. The plan targets 1.7.4990 rev1069. All 167 run folders dated 2026-11-02 and 2026-11-03 that have a `Player.log` record 1.7.4995 rev309. The other-mods run `20261101-141256` records the same build. Every run cited in this section uses the installed build.
+
+### Red and green runs
+
+Each row gives the run that failed before the change and the run that passed after it. Run IDs are folders under `.artifacts/runs/`.
+
+| Step | Red run | Green run | Notes |
+|---|---|---|---|
+| Task 3, column def | `20261102-104330`: the three def rows FAIL, column missing | `20261102-105720`: the three def rows PASS | The look is under Untested cases. |
+| Task 4, pairing within three cells | `20261102-115623`: pairing rows FAIL, registry not built | `20261102-115859`: the four Task 4 rows PASS | Replaced by the same-cell rule. |
+| Task 4, same cell only | `20261102-125457`: `column one cell away stays unpaired` FAIL, the column one cell away shares the loop | `20261102-125613`: that row PASS, and the other Task 4 rows still PASS | Commit `dd55200`. |
+| Task 4b, partner highlight | `20261102-214741`: both highlight rows FAIL, highlight not built | `20261102-221308`: both highlight rows PASS, and the six Task 4 rows PASS | The look run is `20261102-221353`. |
+| Task 5, loop merge | `20261103-041745`: the three link rows FAIL | `20261103-041951`: the three link rows PASS | The reactor rows were still stubs. The last in-game run, `20261103-120341`, shows the three link rows PASS. |
+| Task 6, round 1 | `20261103-124931`, no columns: the link, tower, and alert rows FAIL | `20261103-125122`: all rows PASS | One fuel rod. Round 2 replaced this scenario. |
+| Task 6, round 2 | `20261103-131225`, no columns, 21 rods: `uncooled core overheats` PASS, and the link, tower, and alert rows FAIL | `20261103-131411`, 21 rods: all rows PASS, including `cooled core stays below overheating` | Core validation `20261103-131550` passes. |
+| Task 6, round 3 | None. The red run was not repeated, and the uncooled row is unchanged. | `20261103-134331`: all rows PASS | The cooled check now fails when the core trips. |
+
+Round 1 could not show a cooling effect on temperature. With one fuel rod, the uncooled core peaked at 332.5 and never overheated. Round 2 raised the load to 21 rods. The uncooled core then overheated in run `20261103-131225`, and `IsOverheating` first read true at +750 ticks.
+
+### Research
+
+The Task 6 research summarizes the Dubs Rimatomics code that the reactor scenario depends on. The full file is `.superpowers/sdd/2026-11-01-cross-level-cooling/task-6-research.md`. The `.superpowers/` folder is git-ignored, so that file is not in the repository. These points come from the file.
+
+- `Startup()` clears `IsShutdown` and checks nothing else. The core also needs power, at least one fuel rod, and raised control rods.
+- `postReturnTemp` is `RealTemp` plus `overheating`. The thresholds are 500 for overheating, 2000 for melt, and 50 for cold.
+- An unstalled tower gives 250,000 W, and a stalled tower gives 25,000 W. With 21 rods, the core makes at most 148,750 W. One unstalled tower therefore gives a ratio of at most 0.595. A stalled tower gives about 5.95.
+- `emitRadiation` scans only the map it receives. The core does not reach the surface cell above it, as ADR-0004 states. A fallout condition can reach that cell, but only while it is active on the surface map.
+- A scratch model levels off at 315 with one unstalled tower. With no cooling, it passes 500 at tick 563. The model is not a game run, and it is not in the repository.
+- The file lists six points it could not confirm from the code. One is whether the decompile matches the installed Rimatomics DLL.
+
+### Untested cases
+
+- Water flow through the column is not simulated. The spec puts it out of scope, and ADR-0003 says the link moves capacity, not water.
+- The Remove Cooling designator is not run. The harness removes the surface column with `Destroy(DestroyMode.Vanish)` in `RemoveSurfaceColumn` instead.
+- The Task 3 look rests on one screenshot. Run `20261102-110012` shows a grey pipe with a red wheel on the column cell, read at twelve times zoom. The column covers about 20 pixels at game zoom. Runs `20261102-104827` and `20261102-105806` show nothing on that cell. Run `20261102-112616`, without `linkType` `None`, shows only the linked teal pipe art. The committed def therefore uses drawer `RealtimeOnly` and `linkType` `None`, which differs from the plan's Task 3 values. The comment-only commit `d19a012` has no run after it. The report does not record a check at normal zoom.
+- The Task 4b partner highlight look rests on run `20261102-221353`. The amber crop, taken before the lower column stands there, shows an amber square on the empty cell. The green crop, taken after it stands there, shows a green square on the same cell with the column's red wheel inside. Both crops are six times zoom. The look also clears cells and places a torch lamp, which the feature does not need. Open items: the report says a person still needs to check the screenshots by eye. The cause of the GPU device loss in two of five earlier look runs is unknown, and the hook avoids the call that caused it. The report lists no run that removes a column while the outline is drawn, or that saves and reloads with the outline showing.
+- Three Task 6 checks pass without the link:
+  - `loop ratio at or below 1` cannot fail with one unstalled tower, because the ratio is at most 0.595. It fails only if the tower stalls, and no run has stalled it on purpose. It passed in both no-columns red runs, `20261103-124931` and `20261103-131225`, where the ratio reads 0 with no coolers.
+  - `no meltdown` cannot fail in this scenario. The uncooled peaks were 1364.6 in run `20261103-131225` and 1486.9 in run `20261103-130813`, both under the melt limit of 2000. It passed in both no-columns red runs.
+  - `surface colonist not irradiated` passes by design under ADR-0004. It passed in both no-columns red runs, so it does not test the link.
+- The synthetic model is the only test of these Task 5 items. No game run covers them.
+  - The carried cap. A cap that is pending when the game changes writes a carried line in the next game. No run carried a cap, and the wording is unconfirmed.
+  - The missing-pipe path. A column with no Rimatomics pipe logs an error and does not join the registry.
+  - The flush postfix. Held lines flush from a postfix on `GameComponentUtility.GameComponentTick`. No run held a line, so the in-game flush did not run.
+  - The per-line stop at Verse's 10,000th message, the count carried across a game change, and the def and map key.
+  - A valid loop beside an unusable column. An unusable column forms no loop, and the other loops of its net still join, as spec decision 2 says. The report records no in-game run of this case.
+- The same-cell check for a column on a level above the surface is not run. The harness builds one level below the surface only.
+- Rimatomics++ has one cooled run. `20261103-135031` passes every row, including `cooling link`. No breakage was seen in that run, and no other Rimatomics++ run was made.
+
+### Mod-list status
+
+- The full user list fails at load in run `20261103-135227`. During play-data load, `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage` throws a `NullReferenceException`. The game then resets the mod config.
+- Run `20261103-135706` uses a scratch copy of the list without `7h0m4s.rimworldreadablenumbers`. Core validation passes. The runner printed `Runtime validation passed with other mods`, and that line covers the scratch list only.
+- The run loads 80 entries. They match run `20261101-141256` in order and in IDs, ignoring letter case.
+- Four entries load with the note `incompatible version`: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`.
+- The user's list still contains `7h0m4s.rimworldreadablenumbers`. Lucas has not decided whether to remove it, so this section does not claim that the user's list passes.
+
 ## Evidence
 
 - Other-mod run: `.artifacts/runs/20261101-141256/`

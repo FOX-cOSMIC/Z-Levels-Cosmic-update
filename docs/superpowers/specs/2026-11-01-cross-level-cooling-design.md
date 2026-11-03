@@ -1,6 +1,6 @@
 # Cross-level cooling design
 
-**Status:** approved 2026-11-01 in a grilling session (rounds 1 to 5). Amended 2026-11-02: decision 1 is now the same-cell rule for cooling, decision 2 is reworded, and decision 14 adds the partner highlight. Terms are in `GLOSSARY.md`. Decisions are in `docs/adr/0001` to `0005`.
+**Status:** approved 2026-11-01 in a grilling session (rounds 1 to 5). Amended 2026-11-02: decision 1 is now the same-cell rule for cooling, decision 2 is reworded, and decision 14 adds the partner highlight. Amended 2026-11-03: decision 2 now says that a column that is not usable forms no loop, so only its own loop drops, and the other loops of its net still join. Terms are in `GLOSSARY.md`. Decisions are in `docs/adr/0001` to `0005`.
 
 ## Goal
 
@@ -9,7 +9,7 @@ A Rimatomics reactor on one level can be cooled by coolers on another level. Coo
 ## Decisions
 
 1. **Mechanism.** Each level gets a cooling column. A cooling column pairs only with the cooling column on the same cell of the level directly above or below it (ADR-0005). Power transmitter columns keep the rule of less than 3 cells apart (ADR-0001).
-2. **Chains.** Paired columns form one loop across the levels they connect. Build order does not matter.
+2. **Chains.** Paired columns form one loop across the levels they connect. Build order does not matter. A column that is not usable forms no loop, so only its own loop drops, and the other loops of its net still join.
 3. **What joins.** The whole local cooling network on each side joins the loop. Rimatomics computes the cooling ratio over the joined coolers and turbines. The mod does not change the math.
 4. **Like a pipe.** A cooling column is a Rimatomics coolant pipe. It connects to adjacent coolant pipes on its level and has no capacity limit. The link moves capacity, not water (ADR-0003).
 5. **Coolers stay local.** Each cooler keeps its own requirements, such as surface water for water coolers and no roof for towers.
