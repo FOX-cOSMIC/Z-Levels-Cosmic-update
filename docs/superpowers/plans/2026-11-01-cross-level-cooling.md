@@ -186,9 +186,11 @@ Read from the installed code. Dubs Rimatomics was decompiled with `ilspycmd` int
 **Files:** modify `RuntimeValidation.cs` and `docs/validation-report.md`, for the research notes.
 
 **Interfaces:** these checks, each recorded as `PASS` or `FAIL`:
-- `reactor runs on the lower level`: after `Startup()`, `IsShutdown` is false and `FuelCount` is above 0.
+- `reactor runs on the lower level`: after `Startup()`, `IsShutdown` is false and `FuelCount` equals the full load, `ReactorFuelRods` (21 rods). Amended 2026-11-03: the round-2 scenario needs 21 rods to overheat the uncooled core, so the check must match that load.
 - `loop ratio at or below 1`: `CoolingLoopRatio` on the lower turbine's net is 1 or less in every sample. Sample every 250 ticks for 2500 ticks, which is one in-game hour. The plan sets these two numbers. Change them only with a recorded reason.
 - `surface tower stays in the lower loop`: the surface `CoolingTower` is in the lower turbine's `CoolingNet.Coolers` in every sample. Added 2026-11-03. Reason: `CoolingLoopRatio` is 0 when `Coolers` is empty (`CoolingNet.cs` lines 27-28), so `loop ratio at or below 1` passes with no link, and decision 13 requires the scenario to fail without the column pair. `no cooling alert` also fails without the pair, but it counts any cooler, so this check names the surface tower.
+- `uncooled core overheats` (red positive control, added 2026-11-03): in the `-CoolingNoColumns` run, `postReturnTemp` passes 500, so `IsOverheating` is true, by the end of the 2500 ticks. It must PASS in the red run. Reason: run 20261103-124931 peaked at 332.5 with one fuel rod, so no overheating was ever shown, and the temperature effect of the link was untested. The ratio check is also vacuous in that run: it reads 0 with no coolers (`CoolingNet.cs` lines 27-28).
+- `cooled core stays below overheating` (added 2026-11-03, same reason): in every sample of the `-Cooling` run, `IsOverheating` is false. The temperature is the only evidence that the cooling works, because one unstalled tower caps the ratio at about 0.6 (research section 3).
 - `no cooling alert`: the lower turbine's `CoolingNet.Coolers` holds at least one cooler in every sample. This is the NOCOOLING condition in `Alert_ReactorAlerts`.
 - `no meltdown`: `IsCoreMelt` is false in every sample.
 - `surface colonist not irradiated`: a pawn that stands on the surface cell above the core has no `DubDef.RimatomicsRadiation` hediff at the end. This checks ADR-0004.
@@ -197,7 +199,7 @@ The switch `-CoolingNoColumns`, added in Task 1, runs the same scenario without 
 
 - [ ] **Step 1: Research gate.** Find out what `Startup()` needs: power, fuel loaded with `InsertFuel`, and a `ReactorControl`. The fuel def is `FuelRods`. Find out whether one `CoolingTower` covers the lower turbine's `UncappedPowerGeneration`. If it does not, the scenario adds towers until the starting ratio is 1 or less, and records the count. Write the findings in `docs/validation-report.md`. If the reactor cannot be started in the harness, stop and report the blocker. Do not mark this task done.
 - [ ] **Step 2: Add the checks and the scenario wiring.**
-- [ ] **Step 3: Run it red.** Run `-Cooling -CoolingNoColumns`. Expected: the runner throws `Runtime scenarios did not all pass`, and the results show `surface tower stays in the lower loop` and `no cooling alert` as FAIL. Record the run folder.
+- [ ] **Step 3: Run it red.** Run `-CoolingNoColumns` alone. The runner refuses the pair with `-Cooling`, under the guard at `tools/Invoke-RuntimeValidation.ps1` lines 41-43. Expected: the runner throws `Runtime scenarios did not all pass`, the results show `surface tower stays in the lower loop` and `no cooling alert` as FAIL, and `uncooled core overheats` as PASS. Record the run folder.
 - [ ] **Step 4: Run it green.** Run `-Cooling`. Expected: every reactor check PASS, and `cooling link | PASS`. Record the run folder.
 - [ ] **Step 5: Commit.** Message: "Check a reactor cooled across levels".
 
