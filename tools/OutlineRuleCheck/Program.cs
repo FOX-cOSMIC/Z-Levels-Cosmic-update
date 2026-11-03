@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using ZLevelsRimatomics;
 
 // Usage, from the repository root: dotnet run --project tools/OutlineRuleCheck
@@ -90,6 +91,48 @@ static class Program
         return planes;
     }
 
+    // The draw calls that the hook makes for placed cells: one call for each open side, in the colour of the cell's state.
+    static List<OutlineDraw> DrawCalls(IList<OutlineCell> cells, Func<int, int, bool> onMap)
+    {
+        var calls = new List<OutlineDraw>();
+        foreach (OutlineCell cell in cells)
+        {
+            var sameState = new List<OutlineCell>();
+            foreach (OutlineCell other in cells) if (other.Paired == cell.Paired) sameState.Add(other);
+            int mask = OutlineRule.OpenSides(cell.X, cell.Z, onMap, (x, z) => HasCell(sameState, x, z));
+            for (int side = 0; side < 4; side++)
+            {
+                if ((mask & (1 << side)) == 0) continue;
+                OutlineColour colour = cell.Paired ? OutlineRule.PairedColour : OutlineRule.UnpairedColour;
+                calls.Add(new OutlineDraw(cell.X, cell.Z, colour));
+            }
+        }
+        return calls;
+    }
+
+    // Every call of one cell uses the given colour, as a fault that recolours the whole cell does.
+    static List<OutlineDraw> Recolour(IList<OutlineDraw> calls, int x, int z, OutlineColour colour)
+    {
+        var result = new List<OutlineDraw>();
+        foreach (OutlineDraw call in calls) result.Add(call.X == x && call.Z == z ? new OutlineDraw(x, z, colour) : call);
+        return result;
+    }
+
+    // Only the first call of one cell uses the given colour, as a fault at one draw call does.
+    static List<OutlineDraw> RecolourFirst(IList<OutlineDraw> calls, int x, int z, OutlineColour colour)
+    {
+        var result = new List<OutlineDraw>(calls);
+        for (int i = 0; i < result.Count; i++)
+        {
+            if (result[i].X == x && result[i].Z == z)
+            {
+                result[i] = new OutlineDraw(x, z, colour);
+                break;
+            }
+        }
+        return result;
+    }
+
     // The plus shape: a centre and its four arms, on a 5 by 5 map. The centre is enclosed by its arms when they share its colour.
     static List<OutlineCell> Plus(bool centrePaired = false)
     {
@@ -99,6 +142,11 @@ static class Program
     static bool IsFail(string verdict)
     {
         return verdict.StartsWith("FAIL", StringComparison.Ordinal);
+    }
+
+    static bool IsPass(string verdict)
+    {
+        return verdict.StartsWith("PASS:", StringComparison.Ordinal);
     }
 
     static int Main()
@@ -134,8 +182,12 @@ static class Program
         Check("plus: expected cells are the four arms", expected.Count == 4 && HasCell(expected, 2, 1) && HasCell(expected, 1, 2) && HasCell(expected, 3, 2) && HasCell(expected, 2, 3) && !HasCell(expected, 2, 2), "count " + expected.Count);
         int plusPlanes = PlanesIn(plus, onFive);
         Check("plus: the arms draw 12 planes", plusPlanes == 12, "planes " + plusPlanes);
-        string plusVerdict = OutlineRule.DrawnRowVerdict(expected, expected, plusPlanes);
-        Check("plus: the drawn row passes", plusVerdict == "PASS: 4 cells of 4 expected, 12 planes, 0 paired", plusVerdict);
+        List<OutlineDraw> plusCalls = DrawCalls(plus, onFive);
+        Check("plus: the draw calls are one per plane", plusCalls.Count == plusPlanes, "calls " + plusCalls.Count);
+        string plusVerdict = OutlineRule.DrawnRowVerdict(expected, plusCalls, plusCalls.Count);
+        Check("plus: the drawn row passes", IsPass(plusVerdict), plusVerdict);
+        Match plusCounts = Regex.Match(plusVerdict, @"^PASS: (\d+) cells of (\d+) expected");
+        Check("plus: the row prints the drawn count and the expected count, both four", plusCounts.Success && plusCounts.Groups[1].Value == "4" && plusCounts.Groups[2].Value == "4", plusVerdict);
 
         // Colours. The centre is green, the arms are amber. Each arm is checked against the other arms, so each draws all four sides.
         var mixed = Plus(centrePaired: true);
@@ -143,26 +195,37 @@ static class Program
         int mixedPlanes = PlanesIn(mixed, onFive);
         Check("colour: the green centre and the amber arms are all expected", mixedExpected.Count == 5 && Has(mixedExpected, 2, 2, true) && Has(mixedExpected, 2, 1, false) && Has(mixedExpected, 1, 2, false) && Has(mixedExpected, 3, 2, false) && Has(mixedExpected, 2, 3, false), "count " + mixedExpected.Count);
         Check("colour: the mixed plus draws 20 planes", mixedPlanes == 20, "planes " + mixedPlanes);
-        string rightColours = OutlineRule.DrawnRowVerdict(mixedExpected, mixedExpected, mixedPlanes);
-        Check("colour: the right colours pass and count one green cell", rightColours == "PASS: 5 cells of 5 expected, 20 planes, 1 paired", rightColours);
+        List<OutlineDraw> mixedCalls = DrawCalls(mixed, onFive);
+        string rightColours = OutlineRule.DrawnRowVerdict(mixedExpected, mixedCalls, mixedCalls.Count);
+        Check("colour: the right colours pass", IsPass(rightColours), rightColours);
 
-        var centreAmber = new List<OutlineCell>(mixedExpected);
-        for (int i = 0; i < centreAmber.Count; i++) if (centreAmber[i].X == 2 && centreAmber[i].Z == 2) centreAmber[i] = C(2, 2, false);
-        string centreVerdict = OutlineRule.DrawnRowVerdict(mixedExpected, centreAmber, mixedPlanes);
+        string centreVerdict = OutlineRule.DrawnRowVerdict(mixedExpected, Recolour(mixedCalls, 2, 2, OutlineRule.UnpairedColour), mixedCalls.Count);
         Check("colour: the green centre drawn amber fails the row", IsFail(centreVerdict), centreVerdict);
 
-        var armGreen = new List<OutlineCell>(mixedExpected);
-        for (int i = 0; i < armGreen.Count; i++) if (armGreen[i].X == 3 && armGreen[i].Z == 2) armGreen[i] = C(3, 2, true);
-        string armVerdict = OutlineRule.DrawnRowVerdict(mixedExpected, armGreen, mixedPlanes);
+        string armVerdict = OutlineRule.DrawnRowVerdict(mixedExpected, Recolour(mixedCalls, 3, 2, OutlineRule.PairedColour), mixedCalls.Count);
         Check("colour: an amber arm drawn green fails the row", IsFail(armVerdict), armVerdict);
 
-        // Duplicates. A placed cell listed twice counts once. A drawn cell listed twice does not change the verdict.
+        // A material reads its colour back a step away from the palette value. That readback is the same colour, and a real colour change is not.
+        string readBack = OutlineRule.DrawnRowVerdict(mixedExpected, Recolour(mixedCalls, 2, 2, new OutlineColour(0.251f, 0.902f, 0.251f, 1f)), mixedCalls.Count);
+        Check("colour: a paired readback one step from the palette still passes", IsPass(readBack), readBack);
+        string shifted = OutlineRule.DrawnRowVerdict(mixedExpected, Recolour(mixedCalls, 2, 2, new OutlineColour(0.35f, 0.9f, 0.25f, 1f)), mixedCalls.Count);
+        Check("colour: a paired colour shifted by a tenth fails the row", IsFail(shifted), shifted);
+
+        // One draw call in the wrong colour. The other calls of the cell stay right, so only the set comparison can see the one wrong call.
+        string oneCall = OutlineRule.DrawnRowVerdict(mixedExpected, RecolourFirst(mixedCalls, 2, 1, OutlineRule.PairedColour), mixedCalls.Count);
+        Check("call: one draw call in the wrong colour fails the row and names the cell", IsFail(oneCall) && oneCall.Contains("(2,1 paired)"), oneCall);
+
+        string offPalette = OutlineRule.DrawnRowVerdict(mixedExpected, RecolourFirst(mixedCalls, 3, 2, new OutlineColour(0.5f, 0.5f, 0.5f, 1f)), mixedCalls.Count);
+        Check("call: a colour in neither palette fails the row", IsFail(offPalette), offPalette);
+
+        // Duplicates. A placed cell listed twice counts once. A call repeated does not change the verdict.
         var doubled = new List<OutlineCell> { C(2, 2), C(2, 2), C(2, 1), C(1, 2), C(3, 2), C(2, 3), C(2, 1) };
         List<OutlineCell> doubledExpected = OutlineRule.ExpectedCells(doubled, onFive);
         Check("duplicates: a placed cell listed twice counts once", doubledExpected.Count == 4, "count " + doubledExpected.Count);
-        var drawnTwice = new List<OutlineCell>(expected) { expected[0] };
-        string twice = OutlineRule.DrawnRowVerdict(expected, drawnTwice, plusPlanes);
-        Check("duplicates: a drawn cell listed twice does not change the verdict", twice == "PASS: 4 cells of 4 expected, 12 planes, 0 paired", twice);
+        var repeated = new List<OutlineDraw>(plusCalls);
+        repeated.AddRange(plusCalls);
+        string repeatedVerdict = OutlineRule.DrawnRowVerdict(expected, repeated, repeated.Count);
+        Check("duplicates: repeated draw calls do not change the verdict", IsPass(repeatedVerdict), repeatedVerdict);
         var conflicting = new List<OutlineCell> { C(2, 2, true), C(2, 2, false), C(2, 1), C(1, 2), C(3, 2), C(2, 3) };
         List<OutlineCell> conflictExpected = OutlineRule.ExpectedCells(conflicting, onFive);
         Check("duplicates: the first colour listed for a cell sets it", conflictExpected.Count == 5 && Has(conflictExpected, 2, 2, true) && !Has(conflictExpected, 2, 2, false), "count " + conflictExpected.Count);
@@ -184,7 +247,7 @@ static class Program
         List<OutlineCell> offsetExpected = OutlineRule.ExpectedCells(offsetPlus, offset);
         Check("negative: a plus centred at -1,-1 expects its four arms", offsetExpected.Count == 4 && !HasCell(offsetExpected, -1, -1) && HasCell(offsetExpected, -1, -2), "count " + offsetExpected.Count);
         var negativeOne = new List<OutlineCell> { C(-2, -1) };
-        string keysApart = OutlineRule.DrawnRowVerdict(OutlineRule.ExpectedCells(negativeOne, Anywhere()), new List<OutlineCell> { C(-1, -2) }, 4);
+        string keysApart = OutlineRule.DrawnRowVerdict(OutlineRule.ExpectedCells(negativeOne, Anywhere()), DrawCalls(new List<OutlineCell> { C(-1, -2) }, Anywhere()), 4);
         Check("negative: cells (-2,-1) and (-1,-2) are different cells", IsFail(keysApart), keysApart);
 
         // Enclosure. A two by two block draws its outer sides only.
@@ -192,17 +255,17 @@ static class Program
         Check("enclosure: a two by two block draws eight planes over four cells", OutlineRule.ExpectedCells(block, onFive).Count == 4 && PlanesIn(block, onFive) == 8, "planes " + PlanesIn(block, onFive));
 
         // The verdict's failure cases.
-        string nothing = OutlineRule.DrawnRowVerdict(new List<OutlineCell>(), expected, plusPlanes);
+        string nothing = OutlineRule.DrawnRowVerdict(new List<OutlineCell>(), plusCalls, plusCalls.Count);
         Check("verdict: nothing expected fails", IsFail(nothing), nothing);
-        string noPlanes = OutlineRule.DrawnRowVerdict(expected, expected, 0);
-        Check("verdict: matching cells with no planes fail", IsFail(noPlanes), noPlanes);
+        string noPlanes = OutlineRule.DrawnRowVerdict(expected, plusCalls, 0);
+        Check("verdict: matching calls with no planes fail", IsFail(noPlanes), noPlanes);
         var swapped = new List<OutlineCell> { C(2, 1), C(1, 2), C(3, 2), C(2, 2) };
-        string swappedVerdict = OutlineRule.DrawnRowVerdict(expected, swapped, plusPlanes);
+        string swappedVerdict = OutlineRule.DrawnRowVerdict(expected, DrawCalls(swapped, onFive), 12);
         Check("verdict: the same count with one wrong cell fails", IsFail(swappedVerdict), swappedVerdict);
-        string missing = OutlineRule.DrawnRowVerdict(expected, new List<OutlineCell> { C(2, 1), C(1, 2), C(3, 2) }, 9);
+        string missing = OutlineRule.DrawnRowVerdict(expected, DrawCalls(new List<OutlineCell> { C(2, 1), C(1, 2), C(3, 2) }, onFive), 9);
         Check("verdict: a missing arm fails", IsFail(missing), missing);
         var extra = new List<OutlineCell>(expected) { C(4, 4) };
-        string extraVerdict = OutlineRule.DrawnRowVerdict(expected, extra, plusPlanes + 4);
+        string extraVerdict = OutlineRule.DrawnRowVerdict(expected, DrawCalls(extra, Anywhere()), 16);
         Check("verdict: an extra cell fails", IsFail(extraVerdict), extraVerdict);
 
         Console.WriteLine("checks: " + checks + ", failures: " + failures);

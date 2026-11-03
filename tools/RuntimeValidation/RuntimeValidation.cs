@@ -176,6 +176,8 @@ namespace ZLevelsValidation
         private const string PartnerGreenLabel = "partner highlight green screenshot";
         // The outline row. The look writes it in a -Visual run, after the view has settled on the lower level and before the amber shot.
         private const string PartnerDrawnLabel = "partner highlight drawn";
+        // The same row at the green stage, after the lower column stands. Its colours are compared with the pair that the scenario expects then.
+        private const string PartnerDrawnPairedLabel = "partner highlight drawn with pair";
         private const string PartnerAmberName = "zlevels-partner-amber";
         private const string PartnerGreenName = "zlevels-partner-green";
         // The highlight cell, offset from the surface centre. It is 4 cells north of the pairing cell and clear of the pairing layout and its pipe.
@@ -2250,7 +2252,7 @@ namespace ZLevelsValidation
                     }
                     // The screenshot row belongs to this tick when screenshots are on, so an exception before or after it still leaves a row.
                     var owed = new List<string>(CoolingLabels);
-                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.AddRange(new[] { CoolingScreenshotLabel, PartnerAmberLabel, PartnerGreenLabel, PartnerDrawnLabel });
+                    if (GenCommandLine.CommandLineArgPassed("zlevelsscreenshots")) owed.AddRange(new[] { CoolingScreenshotLabel, PartnerAmberLabel, PartnerGreenLabel, PartnerDrawnLabel, PartnerDrawnPairedLabel });
                     foreach (string label in owed)
                     {
                         // A label whose check never ran says why. It does not read as a failure of its own check.
@@ -2526,7 +2528,7 @@ namespace ZLevelsValidation
                     return false;
                 case 2:
                     if (DateTime.UtcNow < partnerShotDue) return false;
-                    RecordPartnerDrawn(lower);
+                    RecordPartnerDrawn(lower, PartnerDrawnLabel);
                     ScreenshotTaker.TakeNonSteamShot(PartnerAmberName);
                     partnerShotDue = DateTime.UtcNow.AddSeconds(3);
                     partnerLookStage = 3;
@@ -2540,6 +2542,7 @@ namespace ZLevelsValidation
                     return false;
                 case 4:
                     if (DateTime.UtcNow < partnerShotDue) return false;
+                    RecordPartnerDrawn(lower, PartnerDrawnPairedLabel);
                     ScreenshotTaker.TakeNonSteamShot(PartnerGreenName);
                     partnerShotDue = DateTime.UtcNow.AddSeconds(3);
                     partnerLookStage = 5;
@@ -2562,12 +2565,13 @@ namespace ZLevelsValidation
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) coolingScreenshotFailed = true;
         }
 
-        // Writes the drawn row. It passes when the cells that draw a plane, each with the colour it was drawn in, are the cells and colours the scenario
-        // expects on the adjacent level, as sets. A FAIL also fails the cooling link row.
-        private void RecordPartnerDrawn(Map viewed)
+        // Writes one drawn row. It passes when the draw calls of the last frame, each with the colour its material had, are the cell and colour pairs the
+        // scenario expects on the adjacent level, as sets. The look writes it at the amber stage and again at the green stage, after the pair is placed.
+        // A FAIL also fails the cooling link row.
+        private void RecordPartnerDrawn(Map viewed, string label)
         {
             string result = PartnerDrawnResult(viewed, surface);
-            RecordCooling(PartnerDrawnLabel, result);
+            RecordCooling(label, result);
             if (result.StartsWith("FAIL", StringComparison.Ordinal)) partnerDrawnFailed = true;
         }
 
@@ -2582,20 +2586,20 @@ namespace ZLevelsValidation
             FieldInfo lastMap = hook.GetField("LastMap", BindingFlags.Public | BindingFlags.Static);
             FieldInfo finished = hook.GetField("FinishedLastFrame", BindingFlags.Public | BindingFlags.Static);
             FieldInfo planes = hook.GetField("PlanesLastFrame", BindingFlags.Public | BindingFlags.Static);
-            FieldInfo drawn = hook.GetField("DrawnCellsLastFrame", BindingFlags.Public | BindingFlags.Static);
+            FieldInfo drawn = hook.GetField("DrawCallsLastFrame", BindingFlags.Public | BindingFlags.Static);
             var missing = new List<string>();
             if (lastMap == null) missing.Add("LastMap");
             if (finished == null) missing.Add("FinishedLastFrame");
             if (planes == null) missing.Add("PlanesLastFrame");
-            if (drawn == null) missing.Add("DrawnCellsLastFrame");
+            if (drawn == null) missing.Add("DrawCallsLastFrame");
             if (missing.Count > 0) return "FAIL: partner outline not built yet: these fields of CoolingColumnHighlight are missing: " + string.Join(", ", missing);
             if (!object.ReferenceEquals(lastMap.GetValue(null), viewed)) return "FAIL: the outline pass did not run on the viewed level";
             if (!(bool)finished.GetValue(null)) return "FAIL: the outline pass threw before it finished";
-            // Each item is an OutlineCell with the colour it was drawn in, so the colour reaches the verdict.
-            var drawnCells = new List<ZLevelsRimatomics.OutlineCell>();
-            foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null)) drawnCells.Add((ZLevelsRimatomics.OutlineCell)item);
+            // Each item is one draw call, with the colour its material had at the call. The verdict compares those colours with the expected pairs.
+            var drawCalls = new List<ZLevelsRimatomics.OutlineDraw>();
+            foreach (object item in (System.Collections.IEnumerable)drawn.GetValue(null)) drawCalls.Add((ZLevelsRimatomics.OutlineDraw)item);
             List<ZLevelsRimatomics.OutlineCell> expected = ExpectedOutline(viewed, adjacent);
-            return ZLevelsRimatomics.OutlineRule.DrawnRowVerdict(expected, drawnCells, (int)planes.GetValue(null));
+            return ZLevelsRimatomics.OutlineRule.DrawnRowVerdict(expected, drawCalls, (int)planes.GetValue(null));
         }
 
         // The cells the scenario placed on the adjacent level that still stand there, minus the enclosed ones. A cell is paired when a column the scenario

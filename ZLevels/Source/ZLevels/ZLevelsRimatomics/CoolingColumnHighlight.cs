@@ -13,8 +13,9 @@ namespace ZLevelsRimatomics
     [HarmonyPatch(typeof(DynamicDrawManager), nameof(DynamicDrawManager.DrawDynamicThings))]
     public static class CoolingColumnHighlight
     {
-        private static readonly Color PairedColor = new Color(0.25f, 0.9f, 0.25f);
-        private static readonly Color UnpairedColor = new Color(1f, 0.75f, 0f);
+        // The outline colours come from OutlineRule, so the hook and the drawn row use one palette.
+        private static readonly Color PairedColor = ToColor(OutlineRule.PairedColour);
+        private static readonly Color UnpairedColor = ToColor(OutlineRule.UnpairedColour);
         // The material and queue that GenDraw.DrawFieldEdges uses for its outline. MaterialPool.MatFrom cannot find this texture by its path,
         // so the texture comes from the material that MatLoader loads, as GenDraw does.
         private const string FieldEdgeMaterialPath = "Misc/FieldEdge";
@@ -27,12 +28,12 @@ namespace ZLevelsRimatomics
         // and a different failure on the same map logs again.
         private static readonly ConditionalWeakTable<Map, HashSet<string>> loggedFailures = new ConditionalWeakTable<Map, HashSet<string>>();
         // The outcome of the last frame that ran for a map, for the validation harness. LastMap is the map that frame ran for. FinishedLastFrame is
-        // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. DrawnCellsLastFrame lists the cells
-        // that drew at least one plane, each with the colour it was drawn in, so the harness compares cell and colour pairs and not only their count.
+        // true when the pass ran to its end. PlanesLastFrame counts each Graphics.DrawMesh call in that frame. DrawCallsLastFrame has one entry for each
+        // of those calls, with the cell and the colour that the call's material had, so the harness compares the colours that reached the draw.
         public static Map LastMap;
         public static bool FinishedLastFrame;
         public static int PlanesLastFrame;
-        public static readonly List<OutlineCell> DrawnCellsLastFrame = new List<OutlineCell>();
+        public static readonly List<OutlineDraw> DrawCallsLastFrame = new List<OutlineDraw>();
 
         // The field-edge texture, as GenDraw.DrawFieldEdges takes it: the main texture of the material that MatLoader loads for Misc/FieldEdge.
         // When the path does not load, MatLoader returns BaseContent.BadMat, the placeholder, and warns on every call. So the failure is kept, and
@@ -56,8 +57,9 @@ namespace ZLevelsRimatomics
         // One plane per open side, drawn with Graphics.DrawMesh. GenDraw.DrawFieldEdges draws the same planes with Graphics.DrawMeshInstanced.
         // With that call, two of five look runs lost the GPU device (20261102-215009 and 20261102-215926), so this draw does not use instancing.
         // The sides come from OutlineRule, which skips a side that leads off the map or onto another cell of the list, as DrawFieldEdges does.
-        // Each cell that draws at least one plane is added to DrawnCellsLastFrame with the paired flag of its state.
-        private static void DrawOutline(List<IntVec3> cells, Color color, bool paired, Map map)
+        // Each Graphics.DrawMesh call adds one entry to DrawCallsLastFrame. The entry takes the colour of the material that the call receives, read back
+        // from that material, so it records the colour that reached the draw, not the colour the hook meant to use.
+        private static void DrawOutline(List<IntVec3> cells, Color color, Map map)
         {
             if (cells.Count == 0) return;
             Material material = MaterialPool.MatFrom(FieldEdgeTexture(), ShaderDatabase.Transparent, color, OutlineRenderQueue);
@@ -67,16 +69,28 @@ namespace ZLevelsRimatomics
                 int openSides = OutlineRule.OpenSides(cell.x, cell.z,
                     (x, z) => new IntVec3(x, 0, z).InBounds(map),
                     (x, z) => cells.Contains(new IntVec3(x, 0, z)));
-                bool drewPlane = false;
                 for (int side = 0; side < 4; side++)
                 {
                     if ((openSides & (1 << side)) == 0) continue;
-                    Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(side).AsQuat, Vector3.one), material, 0);
+                    Material callMaterial = material;
+                    Graphics.DrawMesh(MeshPool.plane10, Matrix4x4.TRS(position, new Rot4(side).AsQuat, Vector3.one), callMaterial, 0);
                     PlanesLastFrame++;
-                    drewPlane = true;
+                    DrawCallsLastFrame.Add(new OutlineDraw(cell.x, cell.z, ColourOf(callMaterial)));
                 }
-                if (drewPlane) DrawnCellsLastFrame.Add(new OutlineCell(cell.x, cell.z, paired));
             }
+        }
+
+        // The colour of a material, read back from it, as the four channels of an outline colour.
+        private static OutlineColour ColourOf(Material drawn)
+        {
+            Color colour = drawn.color;
+            return new OutlineColour(colour.r, colour.g, colour.b, colour.a);
+        }
+
+        // The Unity colour of an outline colour from OutlineRule.
+        private static Color ToColor(OutlineColour colour)
+        {
+            return new Color(colour.R, colour.G, colour.B, colour.A);
         }
 
         public static void Postfix(Map ___map)
@@ -88,7 +102,7 @@ namespace ZLevelsRimatomics
                 LastMap = ___map;
                 FinishedLastFrame = false;
                 PlanesLastFrame = 0;
-                DrawnCellsLastFrame.Clear();
+                DrawCallsLastFrame.Clear();
                 pairedCells.Clear();
                 unpairedCells.Clear();
                 foreach (CoolingTarget target in CoolingLoopRegistry.HighlightTargets(___map))
@@ -96,8 +110,8 @@ namespace ZLevelsRimatomics
                     if (target.Paired) pairedCells.Add(target.Cell);
                     else unpairedCells.Add(target.Cell);
                 }
-                DrawOutline(pairedCells, PairedColor, true, ___map);
-                DrawOutline(unpairedCells, UnpairedColor, false, ___map);
+                DrawOutline(pairedCells, PairedColor, ___map);
+                DrawOutline(unpairedCells, UnpairedColor, ___map);
                 FinishedLastFrame = true;
             }
             catch (Exception exception)

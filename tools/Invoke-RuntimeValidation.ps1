@@ -74,10 +74,11 @@ function Get-RequiredLabels {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
         foreach ($shot in $ScreenshotLabels) { $labels += [pscustomobject]@{ Label = $shot; Accept = 'PASS or TAKEN' } }
-        # The outline row compares the cells and colours drawn with the cells and colours the scenario expects. The two tint rows are written from the
-        # partner screenshots after the game exits, and the gate reads them with the other rows.
+        # The outline rows compare the (cell, colour) pairs of the draw calls with the pairs the scenario expects. One row is written at the amber stage,
+        # and one at the green stage after the lower column stands. The two tint rows are written from the partner screenshots after the game exits.
         if ($CoolingColumns) {
             $labels += [pscustomobject]@{ Label = 'partner highlight drawn'; Accept = 'PASS with planes' }
+            $labels += [pscustomobject]@{ Label = 'partner highlight drawn with pair'; Accept = 'PASS with planes' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint amber'; Accept = 'PASS with values' }
             $labels += [pscustomobject]@{ Label = 'partner highlight tint green'; Accept = 'PASS with values' }
         }
@@ -109,14 +110,16 @@ function Get-GateProblems {
 # sits in one place. The sampled region is the highlight cell: 15 by 15 pixels at x 632 to 646 and y 352 to 366 of a 1280 by 720 screenshot. A
 # cooling column stands in the middle 7 by 7 block (x 636 to 642 and y 356 to 362), so that block is left out. The rest of the cell is sampled.
 # The tint is measured against a baseline: the same ring BaselineShiftX pixels to the right, two cells east of the highlight cell. The look clears
-# and lights the cells within two cells of the highlight cell, and no outline reaches the baseline, so the baseline shows the flat ground. A cell
-# A cell passes only when each channel clears its own margin against the baseline, so a flat surface cannot pass on a sum of channels. Amber needs a
-# red excess of at least AmberRedExcess, a green excess of at least AmberGreenExcess, and a red of at least AmberRedMin. Green needs a green excess of
-# at least GreenGreenExcess and a red deficit of at least GreenRedDeficit, because a green overlay lowers red. Blue is not judged.
-# Calibrated on the proof runs 20261102-230106, 20261102-233927, 20261102-234045 and 20261103-002454. Their amber cells have a red excess of 61.4 and a
-# green excess of 38.6, and their green cells a green excess of 50.2 and a red deficit of 7.6. The failing runs 20261102-224947, 20261102-225711 and
-# 20261103-001533 have amber red excesses of 10.2 and green excesses of 8.5, and green cells with a green excess of 5.6 or less and a red deficit of 3.0.
-# The baseline averages 46.3 in red and 48.1 in green in every run, so no outline reaches it. Its blue runs from 34 to 47 with the light.
+# and lights the cells within two cells of the highlight cell, and no outline reaches the baseline, so the baseline shows the flat ground.
+# Each channel is judged against the baseline, and each margin applies to its own channel, so a flat surface cannot pass on a sum of channels.
+# Amber needs a red excess of at least AmberRedExcess, a green excess of at least AmberGreenExcess, and a red of at least AmberRedMin.
+# Green needs its green excess minus its red excess to be at least GreenRelativeExcess. A green overlay raises green and lowers red, and a
+# column can raise red, so the test takes the difference of the two excesses. Blue is not judged.
+# Calibrated on the proof runs 20261102-230106, 20261102-233927, 20261102-234045 and 20261103-002454. Their amber cells have a red excess of 61.4
+# and a green excess of 38.6. Their green cells have a green excess of 50.2 and a red excess of -7.6, so green minus red is 57.8. The failing runs
+# 20261102-224947, 20261102-225711 and 20261103-001533 have amber red excesses of 10.2 and green excesses of 8.5. Their green cells have a green
+# excess of 5.6 and a red excess of -3.0, so green minus red is 8.6. The baseline averages 46.3 in red and 48.1 in green in every run, so no outline
+# reaches it. Its blue runs from 34 to 47 with the light.
 function Get-OutlineTintSettings {
     return @{
         ImageWidth = 1280; ImageHeight = 720
@@ -124,8 +127,16 @@ function Get-OutlineTintSettings {
         ColumnLeft = 636; ColumnTop = 356; ColumnRight = 642; ColumnBottom = 362
         BaselineShiftX = 30
         AmberRedExcess = 40; AmberGreenExcess = 25; AmberRedMin = 70
-        GreenGreenExcess = 25; GreenRedDeficit = 5
+        GreenRelativeExcess = 25
     }
+}
+
+# Reads one tint setting by name. A name that the settings table does not hold stops the run with a message that names it, so a misspelt name cannot
+# read as null and pass for a setting.
+function Get-TintSetting {
+    param($Settings, [string]$Name)
+    if (-not $Settings.ContainsKey($Name)) { throw ('The tint setting ' + $Name + ' is not in Get-OutlineTintSettings. Check the spelling of the name.') }
+    return $Settings[$Name]
 }
 
 # A PNG starts with an eight byte signature and ends with its IEND chunk. A file without both is cut short, or it is not a PNG.
@@ -140,13 +151,14 @@ function Test-CompletePng {
     return $true
 }
 
-# Averages the ring of the cell that lies ShiftX pixels to the right of the highlight cell. The ring is the cell without its middle 7 by 7 block.
+# Averages the ring of the cell that lies ShiftX pixels to the right of the highlight cell. The ring is the cell without its middle 7 by 7 block. The
+# bounds are passed in, so the averages read no setting while the image is open.
 function Get-RingAverage {
-    param($Bitmap, $Settings, [int]$ShiftX)
+    param($Bitmap, [int]$Left, [int]$Top, [int]$Right, [int]$Bottom, [int]$ColumnLeft, [int]$ColumnTop, [int]$ColumnRight, [int]$ColumnBottom, [int]$ShiftX)
     $redTotal = 0; $greenTotal = 0; $blueTotal = 0; $count = 0
-    for ($y = $Settings.CellTop; $y -le $Settings.CellBottom; $y++) {
-        for ($x = ($Settings.CellLeft + $ShiftX); $x -le ($Settings.CellRight + $ShiftX); $x++) {
-            if ($x -ge ($Settings.ColumnLeft + $ShiftX) -and $x -le ($Settings.ColumnRight + $ShiftX) -and $y -ge $Settings.ColumnTop -and $y -le $Settings.ColumnBottom) { continue }
+    for ($y = $Top; $y -le $Bottom; $y++) {
+        for ($x = ($Left + $ShiftX); $x -le ($Right + $ShiftX); $x++) {
+            if ($x -ge ($ColumnLeft + $ShiftX) -and $x -le ($ColumnRight + $ShiftX) -and $y -ge $ColumnTop -and $y -le $ColumnBottom) { continue }
             $pixel = $Bitmap.GetPixel($x, $y)
             $redTotal += $pixel.R; $greenTotal += $pixel.G; $blueTotal += $pixel.B; $count++
         }
@@ -161,6 +173,22 @@ function Get-OutlineTintResult {
     param([string]$Path, [ValidateSet('amber', 'green')][string]$Color)
     if (!(Test-Path -LiteralPath $Path)) { return 'FAIL: no screenshot file at ' + $Path }
     $settings = Get-OutlineTintSettings
+    # Every setting is read by name before the image opens. A misspelt name stops the run with a message that names it, so it cannot read as null.
+    $imageWidth = Get-TintSetting -Settings $settings -Name 'ImageWidth'
+    $imageHeight = Get-TintSetting -Settings $settings -Name 'ImageHeight'
+    $cellLeft = Get-TintSetting -Settings $settings -Name 'CellLeft'
+    $cellTop = Get-TintSetting -Settings $settings -Name 'CellTop'
+    $cellRight = Get-TintSetting -Settings $settings -Name 'CellRight'
+    $cellBottom = Get-TintSetting -Settings $settings -Name 'CellBottom'
+    $columnLeft = Get-TintSetting -Settings $settings -Name 'ColumnLeft'
+    $columnTop = Get-TintSetting -Settings $settings -Name 'ColumnTop'
+    $columnRight = Get-TintSetting -Settings $settings -Name 'ColumnRight'
+    $columnBottom = Get-TintSetting -Settings $settings -Name 'ColumnBottom'
+    $shiftX = Get-TintSetting -Settings $settings -Name 'BaselineShiftX'
+    $amberRedExcess = Get-TintSetting -Settings $settings -Name 'AmberRedExcess'
+    $amberGreenExcess = Get-TintSetting -Settings $settings -Name 'AmberGreenExcess'
+    $amberRedMin = Get-TintSetting -Settings $settings -Name 'AmberRedMin'
+    $greenRelativeExcess = Get-TintSetting -Settings $settings -Name 'GreenRelativeExcess'
     Add-Type -AssemblyName System.Drawing
     try {
         if (!(Test-CompletePng -Bytes ([System.IO.File]::ReadAllBytes($Path)))) {
@@ -168,11 +196,11 @@ function Get-OutlineTintResult {
         }
         $bitmap = New-Object System.Drawing.Bitmap -ArgumentList $Path
         try {
-            if ($bitmap.Width -ne $settings.ImageWidth -or $bitmap.Height -ne $settings.ImageHeight) {
-                return 'FAIL: the screenshot is ' + $bitmap.Width + ' by ' + $bitmap.Height + ' pixels, not ' + $settings.ImageWidth + ' by ' + $settings.ImageHeight + ', so the sampled region does not apply'
+            if ($bitmap.Width -ne $imageWidth -or $bitmap.Height -ne $imageHeight) {
+                return 'FAIL: the screenshot is ' + $bitmap.Width + ' by ' + $bitmap.Height + ' pixels, not ' + $imageWidth + ' by ' + $imageHeight + ', so the sampled region does not apply'
             }
-            $target = Get-RingAverage -Bitmap $bitmap -Settings $settings -ShiftX 0
-            $baseline = Get-RingAverage -Bitmap $bitmap -Settings $settings -ShiftX $settings.BaselineShiftX
+            $target = Get-RingAverage -Bitmap $bitmap -Left $cellLeft -Top $cellTop -Right $cellRight -Bottom $cellBottom -ColumnLeft $columnLeft -ColumnTop $columnTop -ColumnRight $columnRight -ColumnBottom $columnBottom -ShiftX 0
+            $baseline = Get-RingAverage -Bitmap $bitmap -Left $cellLeft -Top $cellTop -Right $cellRight -Bottom $cellBottom -ColumnLeft $columnLeft -ColumnTop $columnTop -ColumnRight $columnRight -ColumnBottom $columnBottom -ShiftX $shiftX
         }
         finally { $bitmap.Dispose() }
     }
@@ -182,27 +210,25 @@ function Get-OutlineTintResult {
     $average = (@($target.Red, $target.Green, $target.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
     $baselineText = (@($baseline.Red, $baseline.Green, $baseline.Blue) | ForEach-Object { $_.ToString('F1', [System.Globalization.CultureInfo]::InvariantCulture) }) -join ','
     Write-Host ('Partner tint for ' + $Color + ': average RGB ' + $average + ' over ' + $target.Count + ' pixels. Baseline RGB ' + $baselineText + ' over ' + $baseline.Count + ' pixels.')
-    # Each channel is judged on its own against the baseline, and each margin applies to its own channel, so a sum of channels cannot carry a flat
-    # surface. A green overlay lowers red, so the red check for green is a deficit: the baseline red less the target red.
+    # Each channel is judged against the baseline, and each margin applies to its own channel, so a flat surface cannot pass on a sum of channels.
+    # Green is judged by its excess minus the red excess, since a column can raise red as well as a green outline raising green.
     $culture = [System.Globalization.CultureInfo]::InvariantCulture
     $redExcess = $target.Red - $baseline.Red
     $greenExcess = $target.Green - $baseline.Green
-    $redDeficit = $baseline.Red - $target.Red
+    $redText = $redExcess.ToString('F1', $culture)
+    $greenText = $greenExcess.ToString('F1', $culture)
     $measured = 'average RGB ' + $average + ' over baseline RGB ' + $baselineText
     if ($Color -eq 'amber') {
-        $redText = $redExcess.ToString('F1', $culture)
-        $greenText = $greenExcess.ToString('F1', $culture)
-        if ($redExcess -ge $settings.AmberRedExcess -and $greenExcess -ge $settings.AmberGreenExcess -and $target.Red -ge $settings.AmberRedMin) {
+        if ($redExcess -ge $amberRedExcess -and $greenExcess -ge $amberGreenExcess -and $target.Red -ge $amberRedMin) {
             return 'PASS: ' + $measured + ', red excess ' + $redText + ', green excess ' + $greenText
         }
-        return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the amber tint: red excess ' + $redText + ' needs ' + $settings.AmberRedExcess + ', green excess ' + $greenText + ' needs ' + $settings.AmberGreenExcess + ', red ' + $target.Red.ToString('F1', $culture) + ' needs ' + $settings.AmberRedMin
+        return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the amber tint: red excess ' + $redText + ' needs ' + $amberRedExcess + ', green excess ' + $greenText + ' needs ' + $amberGreenExcess + ', red ' + $target.Red.ToString('F1', $culture) + ' needs ' + $amberRedMin
     }
-    $greenText = $greenExcess.ToString('F1', $culture)
-    $deficitText = $redDeficit.ToString('F1', $culture)
-    if ($greenExcess -ge $settings.GreenGreenExcess -and $redDeficit -ge $settings.GreenRedDeficit) {
-        return 'PASS: ' + $measured + ', green excess ' + $greenText + ', red deficit ' + $deficitText
+    $relativeText = ($greenExcess - $redExcess).ToString('F1', $culture)
+    if (($greenExcess - $redExcess) -ge $greenRelativeExcess) {
+        return 'PASS: ' + $measured + ', green excess ' + $greenText + ', red excess ' + $redText + ', green minus red ' + $relativeText
     }
-    return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the green tint: green excess ' + $greenText + ' needs ' + $settings.GreenGreenExcess + ', red deficit ' + $deficitText + ' needs ' + $settings.GreenRedDeficit
+    return 'FAIL: the screenshot ' + $Path + ' cell has ' + $measured + ', which lacks the green tint: green minus red is ' + $relativeText + ' and needs ' + $greenRelativeExcess + ' (green excess ' + $greenText + ', red excess ' + $redText + ')'
 }
 
 # Appends the two partner tint verdicts to validation-results.txt as rows of their own, after the game exits. A tint row has no timestamp, so the log
