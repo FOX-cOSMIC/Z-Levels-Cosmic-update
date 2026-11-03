@@ -8,7 +8,8 @@ namespace ZLevelsRimatomics
         // The Rimatomics pipe comp on this column. A reference-type field, so this class loads without Rimatomics.
         public Rimatomics.CompPipe pipe;
 
-        // The game tick at which the column spawned, or null when no game tick could be read. The no-net notice waits for a grace period after this tick.
+        // The game tick at which the column spawned, or null when no game tick could be read. The no-net notice waits for a grace period after this tick. The tick
+        // is not saved, so a load sets it again, and each load restarts the grace period.
         public int? SpawnedAtTick;
 
         public override void PostSpawnSetup(bool respawningAfterLoad)
@@ -18,8 +19,8 @@ namespace ZLevelsRimatomics
             pipe = parent.GetComp<Rimatomics.CompPipe>();
             if (pipe == null)
             {
-                // Without a pipe the column cannot join a net, so it stays out of the registry.
-                Log.Error("Z-Levels cooling column " + parent.def.defName + " has no Rimatomics pipe comp, so it does not join a loop.");
+                // Without a pipe the column cannot join a net, so it stays out of the registry. The line goes through the gate that the other lines use.
+                Patch_CoolingNet.LogMissingPipe(this);
                 return;
             }
             CoolingLoopRegistry.Register(this);

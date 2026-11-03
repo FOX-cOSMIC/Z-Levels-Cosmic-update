@@ -136,3 +136,16 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `Log.Error(string text)` is a public static method (`Verse.Log` decompile, line 152).
 - `Log.Warning(string text)` is a public static method (`Verse.Log` decompile, line 125).
 - `GenSpawn.Spawn(Thing newThing, IntVec3 loc, Map map, WipeMode wipeMode = WipeMode.Vanish)` returns `Thing` (`Verse.GenSpawn` decompile, line 26). It forwards to the overload at line 86, which returns null when the map is null (line 91) or the cell is out of bounds (line 107). Each case logs an error first.
+
+## Load order and ticks
+
+- `Find.TickManager` is `Current.Game.tickManager` (`Verse.Find` decompile, `.artifacts/ilspy/cooling-task7-find/`, line 148). It is not null-safe for `Current.Game`. The `?.` in `CompCoolingColumn.PostSpawnSetup` guards the tick manager only.
+- `Game.tickManager` is set by a field initializer, `new TickManager()` (`Verse.Game` decompile, `.artifacts/ilspy/cooling-task4/Verse.Game/Verse.Game.decompiled.cs`, line 61). It exists before any load.
+- `Game.LoadGame` (line 560 of that decompile) calls `ExposeSmallComponents()` at line 571. It exposes the maps at line 589, calls `Scribe.loader.FinalizeLoading()` at line 611, and calls each `Map.FinalizeLoading()` at line 619. The tick manager is loaded before any map is finalized.
+- `Scribe_Deep.Look` on load sets the target from the saved node (`Verse.Scribe_Deep` decompile, `.artifacts/ilspy/cooling-task7-find/`, from line 74). A save with no `tickManager` node would load a null tick manager. The game writes that node in every save.
+
+## Message lock
+
+- `Log.LockMessages()` returns a `LogLock`, which implements `IDisposable` (`.artifacts/patch-api/Log.cs`, lines 14 and 78 to 80). The constructor increments `logDisablers` (lines 16 to 19), and `Dispose` decrements it (lines 21 to 23).
+- `Log.PreventLogging` is a private static property. It is true while `reachedMaxMessagesLimit` is set or `logDisablers` is above zero (lines 66 to 76). `Log.Warning` writes only while it is false (line 129), and `Log.Error` returns early while it is true (lines 156 to 158).
+- `ZLevelsRimatomics` reads `PreventLogging` through a cached reflection delegate, so it can tell whether the log will write.
