@@ -3529,7 +3529,8 @@ namespace ZLevelsValidation
         }
 
         // The overheating row. The uncooled run passes when a sample at or before +2500 ticks read IsOverheating true, so the heat path is shown to pass 500.
-        // The cooled run passes when no sample read IsOverheating and every sample was read, so the cooled core is shown to stay below 500.
+        // The cooled run passes when no sample read IsOverheating, every sample was read, and no sample read IsShutdown as true. A core that trips stops
+        // heating, so a pass on temperature alone would not show that the core ran for the full time.
         private string OverheatResult()
         {
             if (CoolingNoColumns)
@@ -3537,6 +3538,7 @@ namespace ZLevelsValidation
                 if (reactorOverheatOffset >= 0) return "PASS";
                 return "FAIL: no sample reached IsOverheating by +2500 ticks" + (reactorPeakOffset < 0 ? "" : ", and the peak postReturnTemp was " + reactorPeakTemp.ToString("F1"));
             }
+            if (reactorShutdownOffset >= 0) return "FAIL: IsShutdown was true at +" + reactorShutdownOffset + " ticks, so the core was not running for the full 2500 ticks";
             if (reactorOverheatOffset >= 0) return "FAIL: IsOverheating was true at +" + reactorOverheatOffset + " ticks, with the peak postReturnTemp " + reactorPeakTemp.ToString("F1");
             return reactorUnreadProblem == null ? "PASS" : "FAIL: " + reactorUnreadProblem;
         }

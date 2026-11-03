@@ -615,7 +615,7 @@ The no-columns run reads a loop ratio of 0.0000 in every sample, because its low
 
 One unstalled tower caps the ratio near 0.6. The output of the 21-rod core peaked at about 148,700 W in both runs. One tower has a capacity of 250,000 W, so the ratio tops out near 0.595. The ratio can exceed 1 only if the tower stalls. No run has tested a stalled tower with the column pair in place.
 
-The melt check did not fail in any run, because the uncooled peaks stayed below 1500, against a melt limit of 2000. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
+The melt check cannot fail in this scenario, because the uncooled peaks stay under the melt limit of 2000. Those peaks are 1364.6 in run `20261103-131225` and 1486.9 in run `20261103-130813`. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
 
 ### Roof over the tower footprint
 
