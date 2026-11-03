@@ -517,6 +517,116 @@ Run `20261101-141256` passes `core validation` with 78 mods. Other mods logged t
 
 No error entry names Z-Levels code. The other-mod errors are in `other-mod-errors.txt` in the run folder.
 
+## Cross-level cooling: reactor research
+
+This section answers the research gate for Task 6 of the cross-level cooling plan. Rimatomics line numbers come from `.artifacts/ilspy/rimatomics-1.7-installed/Rimatomics/`, decompiled with `ilspycmd` from the installed `1.7/Assemblies/Rimatomics.dll`. RimWorld line numbers come from `.artifacts/ilspy/rimworld-1.7-installed-power/`, decompiled from the installed `Assembly-CSharp.dll` of RimWorld 1.7.4995 rev309.
+
+The Rimatomics DLL has SHA-256 `41a1887390ce39fd0c07719c8765b8ce580678823b3a74618636507647fe5b51`. The earlier decompile in `.artifacts/ilspy/rimatomics/` is identical to it. `diff -rq` finds no difference in its 209 files, so the names in the plan are the installed names.
+
+### Names match the installed code
+
+`CoolingNet` extends `BasePipeNet` at `CoolingNet.cs`, line 7. Its fields are `CoolingCapacity` at line 9, `CoolingLoopRatio` at line 11, `Coolers` at line 13, and `Turbines` at line 15. `Tick` sets the ratio to 0 at line 27. It computes the ratio only when `Coolers` holds a cooler, at line 28.
+
+`reactorCore` is declared at `reactorCore.cs`, line 14. Its fields are `FuelCount` at line 40, `IsShutdown` at line 50, `postReturnTemp` at line 80, `powerComp` at line 82, `SlotDesignations` at line 104, and `TargetControlRodTo` at line 111. The property `IsCoreMelt` is at line 157, and `IsOverheating` is at line 181. `Tick` starts at line 750.
+
+`CoreA` extends `reactorCore` at `CoreA.cs`, line 6. The def `ReactorCoreA` names that class at `Buildings_C_Power.xml`, line 150.
+
+`Turbine` is declared at `Turbine.cs`, line 10. Its fields are `UncappedPowerGeneration` at line 28 and `UncooledWater` at line 30. `Tick` starts at line 72. The def `Turbine` names the class `Thor` at `Buildings_C_Power.xml`, line 235.
+
+`CoolingTower` extends `CoolingSystem` at `CoolingTower.cs`, line 8. Its `coolingCapacity` property spans lines 14 to 37. `CoolingSystem` declares `powerComp` at `CoolingSystem.cs`, line 16, and `Stalled` at line 18.
+
+`Alert_ReactorAlerts` is declared at `Alert_ReactorAlerts.cs`, line 11. It adds the NOCOOLING text at line 89.
+
+`DubDef.BuildReactorCore` is declared at `DubDef.cs`, line 70. `Complete` is declared at `GameComp_RimatomicsResearch.cs`, line 310. `RimatomicsResearch._instance` is declared at `RimatomicsResearch.cs`, line 31.
+
+### The core and the tower need power
+
+`CompPowerTrader.PowerOn` is a property over the field `powerOnInt`, at `RimWorld.CompPowerTrader.cs`, lines 16 and 74 to 134. The setter stores the new value at line 86, before its own checks run.
+
+`PowerNet.PowerNetTick` sets `PowerOn` to true at line 240 of `RimWorld.PowerNet.cs`. It does so when the stored energy plus the net's gain covers the part's draw. One watt draws 1.6666667E-05 watt-days per tick, at `RimWorld.CompPower.cs`, line 20.
+
+The core draws 1337 W, at `Buildings_C_Power.xml`, line 96. The tower draws 550 W, at line 550. The scenario has no generator, so a charged battery supplies each net. The base game `Battery` stores 600 watt-days, at `Data/Core/Defs/ThingDefs_Buildings/Buildings_Power.xml`, line 475. Its stored energy starts at 0, at `RimWorld.CompPowerBattery.cs`, line 9. Calling `SetStoredEnergyPct` with `1f` fills it, at line 100.
+
+A connector joins a transmitting building within 6 cells, at `RimWorld.PowerConnectionMaker.cs`, lines 103 and 117.
+
+The tower needs power for its capacity too. `coolingCapacity` returns 0 unless `powerComp.PowerOn` is true, at `CoolingTower.cs`, lines 28 to 36. With a capacity of 0, `Turbine.Tick` sets `UncooledWater` to the full output, at `Turbine.cs`, lines 92 to 94. An unpowered tower cools nothing. The plan's Task 6 check list does not name this.
+
+### Layout for the tower, the turbine, and the core
+
+The tower is 8 by 8, at `Buildings_C_Power.xml`, line 534. Its only pipe is `Cooling`, at lines 544 to 546. A roofed cell in its footprint sets `Stalled`, which the game checks every 250 ticks, at `CoolingTower.cs`, lines 86 to 94. A stalled tower gives 25,000 capacity instead of 250,000, at lines 32 and 34.
+
+The `Turbine` def is 4 by 7, at `Buildings_C_Power.xml`, line 261. It has `HighVoltage`, `Steam`, `ColdWater`, and `Cooling` pipes, at lines 271 to 282. The `ReactorCoreA` def is 5 by 5, at line 157. It has `Steam`, `ColdWater`, and `Loom` pipes, at lines 85 to 93, and no `Cooling` pipe.
+
+Pipes of one mode join when their footprints touch side by side. The flood fill that builds a net is called at `UniversalPipeMapComp.cs`, line 208. The game's `FloodFiller` walks the cardinal neighbours through `GenAdj.CardinalDirectionsAround`, at line 72 of the `Verse.FloodFiller` decompile. A building with a pipe of one mode forms a net by itself. So the core needs no pipe to share the turbine's steam and cold-water nets.
+
+With `c` as the pairing cell, the core covers x `c-2` to `c+2` and z `c-12` to `c-8`. The turbine covers x `c-2` to `c+1` and z `c-7` to `c-1`. The two footprints touch along the rows at z `c-8` and `c-7`, for x `c-2` to `c+1`. The scenario uses no pipe. The pipe defs are `steamPipe` and `waterPipe` in Rimatomics' `Buildings_A_Pipes.xml`, at lines 181 and 255.
+
+### Startup clears the flag and nothing else
+
+`Startup()` sets `IsShutdown` to false and does nothing else, at `reactorCore.cs`, lines 503 to 506. The START button calls it, at `Dialog_ReactorConsole.cs`, line 515. `punchit()` also clears the flag, at `reactorCore.cs`, line 1026. The decompile has no call site for `punchit()`. `SCRAM()` and two automatic trips set the flag to true, at `reactorCore.cs`, lines 515, 806, and 811. The scenario calls `Startup()`.
+
+### Placement workers do not run on a code spawn
+
+`PlaceWorker_ResearchStage` appears only in the defs, at `Buildings_C_Power.xml`, lines 141 to 143 and 295 to 297. `Verse.GenSpawn` in the installed `Assembly-CSharp.dll` has no reference to a placement worker. So `GenSpawn.Spawn`, which the harness calls, skips the placement check.
+
+### Research gate
+
+`CoreA.IsBuilt` returns `DubDef.BuildReactorCore.IsFinished`, at `CoreA.cs`, line 12. While that is false, `reactorCore.Tick` returns before its own work, at `reactorCore.cs`, lines 763 to 766. `Complete` marks a step as completed, at `GameComp_RimatomicsResearch.cs`, lines 310 to 320.
+
+The research component is `RimatomicsResearch._instance`. Its constructor sets that field, at `RimatomicsResearch.cs`, lines 33 to 37. `DubUtils.GetResearch()` returns it, at `DubUtils.cs`, lines 271 to 274. The core's `SpawnSetup` method calls `DubUtils.GetResearch().NotifyResearch()`, at `reactorCore.cs`, line 405.
+
+### Fuel and control rods
+
+`InsertFuel(Item_NuclearFuel)` stores a fuel rod only in a slot designated `RodDesignate.Fuel`, at `reactorCore.cs`, lines 518 to 534. The designations live in the public list `SlotDesignations`, at line 104. `RefreshFuelGrid` sets `FuelCount`, at lines 356 to 362. The fuel def is `FuelRods`, at `ThingDefs_Misc/Nuclear.xml`, line 186.
+
+`TargetControlRodTo` is a public float, at `reactorCore.cs`, line 111. The rod request is 0 unless the core is powered, running, and holding fuel, at lines 270 to 280. `Interps()` moves the rod position toward `TargetControlRodTo`, at line 907.
+
+### The temperature path
+
+`Interps()` sets `postReturnTemp` to `RealTemp` plus `overheating`, at `reactorCore.cs`, line 927. With a turbine on the cold-water net, the `overheating` target is the cold-water feed return divided by 100, capped at `MaxPowerForFuelLevel`, at lines 918 to 921. The feed return sums the turbines' `UncooledWater` and divides by the core count, at `ColdWaterNet.cs`, line 26.
+
+`UncooledWater` is 0 when the net has cooling capacity and its ratio is below 1, at `Turbine.cs`, lines 81 to 86.
+
+`IsOverheating` is true above 500, at `reactorCore.cs`, line 181. `IsCoreMelt` is true above 2000, at line 157. Temperature predictions for 21 fresh rods do not apply to one rod. The runs record the real samples.
+
+## Cross-level cooling: reactor scenario
+
+The scenario runs after the reload in the cooling link sequence. The core and its battery stand on the lower level, and the core's footprint touches the turbine's. A second battery powers the tower on the surface. A colonist stands on the surface cell above the core. The core starts with one `FuelRods` rod in a `Fuel` slot, and `TargetControlRodTo` is set to 1. `Startup()` runs once the core and the tower both read `PowerOn`. The scenario then samples every 250 ticks for 2500 ticks, which gives 11 samples.
+
+The `cooling link` row passes only when every label in `CoolingLabels` passes. With `-Cooling`, the runner also requires these six reactor rows.
+
+- `reactor runs on the lower level` passes when `IsShutdown` is false and `FuelCount` is above 0 right after `Startup()`.
+- `loop ratio at or below 1` passes when `CoolingLoopRatio` on the lower turbine's net is 1 or less in every sample.
+- `surface tower stays in the lower loop` passes when the surface tower is in the lower turbine's `Coolers` in every sample.
+- `no cooling alert` passes when the lower turbine's `Coolers` holds at least one cooler in every sample. The alert itself is not tested.
+- `no meltdown` passes when `IsCoreMelt` is false in every sample.
+- `surface colonist not irradiated` passes when the colonist on the surface cell has no `RimatomicsRadiation` hediff at the end.
+
+The runner accepts one scenario switch per run. `-CoolingNoColumns` runs the same scenario without the column pair, and the red run uses it alone. The six reactor rows still run in that variant.
+
+Three checks cannot fail at this fuel level, so they are weak. One rod gives a loop ratio of about 0.007. The core peaks at 332.5 without cooling, far below the melt limit of 2000. The colonist check passes by design, because the core's radiation scans only its own map. The alert check tests the cooler list, as the plan says, and does not test the alert.
+
+### Runs
+
+| Run | Switch | Result |
+|---|---|---|
+| `20261103-124931` | `-CoolingNoColumns` | Fails as expected. `surface tower stays in the lower loop` and `no cooling alert` read FAIL at +0 ticks. |
+| `20261103-125122` | `-Cooling` | Passes. All six reactor rows read PASS, and `cooling link` reads PASS. |
+| `20261103-125300` | none | The core validation passes. It has 30 rows, and no row reads FAIL. |
+
+All three runs used the installed build, RimWorld 1.7.4995 rev309. The project target is 1.7.4990 rev1069.
+
+The reactor readings at 500, 1000, 1500, and 2500 ticks after `Startup()`:
+
+| Ticks | No columns: postReturnTemp | No columns: uncooled | Cooled: postReturnTemp | Cooled: ratio | Cooled: uncooled |
+|---|---|---|---|---|---|
+| 500 | 135.5 | 749.1 | 132.9 | 0.0029 | 0.0 |
+| 1000 | 288.3 | 1599.6 | 277.4 | 0.0061 | 0.0 |
+| 1500 | 328.6 | 1750.0 | 312.1 | 0.0069 | 0.0 |
+| 2500 | 332.5 | 1750.0 | 315.0 | 0.0070 | 0.0 |
+
+The cooled run settles at 315.0, and the no-column run settles at 332.5. The 17.5 difference matches `ColdWaterFeedReturn` divided by 100 for an uncooled output of 1750 W, from `reactorCore.cs`, lines 918 to 927, and `ColdWaterNet.cs`, line 26. The one-rod predictions held. One fresh rod gave 1750 W, and the cooled core levelled at 315. No run tripped. `IsShutdown` stayed false in all 11 samples of both runs.
+
 ## Evidence
 
 - Other-mod run: `.artifacts/runs/20261101-141256/`
@@ -528,3 +638,4 @@ No error entry names Z-Levels code. The other-mod errors are in `other-mod-error
 - Stage 1 timeout: `.artifacts/runs/20261028-134553/`
 - Earlier runs: `.artifacts/runs/20261028-040440/`, `20261028-035409/`, `20261028-035538/`, `20261028-032903/`
 - Decompiles: `.artifacts/ilspy/` (git-ignored)
+- Cross-level cooling reactor runs: `.artifacts/runs/20261103-124931/` (no columns, red), `.artifacts/runs/20261103-125122/` (cooled, green), and `.artifacts/runs/20261103-125300/` (core validation)

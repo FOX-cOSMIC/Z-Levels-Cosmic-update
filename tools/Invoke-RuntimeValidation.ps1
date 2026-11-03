@@ -68,11 +68,14 @@ function Assert-SwitchesRead {
 function Get-RequiredLabels {
     param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
-    # A -Cooling run names its three link rows, so a missing row fails the gate by name. The cooling link row alone would hide which row is missing.
+    # A -Cooling run names its three link rows and its six reactor rows, so a missing row fails the gate by name. The cooling link row alone would hide which row is missing.
     if ($CoolingColumns) {
         $labels += [pscustomobject]@{ Label = "lower turbine shares the surface tower's loop"; Accept = 'PASS' }
         $labels += [pscustomobject]@{ Label = 'cooling link survives reload'; Accept = 'PASS' }
         $labels += [pscustomobject]@{ Label = 'cooling link breaks when a column is removed'; Accept = 'PASS' }
+        foreach ($reactorLabel in @('reactor runs on the lower level', 'loop ratio at or below 1', 'surface tower stays in the lower loop', 'no cooling alert', 'no meltdown', 'surface colonist not irradiated')) {
+            $labels += [pscustomobject]@{ Label = $reactorLabel; Accept = 'PASS' }
+        }
     }
     if ($FreeColonists) { $labels += [pscustomobject]@{ Label = 'colonist work recorded'; Accept = 'PASS' } }
     if ($OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }

@@ -128,9 +128,10 @@ namespace ZLevelsValidation
         private ZLevelsRimatomics.CompCoolingColumn partnerSurfaceComp;
         private int partnerLookStage;
         private DateTime partnerShotDue;
-        // -zlevelscoolingnocolumns runs the no-columns variant, which is not built yet. It places no columns, and its pairing labels, its partner highlight labels, and cooling link record FAIL.
+        // -zlevelscoolingnocolumns runs the same scenario without the column pair. It places no columns, so the pairing labels, the partner highlight labels,
+        // and the link rows that need a column record NoColumnsPairMissing. The link scene and the reactor checks still run.
         private static bool CoolingNoColumns => GenCommandLine.CommandLineArgPassed("zlevelscoolingnocolumns");
-        private const string NoColumnsVariantNotBuilt = "FAIL: no-columns variant not built yet";
+        private const string NoColumnsPairMissing = "FAIL: no column pair is placed in the no-columns variant";
         // The screenshot row. The first frame of the cooling tick records it, and the outer catch of that tick writes it when the tick throws.
         private const string CoolingScreenshotLabel = "cooling column screenshot";
         // Every label the final "cooling link" line needs. Each is recorded PASS or FAIL: <reason>. A label that is never recorded blocks the link.
@@ -148,6 +149,7 @@ namespace ZLevelsValidation
             "partner highlight marks the cell",
             "partner highlight shows the pair",
             "lower turbine shares the surface tower's loop",
+            "surface tower stays in the lower loop",
             "cooling link breaks when a column is removed",
             "cooling link survives reload",
             "rimatomics bridge active",
@@ -2356,12 +2358,7 @@ namespace ZLevelsValidation
             RecordCoolingPairing(column);
             RecordPartnerHighlight(column);
             // The three link rows are written by AdvanceLinkStages, after the link scene is built and the game is settled, so they are not stubbed here.
-            // The reactor labels. Task 6 replaces these rows with the reactor checks.
-            RecordCooling("reactor runs on the lower level", "FAIL: not built yet");
-            RecordCooling("loop ratio at or below 1", "FAIL: not built yet");
-            RecordCooling("no cooling alert", "FAIL: not built yet");
-            RecordCooling("no meltdown", "FAIL: not built yet");
-            RecordCooling("surface colonist not irradiated", "FAIL: not built yet");
+            // The reactor rows are written by the reactor stages of AdvanceLinkStages, so they are not stubbed here.
             RecordCooling("rimatomics bridge active", RimatomicsBridgeResult());
         }
 
@@ -2372,7 +2369,24 @@ namespace ZLevelsValidation
             ThingDef pipeDef = DefDatabase<ThingDef>.GetNamedSilentFail("coolingPipe");
             if (CoolingNoColumns)
             {
-                foreach (string label in CoolingPairingLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
+                // The no-columns variant builds the same two levels and the same pairing cell, and it places no column on them. The link scene and the
+                // reactor checks then run as they do with the pair.
+                try
+                {
+                    surface = Find.CurrentMap;
+                    ZLevelsManager noColumnsManager = Current.Game?.GetComponent<ZLevelsManager>();
+                    if (noColumnsManager == null) throw new InvalidOperationException("ZLevelsManager is missing from the current game");
+                    lower = CreateLevelBelow(noColumnsManager, surface);
+                    coolingPairCell = surface.Center + new IntVec3(-12, 0, 0);
+                }
+                catch (Exception exception)
+                {
+                    string noColumnsCause = DescribeOrTypeName(exception);
+                    foreach (string label in CoolingPairingLabels) RecordRowSafely(label, "FAIL: the no-columns levels were not built: " + noColumnsCause);
+                    Log.Error("Z-Levels no-columns level setup failed: " + exception);
+                    return;
+                }
+                foreach (string label in CoolingPairingLabels) RecordCooling(label, NoColumnsPairMissing);
                 return;
             }
             if (column == null || pipeDef == null)
@@ -2449,7 +2463,7 @@ namespace ZLevelsValidation
         {
             if (CoolingNoColumns)
             {
-                foreach (string label in CoolingHighlightLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
+                foreach (string label in CoolingHighlightLabels) RecordCooling(label, NoColumnsPairMissing);
                 return;
             }
             if (column == null || surface == null || lower == null)
@@ -2925,7 +2939,7 @@ namespace ZLevelsValidation
         {
             if (CoolingNoColumns)
             {
-                Record("cooling link", NoColumnsVariantNotBuilt);
+                Record("cooling link", NoColumnsPairMissing);
                 return;
             }
             // A screenshot that did not complete leaves the link without a PASS, even when every label passed.
@@ -2955,7 +2969,7 @@ namespace ZLevelsValidation
         };
         // A footprint that holds any of these would lose it to SpawnBuilding's clearing, and each one changes the nets, so the scene refuses to start.
         private static readonly string[] CoolingFootprintDefs = { "ZL_CoolingColumn", "coolingPipe", "coolingPipeHidden", "CoolingTower", "Turbine" };
-        private enum LinkStep { Scene, Settle, Shares, Save, AwaitLoad, SettleAfterLoad, ReloadCheck, Removal, SettleAfterRemoval, RemovalCheck, Done }
+        private enum LinkStep { Scene, Settle, Shares, Save, AwaitLoad, SettleAfterLoad, ReloadCheck, ReactorBuild, ReactorPower, ReactorSample, Removal, SettleAfterRemoval, RemovalCheck, Done }
         // The sequence's state. Static, because the reload continues the sequence in a new RuntimeValidation.
         private static LinkStep linkStep = LinkStep.Scene;
         private static DateTime linkDeadline;
@@ -2970,14 +2984,10 @@ namespace ZLevelsValidation
         private static string linkRemovalMissing;
 
         // Advances the link sequence by one frame. Each step waits two game ticks where the nets have to settle: after the scene, after the load, and after
-        // the removal. It returns true once the sequence is over, so the link row can be written.
+        // the removal. The reactor stages run after the reload and before the removal, so the link stays whole while the reactor is sampled. It returns true
+        // once the sequence is over, so the link row can be written.
         private bool AdvanceLinkStages()
         {
-            if (CoolingNoColumns && linkStep != LinkStep.Done)
-            {
-                foreach (string label in CoolingLinkLabels) RecordCooling(label, NoColumnsVariantNotBuilt);
-                linkStep = LinkStep.Done;
-            }
             if (linkStep == LinkStep.Done) return true;
             if (linkStep == LinkStep.Scene)
             {
@@ -2987,6 +2997,7 @@ namespace ZLevelsValidation
                 {
                     Record("cooling link scene", "FAIL: " + problem);
                     foreach (string label in CoolingLinkLabels) RecordCooling(label, "FAIL: " + problem);
+                    FailReactorChecks(problem);
                     linkStep = LinkStep.Done;
                     return true;
                 }
@@ -3025,6 +3036,25 @@ namespace ZLevelsValidation
                     return false;
                 case LinkStep.ReloadCheck:
                     RecordReloadRow();
+                    linkStep = LinkStep.ReactorBuild;
+                    return false;
+                case LinkStep.ReactorBuild:
+                    linkTickMark = ticks;
+                    linkStep = BuildReactor() ? LinkStep.ReactorPower : LinkStep.Removal;
+                    return false;
+                case LinkStep.ReactorPower:
+                    // Two ticks let the nets and the batteries settle before PowerOn is read.
+                    if (ticks < linkTickMark + 2) return false;
+                    linkStep = AwaitReactorPower(ticks);
+                    return false;
+                case LinkStep.ReactorSample:
+                    while (reactorSamplesTaken < ReactorSampleCount && ticks >= reactorStartTick + ReactorSampleInterval * reactorSamplesTaken)
+                    {
+                        SampleReactor(ticks);
+                        reactorSamplesTaken++;
+                    }
+                    if (reactorSamplesTaken < ReactorSampleCount) return false;
+                    FinishReactorChecks();
                     linkStep = LinkStep.Removal;
                     return false;
                 case LinkStep.Removal:
@@ -3055,7 +3085,7 @@ namespace ZLevelsValidation
             if (towerDef == null || turbineDef == null) return "the CoolingTower or Turbine def is not loaded";
             if (surface == null || lower == null) return "the surface or lower level is missing";
             if (coolingPairCell == IntVec3.Invalid) return "the pairing check did not record the column cell";
-            if (FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn") == null || FindBuilding(lower, coolingPairCell, "ZL_CoolingColumn") == null)
+            if (!CoolingNoColumns && (FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn") == null || FindBuilding(lower, coolingPairCell, "ZL_CoolingColumn") == null))
             {
                 return "a cooling column is missing on the pairing cell";
             }
@@ -3085,6 +3115,18 @@ namespace ZLevelsValidation
         {
             Thing tower = FindBuilding(surface, linkTowerCell, "CoolingTower");
             Thing turbine = FindBuilding(lower, linkTurbineCell, "Turbine");
+            if (CoolingNoColumns)
+            {
+                // The no-columns variant has no column pair to check, so the row records only that the tower and the turbine stand.
+                if (tower == null || turbine == null)
+                {
+                    Record("cooling link scene", "FAIL: a link building is missing after the settle");
+                    return;
+                }
+                Record("cooling link scene", "PASS: the tower and the turbine stand with no column pair; tower covers " + RectText(tower.OccupiedRect())
+                    + " on the surface; turbine covers " + RectText(turbine.OccupiedRect()) + " on the lower level");
+                return;
+            }
             Thing surfaceColumn = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
             Thing lowerColumn = FindBuilding(lower, coolingPairCell, "ZL_CoolingColumn");
             if (tower == null || turbine == null || surfaceColumn == null || lowerColumn == null)
@@ -3139,6 +3181,8 @@ namespace ZLevelsValidation
         {
             linkRemovalMissing = ReadLink(out bool holdsTower, out _, out _);
             linkHeldBeforeRemoval = linkRemovalMissing == null && holdsTower;
+            // The no-columns variant placed no column, so there is nothing to remove.
+            if (CoolingNoColumns) return;
             Thing column = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
             if (column == null) throw new InvalidOperationException("the surface column is missing before the removal");
             column.Destroy(DestroyMode.Vanish);
@@ -3148,6 +3192,12 @@ namespace ZLevelsValidation
         // own turbine in Turbines.
         private void RecordRemovalRow()
         {
+            if (CoolingNoColumns)
+            {
+                RecordCooling("cooling link breaks when a column is removed", "FAIL: the no-columns variant placed no column, so there is no column to remove");
+                Record("cooling link removal evidence", "no-columns variant: nothing was removed");
+                return;
+            }
             string missing = ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail);
             string verdict;
             if (linkRemovalMissing != null) verdict = "FAIL: before the removal, " + linkRemovalMissing;
@@ -3159,6 +3209,291 @@ namespace ZLevelsValidation
             RecordCooling("cooling link breaks when a column is removed", verdict);
             Record("cooling link removal evidence", "before the removal: " + (linkRemovalMissing ?? ("holds the surface tower " + (linkHeldBeforeRemoval ? "yes" : "no")))
                 + "; the surface column at " + coolingPairCell + " was removed; two ticks after: " + detail);
+        }
+
+        // The reactor checks. A reactor on the lower level is built after the reload, started with one fuel rod, and sampled every 250 ticks for 2500 ticks.
+        // Each sample reads the surface tower and the lower turbine. The state is static, because it lasts across the reload.
+        private const int ReactorSampleInterval = 250;
+        private const int ReactorSampleCount = 11;
+        private const int ReactorPowerWaitTicks = 1500;
+        private const string ReactorRunsLabel = "reactor runs on the lower level";
+        private const string ReactorRatioLabel = "loop ratio at or below 1";
+        private const string ReactorTowerLabel = "surface tower stays in the lower loop";
+        private const string ReactorAlertLabel = "no cooling alert";
+        private const string ReactorMeltLabel = "no meltdown";
+        private const string ReactorColonistLabel = "surface colonist not irradiated";
+        private static readonly string[] ReactorLabels =
+        {
+            ReactorRunsLabel, ReactorRatioLabel, ReactorTowerLabel, ReactorAlertLabel, ReactorMeltLabel, ReactorColonistLabel,
+        };
+        private static IntVec3 reactorCell = IntVec3.Invalid;
+        private static IntVec3 reactorColonistCell = IntVec3.Invalid;
+        private static int reactorStartTick = -1;
+        private static int reactorSamplesTaken;
+        private static string reactorLoopProblem;
+        private static string reactorTowerProblem;
+        private static string reactorAlertProblem;
+        private static string reactorMeltProblem;
+        private static int reactorShutdownOffset = -1;
+
+        // The core on the lower level, found by its cell. A read after the reload finds the new object.
+        private Thing FindReactorCore()
+        {
+            return FindBuilding(lower, reactorCell, "ReactorCoreA");
+        }
+
+        // The surface tower and the lower turbine, each found by its cell.
+        private Thing FindLinkTower()
+        {
+            return FindBuilding(surface, linkTowerCell, "CoolingTower");
+        }
+
+        private Thing FindLinkTurbine()
+        {
+            return FindBuilding(lower, linkTurbineCell, "Turbine");
+        }
+
+        private static string YesNo(bool value)
+        {
+            return value ? "yes" : "no";
+        }
+
+        // Reads a public static field by name. A missing field stops the check with the type and the field name.
+        private static object StaticField(Type type, string fieldName)
+        {
+            FieldInfo field = type.GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
+            if (field == null) throw new MissingFieldException(type.FullName, fieldName);
+            return field.GetValue(null);
+        }
+
+        // Completes BuildReactorCore before the core spawns, because the core does no work until the step is finished. The Rimatomics types come from
+        // the assembly that holds the core class, so this code compiles without a reference to Rimatomics. It returns null when the step reads as
+        // finished, and the reason when it does not.
+        private static string CompleteReactorResearch(ThingDef coreDef)
+        {
+            Assembly rimatomics = coreDef.thingClass.Assembly;
+            Type researchType = rimatomics.GetType("Rimatomics.RimatomicsResearch", throwOnError: true);
+            object research = StaticField(researchType, "_instance");
+            if (research == null) return "the Rimatomics research component is missing";
+            object step = StaticField(rimatomics.GetType("Rimatomics.DubDef", throwOnError: true), "BuildReactorCore");
+            if (step == null) return "DubDef.BuildReactorCore is null";
+            MethodInfo complete = researchType.GetMethod("Complete", BindingFlags.Public | BindingFlags.Instance, null, new[] { step.GetType() }, null);
+            if (complete == null) return "RimatomicsResearch.Complete(ResearchStepDef) is missing";
+            complete.Invoke(research, new[] { step });
+            bool finished = (bool)step.GetType().GetProperty("IsFinished", BindingFlags.Public | BindingFlags.Instance).GetValue(step);
+            return finished ? null : "BuildReactorCore is not finished after Complete";
+        }
+
+        // Builds the reactor scene after the reload. The core and its battery stand on the lower level, and a battery for the tower stands on the surface.
+        // The core's footprint touches the turbine's, so the steam and cold-water nets join with no pipe. A colonist stands on the surface cell above the
+        // core. It returns null when the scene stands, and the reason when it does not.
+        private string PlaceReactorScene()
+        {
+            ThingDef coreDef = DefDatabase<ThingDef>.GetNamedSilentFail("ReactorCoreA");
+            ThingDef batteryDef = DefDatabase<ThingDef>.GetNamedSilentFail("Battery");
+            if (coreDef == null || batteryDef == null) return "the ReactorCoreA or Battery def is not loaded";
+            if (surface == null || lower == null || coolingPairCell == IntVec3.Invalid) return "the link scene is missing";
+            if (FindLinkTower() == null || FindLinkTurbine() == null) return "the link scene's tower or turbine is missing";
+            string researchProblem = CompleteReactorResearch(coreDef);
+            if (researchProblem != null) return researchProblem;
+
+            IntVec3 c = coolingPairCell;
+            CellRect coreRect = CellRect.FromLimits(c.x - 2, c.z - 12, c.x + 2, c.z - 8);
+            CellRect lowerBatteryRect = CellRect.FromLimits(c.x - 4, c.z - 10, c.x - 4, c.z - 9);
+            CellRect towerBatteryRect = CellRect.FromLimits(c.x - 4, c.z + 3, c.x - 4, c.z + 4);
+            if (!RectInside(lower, coreRect) || !RectInside(lower, lowerBatteryRect) || !RectInside(surface, towerBatteryRect))
+            {
+                return "the reactor scene is off the map";
+            }
+            string clash = FirstCoolingThingIn(lower, coreRect);
+            if (clash != null) return "the reactor scene would overlap " + clash;
+            IntVec3 coreAnchor = AnchorFor(coreDef.size, coreRect, out bool coreFits);
+            IntVec3 lowerBatteryAnchor = AnchorFor(batteryDef.size, lowerBatteryRect, out bool lowerBatteryFits);
+            IntVec3 towerBatteryAnchor = AnchorFor(batteryDef.size, towerBatteryRect, out bool towerBatteryFits);
+            if (!coreFits || !lowerBatteryFits || !towerBatteryFits) return "the game's footprint does not match the reactor scene";
+
+            reactorCell = coreAnchor;
+            SpawnBuilding(coreDef, lower, coreAnchor);
+            ThingWithComps lowerBattery = SpawnBuilding(batteryDef, lower, lowerBatteryAnchor);
+            ThingWithComps towerBattery = SpawnBuilding(batteryDef, surface, towerBatteryAnchor);
+            lowerBattery.GetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
+            towerBattery.GetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
+
+            reactorColonistCell = new IntVec3(coreAnchor.x, 0, coreAnchor.z);
+            if (!reactorColonistCell.InBounds(surface)) return "the colonist cell is off the surface map";
+            Pawn colonist = surface.mapPawns.FreeColonistsSpawned.FirstOrDefault();
+            if (colonist == null) return "no free colonist is spawned on the surface";
+            ClearCell(surface, reactorColonistCell);
+            surface.terrainGrid.SetTerrain(reactorColonistCell, TerrainDefOf.Concrete);
+            colonist.DeSpawn();
+            GenSpawn.Spawn(colonist, reactorColonistCell, surface);
+            RestNeeds(colonist);
+            colonist.drafter.Drafted = true;
+
+            surface.MapUpdate();
+            lower.MapUpdate();
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
+            Record("reactor scene", "core anchor " + coreAnchor + " on the lower level; lower battery " + lowerBatteryAnchor + "; tower battery "
+                + towerBatteryAnchor + " on the surface; colonist " + colonist.Label + " at " + reactorColonistCell);
+            return null;
+        }
+
+        // Builds the reactor scene. It returns true when the scene stands. Otherwise it records FAIL on each reactor row, with the reason.
+        private bool BuildReactor()
+        {
+            string problem = PlaceReactorScene();
+            if (problem == null) return true;
+            FailReactorChecks(problem);
+            return false;
+        }
+
+        // Records FAIL on each reactor row that no row has recorded yet, so a reactor that cannot be built or started fails by name.
+        private void FailReactorChecks(string reason)
+        {
+            foreach (string label in ReactorLabels)
+            {
+                if (!coolingResults.ContainsKey(label)) RecordRowSafely(label, "FAIL: " + reason);
+            }
+        }
+
+        // The core and the tower need PowerOn before Startup. It returns null when both are on, and the reason when one is not.
+        private string ReactorPowerProblem()
+        {
+            Thing core = FindReactorCore();
+            Thing tower = FindLinkTower();
+            if (core == null || tower == null) return "the core or the tower is missing";
+            bool corePowered = ((ThingWithComps)core).GetComp<CompPowerTrader>()?.PowerOn ?? false;
+            bool towerPowered = ((ThingWithComps)tower).GetComp<CompPowerTrader>()?.PowerOn ?? false;
+            if (corePowered && towerPowered) return null;
+            return "the core is powered " + YesNo(corePowered) + " and the tower is powered " + YesNo(towerPowered);
+        }
+
+        // Starts the reactor once both are powered. It returns the next link step: the sampling step once the reactor starts, the power step while the
+        // wait lasts, and the removal step when the power never arrives. In that last case the reactor rows fail by name.
+        private LinkStep AwaitReactorPower(int ticks)
+        {
+            string problem = ReactorPowerProblem();
+            if (problem == null)
+            {
+                StartReactor(ticks);
+                return LinkStep.ReactorSample;
+            }
+            if (ticks < linkTickMark + ReactorPowerWaitTicks) return LinkStep.ReactorPower;
+            FailReactorChecks("the core and the tower did not get power in time: " + problem);
+            return LinkStep.Removal;
+        }
+
+        // Starts the reactor as the START button does. One fuel rod goes into a Fuel slot, the control rods are set to 1, and Startup runs. The reactor row
+        // reads PASS when IsShutdown is false and FuelCount is above 0 right after Startup.
+        private void StartReactor(int ticks)
+        {
+            reactorStartTick = ticks;
+            Thing core = FindReactorCore();
+            if (core == null)
+            {
+                RecordCooling(ReactorRunsLabel, "FAIL: the reactor core is missing at start");
+                return;
+            }
+            Type coreType = core.GetType();
+            object slots = ReadField(core, "SlotDesignations");
+            Type rodType = slots.GetType().GetGenericArguments()[0];
+            ((System.Collections.IList)slots)[0] = Enum.Parse(rodType, "Fuel");
+            ThingDef fuelDef = DefDatabase<ThingDef>.GetNamedSilentFail("FuelRods");
+            if (fuelDef == null)
+            {
+                RecordCooling(ReactorRunsLabel, "FAIL: the FuelRods def is not loaded");
+                return;
+            }
+            coreType.GetMethod("InsertFuel", BindingFlags.Public | BindingFlags.Instance).Invoke(core, new object[] { ThingMaker.MakeThing(fuelDef) });
+            int fuelAfterInsert = (int)ReadField(core, "FuelCount");
+            coreType.GetField("TargetControlRodTo", BindingFlags.Public | BindingFlags.Instance).SetValue(core, 1f);
+            coreType.GetMethod("Startup", BindingFlags.Public | BindingFlags.Instance).Invoke(core, null);
+            bool shutdown = (bool)ReadField(core, "IsShutdown");
+            int fuel = (int)ReadField(core, "FuelCount");
+            RecordCooling(ReactorRunsLabel, !shutdown && fuel > 0 ? "PASS" : "FAIL: IsShutdown is " + YesNo(shutdown) + " and FuelCount is " + fuel + " after Startup");
+            Record("reactor start evidence", "FuelCount " + fuelAfterInsert + " after InsertFuel; TargetControlRodTo 1; IsShutdown " + YesNo(shutdown)
+                + " and FuelCount " + fuel + " after Startup");
+        }
+
+        // One sample of the reactor checks, taken at offset ticks from Startup. It writes one row with the readings, and it folds the readings into the
+        // four checks. Each check keeps the first sample that fails it.
+        private void SampleReactor(int ticks)
+        {
+            int offset = ticks - reactorStartTick;
+            Thing core = FindReactorCore();
+            Thing tower = FindLinkTower();
+            Thing turbine = FindLinkTurbine();
+            if (core == null || tower == null || turbine == null)
+            {
+                string gone = "at +" + offset + " ticks the core, the tower, or the turbine is missing";
+                reactorLoopProblem = reactorLoopProblem ?? gone;
+                reactorTowerProblem = reactorTowerProblem ?? gone;
+                reactorAlertProblem = reactorAlertProblem ?? gone;
+                reactorMeltProblem = reactorMeltProblem ?? gone;
+                Record("reactor sample", "+" + offset + " ticks; the core, the tower, or the turbine is missing");
+                return;
+            }
+            float temperature = (float)ReadField(core, "postReturnTemp");
+            bool shutdown = (bool)ReadField(core, "IsShutdown");
+            int fuel = (int)ReadField(core, "FuelCount");
+            bool melted = (bool)core.GetType().GetProperty("IsCoreMelt", BindingFlags.Public | BindingFlags.Instance).GetValue(core);
+            object net = CoolingNetOf(turbine);
+            float ratio = (float)ReadField(net, "CoolingLoopRatio");
+            float capacity = (float)ReadField(net, "CoolingCapacity");
+            float uncapped = (float)ReadField(turbine, "UncappedPowerGeneration");
+            float uncooled = (float)ReadField(turbine, "UncooledWater");
+            List<object> coolers = NetList(turbine, "Coolers");
+            bool listed = coolers.Any(cooler => ReferenceEquals(cooler, tower));
+            bool stalled = (bool)ReadField(tower, "Stalled");
+            bool towerPowered = ((ThingWithComps)tower).GetComp<CompPowerTrader>()?.PowerOn ?? false;
+            bool corePowered = ((ThingWithComps)core).GetComp<CompPowerTrader>()?.PowerOn ?? false;
+            if (!(ratio <= 1f)) reactorLoopProblem = reactorLoopProblem ?? "at +" + offset + " ticks the ratio is " + ratio.ToString("F4");
+            if (!listed) reactorTowerProblem = reactorTowerProblem ?? "at +" + offset + " ticks the surface tower is not in the lower turbine's Coolers";
+            if (coolers.Count == 0) reactorAlertProblem = reactorAlertProblem ?? "at +" + offset + " ticks the lower turbine's Coolers is empty";
+            if (melted) reactorMeltProblem = reactorMeltProblem ?? "at +" + offset + " ticks IsCoreMelt is true, with postReturnTemp " + temperature.ToString("F1");
+            if (shutdown && reactorShutdownOffset < 0) reactorShutdownOffset = offset;
+            Record("reactor sample", "+" + offset + " ticks; postReturnTemp " + temperature.ToString("F1") + "; ratio " + ratio.ToString("F4")
+                + "; capacity " + capacity.ToString("F0") + "; uncapped " + uncapped.ToString("F1") + "; uncooled " + uncooled.ToString("F1")
+                + "; coolers " + coolers.Count + "; tower listed " + YesNo(listed) + "; tower stalled " + YesNo(stalled)
+                + "; tower powered " + YesNo(towerPowered) + "; core powered " + YesNo(corePowered) + "; IsShutdown " + YesNo(shutdown)
+                + "; fuel " + fuel + "; core melt " + YesNo(melted));
+        }
+
+        // Writes the whole-run checks and the colonist check. A check passes when no sample failed it. The trip row says whether IsShutdown turned true.
+        private void FinishReactorChecks()
+        {
+            RecordCooling(ReactorRatioLabel, reactorLoopProblem == null ? "PASS" : "FAIL: " + reactorLoopProblem);
+            RecordCooling(ReactorTowerLabel, reactorTowerProblem == null ? "PASS" : "FAIL: " + reactorTowerProblem);
+            RecordCooling(ReactorAlertLabel, reactorAlertProblem == null ? "PASS" : "FAIL: " + reactorAlertProblem);
+            RecordCooling(ReactorMeltLabel, reactorMeltProblem == null ? "PASS" : "FAIL: " + reactorMeltProblem);
+            RecordCooling(ReactorColonistLabel, ColonistResult());
+            Record("reactor trip evidence", reactorShutdownOffset < 0
+                ? "IsShutdown stayed false in " + reactorSamplesTaken + " samples, so no trip was seen"
+                : "IsShutdown turned true at +" + reactorShutdownOffset + " ticks");
+        }
+
+        // The colonist stands on the surface cell above the core, and it must have no RimatomicsRadiation hediff at the end. The core's radiation scans
+        // only its own map, so this check is weak by design.
+        private string ColonistResult()
+        {
+            Pawn colonist = FindPawnAt(surface, reactorColonistCell);
+            if (colonist == null) return "FAIL: no colonist stands on " + reactorColonistCell + " on the surface at the end";
+            HediffDef radiation = DefDatabase<HediffDef>.GetNamedSilentFail("RimatomicsRadiation");
+            if (radiation == null) return "FAIL: the RimatomicsRadiation hediff def is not loaded";
+            bool irradiated = colonist.health.hediffSet.HasHediff(radiation);
+            Record("reactor colonist evidence", colonist.Label + " stands at " + colonist.Position + "; RimatomicsRadiation " + YesNo(irradiated));
+            return irradiated ? "FAIL: the colonist on " + reactorColonistCell + " has RimatomicsRadiation" : "PASS";
+        }
+
+        // The pawn on the cell, or null when no pawn stands there.
+        private static Pawn FindPawnAt(Map map, IntVec3 cell)
+        {
+            if (map == null || cell == IntVec3.Invalid) return null;
+            foreach (Thing thing in cell.GetThingList(map))
+            {
+                if (thing is Pawn pawn) return pawn;
+            }
+            return null;
         }
 
         // Reads the lower turbine's net and reports whether it holds the tower in Coolers and the turbine in Turbines. Each building is found by its cell, so a

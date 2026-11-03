@@ -163,3 +163,20 @@ Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 - `GameComponentUtility.GameComponentTick` has one call site in `Assembly-CSharp.dll`. It is in `Verse.TickManager.DoSingleTick`, at line 464 of `.artifacts/ilspy/fix9-gamecomponent/Verse.TickManager/Verse.TickManager.decompiled.cs`. The call runs at method level, after the `Find.History.HistoryTick()` try block at lines 456 to 463, and outside the loops at lines 364 to 367 and 452 to 455. `DoSingleTick` advances `ticksGameInt` by 1 at line 370, or by 2000 at line 374 when `DebugSettings.fastEcology` is set. The call at line 464 therefore runs once for each call of `DoSingleTick`.
 - The IL scan read 16221 types and 90638 method bodies. It looked for `call`, `callvirt`, and `ldftn` instructions that name the method token `0x06000DEB`, and it found one. The scan covers `Assembly-CSharp.dll` only, so other mods' assemblies are not checked. Its output is `.superpowers/sdd/2026-11-01-cross-level-cooling/task-5-fix10-ilscan.txt`, and its script is `.superpowers/sdd/2026-11-01-cross-level-cooling/task-5-fix10-ilscan.fsx`.
 - The decompile comes from the installed game, RimWorld 1.7.4995 rev309, as `C:\SteamLibrary\steamapps\common\RimWorld\Version.txt` states. The project target in `CLAUDE.md` is 1.7.4990 rev1069. The line numbers in this section come from the installed build.
+
+## Rimatomics reactor and cooling
+
+Rimatomics lines come from `.artifacts/ilspy/rimatomics-1.7-installed/Rimatomics/`, decompiled from the installed `1.7/Assemblies/Rimatomics.dll`. RimWorld lines come from the installed build, RimWorld 1.7.4995 rev309.
+
+- `CoolingNet` extends `BasePipeNet` at `CoolingNet.cs`, line 7. Its public fields are `CoolingCapacity` at line 9, `CoolingLoopRatio` at line 11, `Coolers` at line 13, and `Turbines` at line 15.
+- `reactorCore` extends `Building` at `reactorCore.cs`, line 14. Its public fields are `FuelCount` at line 40, `IsShutdown` at line 50, `postReturnTemp` at line 80, `powerComp` at line 82, `SlotDesignations` at line 104, and `TargetControlRodTo` at line 111. The property `IsCoreMelt` is at line 157. The public methods `Startup`, `InsertFuel`, and `punchit` start at lines 503, 518, and 1024.
+- `CoreA` extends `reactorCore` at `CoreA.cs`, line 6. Its `IsBuilt` property at line 12 returns `DubDef.BuildReactorCore.IsFinished`.
+- `Turbine` extends `Building` at `Turbine.cs`, line 10. Its public fields are `UncappedPowerGeneration` at line 28 and `UncooledWater` at line 30. The properties `SteamNet` and `CoolingNet` are at lines 36 and 38.
+- `CoolingSystem` extends `Building` at `CoolingSystem.cs`, line 8. Its public fields are `powerComp` at line 16 and `Stalled` at line 18. `CoolingTower` extends it at `CoolingTower.cs`, line 8. Its `coolingCapacity` property spans lines 14 to 37.
+- `Alert_ReactorAlerts` extends `Alert` at `Alert_ReactorAlerts.cs`, line 11. The NOCOOLING text is added at line 89.
+- `CompPipe.pipeNetRef` is a public field at `CompPipe.cs`, line 14. `BasePipeNet.PipedThings` is a public field at `BasePipeNet.cs`, line 14.
+- `DubDef.BuildReactorCore` is a public static field at `DubDef.cs`, line 70. `RimatomicsResearch._instance` is a public static field at `RimatomicsResearch.cs`, line 31. `DubUtils.GetResearch` is at `DubUtils.cs`, line 271.
+- `RimWorld.CompPowerTrader.PowerOn` is a property over `powerOnInt`, at `RimWorld.CompPowerTrader.cs`, lines 74 to 134. `RimWorld.PowerNet.PowerNetTick` sets it to true at line 240 of `RimWorld.PowerNet.cs`.
+- `RimWorld.CompPowerBattery.SetStoredEnergyPct` is a public method at `RimWorld.CompPowerBattery.cs`, line 100. Its stored energy starts at 0, at line 9.
+- `RimWorld.PowerConnectionMaker` searches a box of 6 cells around a connector, at lines 103 and 117.
+- `Verse.GenSpawn` has no reference to `placeWorkers`, `PlaceWorker`, or `AllowsPlacing`. Its RimWorld decompile is `.artifacts/ilspy/rimworld-1.7-installed-power/Verse.GenSpawn.cs`.
