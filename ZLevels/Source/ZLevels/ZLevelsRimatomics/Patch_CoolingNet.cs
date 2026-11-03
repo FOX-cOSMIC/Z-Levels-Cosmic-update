@@ -13,8 +13,9 @@ namespace ZLevelsRimatomics
     // loop, so only that loop stays out, and the other loops still join. A member with no pipe net is skipped, and a notice is logged once the column has
     // had NoNetGraceTicks to join. When the merge throws, the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct
     // failure is logged once per game, up to 64 distinct failures in a game. A line that Verse or Unity will not write is held when it happens, up to 64
-    // held lines, and the held lines are written in order on the first tick that the log will write. A held line past that limit is dropped, counted, and
-    // not logged again in that game, and a count line says how many. A builder that throws writes one fixed-text line for its key, and a log check that
+    // held lines, and the held lines are written in order on the first tick that the log will write. A held line past that limit is dropped and counted.
+    // A count line says how many, and it clears the dropped keys, so a key that happens again is logged after it, up to the cap of its book.
+    // A builder that throws writes one fixed-text line for its key, and a log check that
     // throws writes one fixed-text line for the process, both through UnityEngine.Debug. A column whose name cannot be read is named by its cell and map.
     // No exception leaves the prefix, and the original Tick then runs.
     [HarmonyPatch]
@@ -58,7 +59,8 @@ namespace ZLevelsRimatomics
         private static bool checkFailureReported;
 
         // The keys of one game, with the cap for that book. Keys holds the marked keys, which are written. Dropped holds the keys whose line was not kept,
-        // because the held lines were full. CapWanted is set when a key past the cap was tried, and CapReported keeps the cap line to one.
+        // because the held lines were full. The count line clears Dropped. CapWanted is set when a key past the cap was tried, and CapReported keeps the cap
+        // line to one.
         private sealed class KeyBook
         {
             public readonly HashSet<string> Keys = new HashSet<string>();
@@ -341,8 +343,9 @@ namespace ZLevelsRimatomics
                         : ", and the net keeps its last lists, which may still hold joined coolers: ") + ExceptionText(exception), false);
         }
 
-        // Logs one line for a key, once per game in its book. A key that is marked, dropped, or held is not logged again. A key past the cap of its book sets
-        // CapWanted, and the cap line is written once when the log will write. A line that the log will not write is held, or dropped and counted when the
+        // Logs one line for a key, once per game in its book. A key that is marked or held is skipped, and a dropped key is skipped until a count line clears it.
+        // A key past the cap of its book sets CapWanted, and the cap line is written once when the log will write. A line that the log will not write is held,
+        // or dropped and counted when the
         // held lines are full. A line that the log will write is built, marked, and then written. A builder that throws writes one fixed-text line for its key.
         private static void LogOnce(KeyBook book, string key, Func<string> line, bool warning)
         {
@@ -394,7 +397,7 @@ namespace ZLevelsRimatomics
             held.Add(new HeldLine { Book = book, Key = key, Text = text, Warning = warning });
         }
 
-        // A key whose line could not be held is not logged again in this game, and it is counted once for the next count line.
+        // A key whose line could not be held is skipped until a count line clears it, and it is counted once for that count line.
         private static void Drop(KeyBook book, string key)
         {
             if (book.Dropped.Count >= MaxDroppedKeys)
@@ -474,7 +477,8 @@ namespace ZLevelsRimatomics
         }
 
         // Writes the held lines, in the order they happened, on the first tick that the log will write. A key that is marked by now is skipped. A key past the
-        // cap of its book is not written, and that book's cap line is written. Then one count line says how many lines were not kept since the last count.
+        // cap of its book is not written, and that book's cap line is written. Then one count line says how many lines were not kept since the last count. The
+        // count line clears the dropped keys, so a key that happens again is logged after it.
         private static void FlushHeld()
         {
             if (!WillWrite()) return;
@@ -496,14 +500,16 @@ namespace ZLevelsRimatomics
             {
                 Write(DroppedText(), true);
                 droppedSinceReport = 0;
+                droppedOverflow = false;
+                foreach (KeyBook book in allBooks) book.Dropped.Clear();
             }
         }
 
-        // The count line. It says how many lines were not kept, and that they are not logged again in this game.
+        // The count line. It says how many lines were not kept, and that each one is logged if it happens again.
         private static string DroppedText()
         {
             return "Z-Levels cooling did not keep " + droppedSinceReport + (droppedOverflow ? " or more" : "")
-                + " log lines that happened while the log was locked or silenced. Those lines are not logged again in this game.";
+                + " log lines that happened while the log was locked or silenced. Each of those lines is logged if it happens again.";
         }
 
         // The getter of Verse's PreventLogging flag. The lookup runs once. When it fails, one notice goes out through Unity, and the getter stays null.
