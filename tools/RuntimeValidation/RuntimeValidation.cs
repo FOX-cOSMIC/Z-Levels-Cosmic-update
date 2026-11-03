@@ -2965,6 +2965,9 @@ namespace ZLevelsValidation
         private static IntVec3 linkTurbineCell = IntVec3.Invalid;
         private static bool linkSharedBeforeSave;
         private static bool linkHeldBeforeRemoval;
+        // The reason that a link building is missing at each read, or null when both stand. A row that finds a building missing names it.
+        private static string linkSharedMissing;
+        private static string linkRemovalMissing;
 
         // Advances the link sequence by one frame. Each step waits two game ticks where the nets have to settle: after the scene, after the load, and after
         // the removal. It returns true once the sequence is over, so the link row can be written.
@@ -3100,26 +3103,33 @@ namespace ZLevelsValidation
                 + RectText(turbine.OccupiedRect()) + " on the lower level");
         }
 
-        // The first membership read, before the save. It returns whether the lower turbine's net holds the tower in Coolers.
+        // The first membership read, before the save. It returns whether the lower turbine's net holds the tower in Coolers. A missing building fails the
+        // row by name, so a missing tower is not reported as a membership failure.
         private bool RecordSharesRow()
         {
-            ReadLink(out bool holdsTower, out _, out string detail);
-            RecordCooling("lower turbine shares the surface tower's loop",
-                holdsTower ? "PASS" : "FAIL: the lower turbine's cooling net does not hold the surface tower in Coolers");
+            string missing = ReadLink(out bool holdsTower, out _, out string detail);
+            linkSharedMissing = missing;
+            string verdict;
+            if (missing != null) verdict = "FAIL: " + missing;
+            else if (holdsTower) verdict = "PASS";
+            else verdict = "FAIL: the lower turbine's cooling net does not hold the surface tower in Coolers";
+            RecordCooling("lower turbine shares the surface tower's loop", verdict);
             Record("cooling link shares evidence", "before the save: " + detail);
-            return holdsTower;
+            return missing == null && holdsTower;
         }
 
         // The read after the reload. It passes when the tower was in Coolers before the save and is in it after the load, so the membership holds across
         // the reload.
         private void RecordReloadRow()
         {
-            ReadLink(out bool holdsTower, out _, out string detail);
-            bool passed = linkSharedBeforeSave && holdsTower;
-            RecordCooling("cooling link survives reload", passed
-                ? "PASS"
-                : "FAIL: the tower was " + (linkSharedBeforeSave ? "" : "not ") + "in Coolers before the save, and " + (holdsTower ? "is" : "is not") + " after the load");
-            Record("cooling link reload evidence", "before the save: holds the surface tower " + (linkSharedBeforeSave ? "yes" : "no")
+            string missing = ReadLink(out bool holdsTower, out _, out string detail);
+            string verdict;
+            if (linkSharedMissing != null) verdict = "FAIL: before the save, " + linkSharedMissing;
+            else if (missing != null) verdict = "FAIL: after the load, " + missing;
+            else if (linkSharedBeforeSave && holdsTower) verdict = "PASS";
+            else verdict = "FAIL: the tower was " + (linkSharedBeforeSave ? "" : "not ") + "in Coolers before the save, and " + (holdsTower ? "is" : "is not") + " after the load";
+            RecordCooling("cooling link survives reload", verdict);
+            Record("cooling link reload evidence", "before the save: " + (linkSharedMissing ?? ("holds the surface tower " + (linkSharedBeforeSave ? "yes" : "no")))
                 + "; after the load and two ticks: " + detail);
         }
 
@@ -3127,8 +3137,8 @@ namespace ZLevelsValidation
         // the tower in Coolers before the removal and out of Coolers two ticks after it.
         private void RemoveSurfaceColumn()
         {
-            ReadLink(out bool holdsTower, out _, out _);
-            linkHeldBeforeRemoval = holdsTower;
+            linkRemovalMissing = ReadLink(out bool holdsTower, out _, out _);
+            linkHeldBeforeRemoval = linkRemovalMissing == null && holdsTower;
             Thing column = FindBuilding(surface, coolingPairCell, "ZL_CoolingColumn");
             if (column == null) throw new InvalidOperationException("the surface column is missing before the removal");
             column.Destroy(DestroyMode.Vanish);
@@ -3138,36 +3148,42 @@ namespace ZLevelsValidation
         // own turbine in Turbines.
         private void RecordRemovalRow()
         {
-            ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail);
+            string missing = ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail);
             string verdict;
-            if (!linkHeldBeforeRemoval) verdict = "FAIL: the tower was not in the lower turbine's Coolers before the removal, so no link broke";
+            if (linkRemovalMissing != null) verdict = "FAIL: before the removal, " + linkRemovalMissing;
+            else if (missing != null) verdict = "FAIL: after the removal, " + missing;
+            else if (!linkHeldBeforeRemoval) verdict = "FAIL: the tower was not in the lower turbine's Coolers before the removal, so no link broke";
             else if (holdsTower) verdict = "FAIL: the tower is still in the lower turbine's Coolers two ticks after the removal";
             else if (!holdsTurbine) verdict = "FAIL: the lower turbine left its own Turbines after the removal";
             else verdict = "PASS";
             RecordCooling("cooling link breaks when a column is removed", verdict);
-            Record("cooling link removal evidence", "before the removal: holds the surface tower " + (linkHeldBeforeRemoval ? "yes" : "no")
+            Record("cooling link removal evidence", "before the removal: " + (linkRemovalMissing ?? ("holds the surface tower " + (linkHeldBeforeRemoval ? "yes" : "no")))
                 + "; the surface column at " + coolingPairCell + " was removed; two ticks after: " + detail);
         }
 
         // Reads the lower turbine's net and reports whether it holds the tower in Coolers and the turbine in Turbines. Each building is found by its cell, so a
-        // read after a reload finds the new objects.
-        private void ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail)
+        // read after a reload finds the new objects. It returns null when both buildings stand. Otherwise it returns the reason that one is missing, and both
+        // flags read false.
+        private string ReadLink(out bool holdsTower, out bool holdsTurbine, out string detail)
         {
+            holdsTower = false;
+            holdsTurbine = false;
             Thing tower = FindBuilding(surface, linkTowerCell, "CoolingTower");
             Thing turbine = FindBuilding(lower, linkTurbineCell, "Turbine");
-            if (tower == null || turbine == null)
+            if (tower == null && turbine == null) detail = "the surface tower and the lower turbine are both missing from their cells";
+            else if (tower == null) detail = "the surface tower is missing from its cell";
+            else if (turbine == null) detail = "the lower turbine is missing from its cell";
+            else
             {
-                holdsTower = false;
-                holdsTurbine = false;
-                detail = "the tower or the lower turbine is missing from its cell";
-                return;
+                List<object> coolers = NetList(turbine, "Coolers");
+                List<object> turbines = NetList(turbine, "Turbines");
+                holdsTower = coolers.Any(cooler => ReferenceEquals(cooler, tower));
+                holdsTurbine = turbines.Any(listed => ReferenceEquals(listed, turbine));
+                detail = "Coolers " + coolers.Count + " (holds the surface tower: " + (holdsTower ? "yes" : "no") + "); Turbines " + turbines.Count
+                    + " (holds the lower turbine: " + (holdsTurbine ? "yes" : "no") + ")";
+                return null;
             }
-            List<object> coolers = NetList(turbine, "Coolers");
-            List<object> turbines = NetList(turbine, "Turbines");
-            holdsTower = coolers.Any(cooler => ReferenceEquals(cooler, tower));
-            holdsTurbine = turbines.Any(listed => ReferenceEquals(listed, turbine));
-            detail = "Coolers " + coolers.Count + " (holds the surface tower: " + (holdsTower ? "yes" : "no") + "); Turbines " + turbines.Count
-                + " (holds the lower turbine: " + (holdsTurbine ? "yes" : "no") + ")";
+            return detail;
         }
 
         // The building of this def on the cell, or null. A loaded save makes new objects, so each read finds its building again by its cell.

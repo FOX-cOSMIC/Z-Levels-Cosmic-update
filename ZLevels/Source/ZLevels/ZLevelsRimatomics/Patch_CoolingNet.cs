@@ -8,13 +8,14 @@ using ZLevels;
 namespace ZLevelsRimatomics
 {
     // Joins the cooling loops to the Rimatomics nets. Before each CoolingNet.Tick, the net takes the coolers and turbines of every net in the loops of its
-    // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. A net with no column keeps the lists
-    // Rimatomics built. A throw is logged once and the original Tick runs, so the pipe nets after this one still tick.
+    // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. When the merge throws, or a column's
+    // loop is unknown, the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once. The
+    // original Tick then runs.
     [HarmonyPatch]
     public static class Patch_CoolingNet
     {
-        private static bool loggedFailure;
-        private static bool loggedUnknownLoop;
+        // The failures already logged, by key. A failure logs once. A different failure has a different key, so it logs too.
+        private static readonly HashSet<string> loggedFailures = new HashSet<string>();
 
         static MethodBase TargetMethod()
         {
@@ -29,10 +30,14 @@ namespace ZLevelsRimatomics
             }
             catch (Exception exception)
             {
-                // The lists are assigned only after the whole merge is built, so a throw leaves them as they were. The original Tick still runs.
-                if (loggedFailure) return;
-                loggedFailure = true;
-                Log.Error("Z-Levels cooling loop merge failed, so this net keeps the lists it had: " + exception);
+                // The net's own lists come first, so the joined things leave the ratio before anything else runs.
+                UseOwnThings(__instance);
+                string key = exception.GetType().FullName + ": " + exception.Message;
+                if (loggedFailures.Add(key))
+                {
+                    Log.Error("Z-Levels cooling loop merge failed on the net of " + DescribeNet(__instance)
+                        + ", so the net uses its own coolers and turbines: " + exception);
+                }
             }
         }
 
@@ -51,9 +56,10 @@ namespace ZLevelsRimatomics
                 List<CompCoolingColumn> loop = CoolingLoopRegistry.LoopOf(start, usable, tracker);
                 if (!loop.Contains(start))
                 {
-                    // An unusable column has no loop to join. It keeps this net's own coolers and turbines, and the other columns still join.
+                    // A column with no loop cannot say what joins, so the net uses its own things for this tick.
                     LogUnknownLoopOnce(start);
-                    continue;
+                    UseOwnThings(net);
+                    return;
                 }
                 foreach (CompCoolingColumn member in loop)
                 {
@@ -66,14 +72,29 @@ namespace ZLevelsRimatomics
             var turbines = new List<Rimatomics.Turbine>();
             foreach (Rimatomics.BasePipeNet joined in nets)
             {
-                foreach (ThingWithComps thing in joined.PipedThings)
-                {
-                    if (thing is Rimatomics.CoolingSystem cooler) coolers.Add(cooler);
-                    if (thing is Rimatomics.Turbine turbine) turbines.Add(turbine);
-                }
+                AddThings(joined, coolers, turbines);
             }
             net.Coolers = coolers;
             net.Turbines = turbines;
+        }
+
+        // Sets the net's coolers and turbines from its own PipedThings, the same lists that InitNet builds. Nothing from another net is in the result.
+        private static void UseOwnThings(Rimatomics.CoolingNet net)
+        {
+            var coolers = new List<Rimatomics.CoolingSystem>();
+            var turbines = new List<Rimatomics.Turbine>();
+            AddThings(net, coolers, turbines);
+            net.Coolers = coolers;
+            net.Turbines = turbines;
+        }
+
+        private static void AddThings(Rimatomics.BasePipeNet net, List<Rimatomics.CoolingSystem> coolers, List<Rimatomics.Turbine> turbines)
+        {
+            foreach (ThingWithComps thing in net.PipedThings)
+            {
+                if (thing is Rimatomics.CoolingSystem cooler) coolers.Add(cooler);
+                if (thing is Rimatomics.Turbine turbine) turbines.Add(turbine);
+            }
         }
 
         // The columns whose pipe is in this net. They are found among the net's own pipes, which PipedThings keeps current, so a removed column is not listed.
@@ -88,12 +109,30 @@ namespace ZLevelsRimatomics
             return columns;
         }
 
+        // The def and cell of the net's first thing, taken at the smallest z and then the smallest x. Choosing by cell names the net the same way on every
+        // tick, because InitNet shuffles PipedThings.
+        private static string DescribeNet(Rimatomics.CoolingNet net)
+        {
+            ThingWithComps first = null;
+            foreach (ThingWithComps thing in net.PipedThings)
+            {
+                if (first == null || thing.Position.z < first.Position.z
+                    || (thing.Position.z == first.Position.z && thing.Position.x < first.Position.x))
+                {
+                    first = thing;
+                }
+            }
+            return first == null ? "a net with no things" : first.def.defName + " at " + first.Position;
+        }
+
         private static void LogUnknownLoopOnce(CompCoolingColumn start)
         {
-            if (loggedUnknownLoop) return;
-            loggedUnknownLoop = true;
-            Log.Warning("Z-Levels cooling column " + (start.parent?.def?.defName ?? "cooling column")
-                + " is not in the loop that the registry returns for it, so its loop is unknown and is not joined. This is logged once.");
+            string column = start.parent == null
+                ? "a cooling column with no thing"
+                : start.parent.def.defName + " at " + start.parent.Position;
+            if (!loggedFailures.Add("unknown loop|" + column)) return;
+            Log.Warning("Z-Levels cooling column " + column + " is not in the loop that the registry returns for it, so the cooling net that holds it"
+                + " uses its own coolers and turbines. This is logged once for each column.");
         }
     }
 }
