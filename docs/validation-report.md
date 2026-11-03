@@ -693,6 +693,26 @@ The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C
 
 No run in this section tests the user's list with that mod removed. The expected line, `Runtime validation passed with other mods`, was not printed, so this section makes no claim that the user's list passes.
 
+## Partial mod-list run: the user's list minus RimworldReadableNumbers
+
+This is a partial run, and it does not show that the user's mod list passes. The full list fails at load in run `20261103-135227`. The exception comes from `RimworldReadableNumbers.RnGuiBackend.SetTextLanguage`. The call path runs through `Verse.LanguageDatabase.InitAllMetadata` and `Verse.PlayDataLoader.DoPlayLoad`. The game then resets the mod config. The stack has no Z-Levels frame.
+
+The scratch copy is the user's `ModsConfig.xml` with `7h0m4s.rimworldreadablenumbers` removed, and nothing else changed. It lives at `%TEMP%\claude-scratch\task-7-modlist\ModsConfig.xml`. Its SHA-256 is `D041D62E6C7804B15A24D2E17A709007239E1EDB0346894C314AF19EF6108B3E`. The user's `Prefs.xml` sits beside it, so the run uses the same language as the failed run.
+
+| Run | Command | Result |
+|---|---|---|
+| `20261103-135706` | Core validation with `-ModsConfigSource` set to the scratch copy | Passed. `core validation` reads PASS, and no row reads FAIL. The runner printed `Runtime validation passed with other mods`. That line covers the scratch list only. |
+
+The run loaded 80 entries. The runner read them from the run's `Player.log`, after `Initializing new game with mods:`. They are the 78 entries of the scratch list, in order, plus `zlevels1.1` and `local.zlevels.validation`. They match the other-mods run `20261101-141256` exactly, IDs and notes. The game marks four entries with the note incompatible version: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`. The other-mods run marks the same four.
+
+The entries, in log order, are: `brrainz.harmony`, `Chezhou.RimUnity`, `Ludeon.RimWorld`, `Ludeon.RimWorld.Royalty`, `Ludeon.RimWorld.Biotech`, `adaptive.storage.framework`, `sbz.NeatStorageFridge`, `sbz.NeatStorage`, `Mlie.SdAdvancedPowergeneration`, `Mlie.XNDUseThatSniperScope`, `OskarPotocki.VanillaFactionsExpanded.Core`, `sarg.alphaanimals`, `Mlie.ApparelOrganizer`, `com.bymarcin.ArchitectIcons`, `void.charactereditor`, `Mlie.ChooseBiomeCommonality`, `CrashM.ColorCodedMoodBar.11`, `Mlie.ColourfulSterileTiles`, `com.lessprisonbreaks`, `DimonSever000.BackstoriesPlus.Specific`, `DimonSever000.Events.Specific`, `DimonSever000.PsionicPlus.Specific`, `CaesarV6.DamageIndicators`, `telardo.DragSelect`, `Dubwise.DubsMintMenus`, `Dubwise.DubsPerformanceAnalyzer.steam`, `Dubwise.Rimatomics`, `zeracronius.dynamictradeinterface`, `V1024.EBFramework`, `V1024.EliteArchotech`, `asunib.EnemyMechanitors`, `Aoba.Exosuit.Framework`, `AOBA.Framework`, `Aoba.Fortress.Industrial`, `Goji.GojisMiscGenes`, `bambaryla.AllBambaGuns`, `MaoSaur.ImplantsRipper`, `erdelf.HumanoidAlienRaces`, `chezhou.creature.hivelord`, `m00nl1ght.UnofficialUpdates.HugsLogPublisher`, `m00nl1ght.MapPreview`, `hyaukyuu.mechlinkreinforcement`, `CaptainMcMuffin.MHP`, `Haplo.Miscellaneous.Training`, `Yorbil.missingfabricationrecipes`, `IssacZhuang.MuzzleFlash`, `AmCh.NeedBarOverflow`, `Andromeda.NiceBillTab`, `Andromeda.MilkyWay`, `Andromeda.NiceHealthTab`, `Andromeda.NiceResearchTab`, `sk.noprisonersympathy`, `morton.NobleandPsycasterFurniture`, `AgentOrange.PassiveExoskeletons`, `cem.PositiveConnections`, `Mlie.PrisonersDontHaveKeys`, `Mlie.ProstheticNoMissingBodyParts`, `DawnsGlow.qualcolor`, `NachoToast.RimatomicsPlusPlus`, `Dubwise.Rimefeller`, `Mlie.RepairingPriority`, `forti.rimmarket`, `rimsenal.EVP`, `EdelweissPirate.traumateamcomplete`, `CH4AcKO3.SearchAndRescue`, `EBSG.Framework`, `Sov.Nephilim`, `Sovereign.SeraphimReborn`, `dhultgren.smarterconstruction`, `Indeed.StackXXL`, `Aoba.DeadManSwitch.Core`, `Aoba.DeadManSwitch.AncientCorps`, `Aoba.DeadManSwitch.MobileDragoon`, `Aoba.DeadManSwitch.Taktikmagier`, `TimmyLiang.TradeHelper`, `VanillaExpanded.VChemfuelE`, `Ancot.AncotLibrary`, `Ancot.MiliraRace`, `ZLevels1.1`, `local.zlevels.validation`
+
+The run logged three other-mod errors. They are in `other-mod-errors.txt` in the run folder, and none names Z-Levels code.
+
+The user's file is unchanged. Its SHA-256 is `C1BA0E321A6BD99E74932A7DAB3BEAF30C6D3CC6BDEB7DD4A08B99B39EACBE2A` before and after both runs, and its write time is the same.
+
+This section does not claim that the user's list passes. The user's list still contains `7h0m4s.rimworldreadablenumbers`, and that entry fails at load.
+
 ## Evidence
 
 - Other-mod run: `.artifacts/runs/20261101-141256/`
@@ -707,3 +727,4 @@ No run in this section tests the user's list with that mod removed. The expected
 - Cross-level cooling reactor runs: `.artifacts/runs/20261103-131225/` is the no-columns run, `.artifacts/runs/20261103-131411/` is the cooled run, and `.artifacts/runs/20261103-131550/` is the core validation run.
 - Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.
 - Task 7 regression runs: `.artifacts/runs/20261103-134920/`, `.artifacts/runs/20261103-134331/`, `.artifacts/runs/20261103-135031/`, and `.artifacts/runs/20261103-135227/`.
+- Partial mod-list run without RimworldReadableNumbers: `.artifacts/runs/20261103-135706/`.
