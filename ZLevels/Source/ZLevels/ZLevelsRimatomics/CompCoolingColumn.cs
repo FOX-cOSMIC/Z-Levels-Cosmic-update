@@ -8,9 +8,13 @@ namespace ZLevelsRimatomics
         // The Rimatomics pipe comp on this column. A reference-type field, so this class loads without Rimatomics.
         public Rimatomics.CompPipe pipe;
 
+        // The game tick at which the column spawned, or null when no game tick could be read. The no-net notice waits for a grace period after this tick.
+        public int? SpawnedAtTick;
+
         public override void PostSpawnSetup(bool respawningAfterLoad)
         {
             base.PostSpawnSetup(respawningAfterLoad);
+            SpawnedAtTick = Find.TickManager?.TicksGame;
             pipe = parent.GetComp<Rimatomics.CompPipe>();
             if (pipe == null)
             {

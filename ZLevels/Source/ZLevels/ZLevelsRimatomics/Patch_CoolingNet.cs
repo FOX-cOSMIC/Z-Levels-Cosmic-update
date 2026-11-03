@@ -10,25 +10,57 @@ namespace ZLevelsRimatomics
 {
     // Joins the cooling loops to the Rimatomics nets. Before each CoolingNet.Tick, the net takes the coolers and turbines of every net in the loops of its
     // columns, so Rimatomics computes its cooling ratio over the joined network. The lists are new on each call. A column outside its own loop forms no
-    // loop, so only that loop stays out, and the other loops still join. A member whose pipe field is empty is skipped and logged. When the merge throws,
-    // the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct failure is logged once per game, up to 64 distinct
-    // failures in a game. Each read and call on the failure path that can run game or exception code is guarded, and a throw there logs its exception
-    // type. A column whose name cannot be read is named by its cell and map. No exception leaves the prefix, and the original Tick then runs.
+    // loop, so only that loop stays out, and the other loops still join. A member with no pipe net is skipped, and a notice is logged once the column has
+    // had NoNetGraceTicks to join. When the merge throws, the net takes its own coolers and turbines, so nothing joined stays in the ratio. Each distinct
+    // failure is logged once per game, up to 64 distinct failures in a game. A line is marked only when it will be written, so a line that Verse or Unity
+    // drops is written on a later tick. Each read and call on the failure path that can run game or exception code is guarded, and a throw there logs its
+    // exception type. A column whose name cannot be read is named by its cell and map. No exception leaves the prefix, and the original Tick then runs.
     [HarmonyPatch]
     public static class Patch_CoolingNet
     {
-        // The lines already logged, by key. A key names the map and cell of the net or column, the exception type, the message, and the top frame's
-        // method and IL offset. A different key logs again, up to MaxFailureKeys keys in a game.
-        private static readonly HashSet<string> loggedFailures = new HashSet<string>();
+        // The failure lines logged in this game, by key. A key names the map, the site, the exception type, the message, and the top frame's method and
+        // IL offset. A key names no net, so a net whose members change keeps its key. A different key logs again, up to MaxFailureKeys keys in a game.
+        private static readonly KeyBook failures = new KeyBook(MaxFailureKeys,
+            "Z-Levels cooling has logged " + MaxFailureKeys + " distinct failures in this game. Further distinct failures are not logged in this game.");
 
-        // The most distinct keys one game logs. The first key past the cap writes one line that says so, and then nothing else is written in the game.
+        // The no-net notices logged in this game, by key. They are kept apart from the failures, so a notice never uses a failure slot.
+        private static readonly KeyBook notices = new KeyBook(MaxNoticeKeys,
+            "Z-Levels cooling has logged " + MaxNoticeKeys + " notices in this game. Further notices are not logged in this game.");
+
+        // The most distinct keys one game logs in each book. The first key past the cap writes one line that says so, and nothing else from that book.
         private const int MaxFailureKeys = 64;
+        private const int MaxNoticeKeys = 64;
 
-        // Set once the cap line is written in this game.
-        private static bool capReported;
+        // A column with no pipe net is reported only once this many ticks have passed since it spawned, because joins start after the next pipe grid rebuild.
+        private const int NoNetGraceTicks = 600;
 
-        // The game that the set belongs to. The reference is weak, so a game that is over can be collected while the main menu is open. A different
-        // game clears the set.
+        // The getter of Verse's private PreventLogging flag. It is found once by reflection and kept. Null when the lookup failed, and then lines go through Unity.
+        private static Func<bool> preventLoggingGetter;
+        private static bool preventLoggingLookedUp;
+
+        // The keys logged in one game, with the cap for that book. The first key past the cap writes one line that says so, and CapReported keeps it to one.
+        private sealed class KeyBook
+        {
+            public readonly HashSet<string> Keys = new HashSet<string>();
+            public readonly int Max;
+            public readonly string CapText;
+            public bool CapReported;
+
+            public KeyBook(int max, string capText)
+            {
+                Max = max;
+                CapText = capText;
+            }
+
+            public void Clear()
+            {
+                Keys.Clear();
+                CapReported = false;
+            }
+        }
+
+        // The game that the books belong to. The reference is weak, so a game that is over can be collected while the main menu is open. A different
+        // game clears both books.
         private static System.WeakReference<Verse.Game> loggedGame;
 
         // A number that names an object with no map and cell. The table holds the object weakly, so the number lasts as long as the object does.
@@ -81,7 +113,7 @@ namespace ZLevelsRimatomics
                 {
                     inLoops.Add(member);
                     // The field is read as it is. The CompPipe.net getter would rebuild the grids. This code also runs inside a rebuild, from InitNet,
-                    // so the getter must not run here, and an empty field is skipped and logged instead.
+                    // so the getter must not run here, and an empty field is skipped. A notice follows once the grace period has passed.
                     Rimatomics.BasePipeNet memberNet = member.pipe?.pipeNetRef;
                     if (memberNet == null)
                     {
@@ -121,7 +153,7 @@ namespace ZLevelsRimatomics
         }
 
         // The columns whose pipe is in this net. They are found among the net's own things, which PipedThings keeps current, so a removed column is not
-        // listed. A column whose pipe field is empty is skipped and logged.
+        // listed. A thing that is not a column, or a column whose pipe field is empty, is skipped without a line. CompCoolingColumn logs an empty field at spawn.
         private static List<CompCoolingColumn> ColumnsOn(Rimatomics.CoolingNet net)
         {
             var columns = new List<CompCoolingColumn>();
@@ -164,20 +196,21 @@ namespace ZLevelsRimatomics
             return first.def.defName + " at " + first.Position + " on map " + first.Map.uniqueID;
         }
 
-        // The key of the net. A net whose first thing is on a map is keyed by that map, the def, and the cell, so two nets that share a cell on two levels
-        // have two keys. Any other net is keyed by its number.
-        private static string NetKey(Rimatomics.CoolingNet net)
+        // The key of the map that the net is on. The net's own identity is left out, so a net whose members change keeps its key. A net with no map is keyed
+        // as "no map".
+        private static string MapKey(Rimatomics.CoolingNet net)
         {
             ThingWithComps first = FirstThing(net);
-            if (first == null || first.Map == null) return "net " + IdentityOf(net);
-            return "map " + first.Map.uniqueID + ", " + first.def.defName + " at " + first.Position;
+            if (first == null || first.Map == null) return "no map";
+            return "map " + first.Map.uniqueID;
         }
 
-        // The def, cell, and map of a column, for a message.
+        // The def, cell, and map of a column, for a message. A column with no map is named by its def and cell, and the name says that it has no map.
         private static string ColumnName(CompCoolingColumn column)
         {
             ThingWithComps thing = column.parent;
-            if (thing == null || thing.Map == null) return "a cooling column with no place";
+            if (thing == null) return "a cooling column with no place";
+            if (thing.Map == null) return thing.def.defName + " at " + thing.Position + " with no map";
             return thing.def.defName + " at " + thing.Position + " on map " + thing.Map.uniqueID;
         }
 
@@ -233,9 +266,9 @@ namespace ZLevelsRimatomics
             catch (Exception failure)
             {
                 string described = Helper("describe the net", () => DescribeNet(net), "a net that could not be described");
-                string where = Helper("key of the net", () => NetKey(net), "net " + IdentityOf(net));
+                string where = Helper("key of the net", () => MapKey(net), "map unknown");
                 string frame = Helper("top frame", () => TopFrame(failure), "frame unavailable");
-                LogOnce("step " + name + "|" + where + "|" + DescribeException(failure) + "|" + frame,
+                LogOnce(failures, "step " + name + "|" + where + "|" + DescribeException(failure) + "|" + frame,
                     () => "Z-Levels cooling step " + name + " failed for the net of " + described
                         + ", so the original Tick runs with the lists it has: " + ExceptionText(failure), false);
                 return false;
@@ -247,19 +280,21 @@ namespace ZLevelsRimatomics
         {
             bool ownThings = Step("own things", net, () => UseOwnThings(net));
             string described = Helper("describe the net", () => DescribeNet(net), "a net that could not be described");
-            string where = Helper("key of the net", () => NetKey(net), "net " + IdentityOf(net));
+            string where = Helper("key of the net", () => MapKey(net), "map unknown");
             string frame = Helper("top frame", () => TopFrame(exception), "frame unavailable");
-            LogOnce(where + "|" + DescribeException(exception) + "|" + frame,
+            LogOnce(failures, where + "|" + DescribeException(exception) + "|" + frame,
                 () => "Z-Levels cooling loop merge failed on the net of " + described
                     + (ownThings ? ", so the net uses its own coolers and turbines: "
                         : ", and the net keeps its last lists, which may still hold joined coolers: ") + ExceptionText(exception), false);
         }
 
-        // Logs one line for a key, once per game. A line that cannot be built writes nothing, and the key stays unmarked, so the next tick builds it again.
-        // The key is marked before the Verse call, so a logger that fails is never asked for the same line twice.
-        private static void LogOnce(string key, Func<string> line, bool warning)
+        // Logs one line for a key, once per game in its book. The check comes first. A line that Verse or Unity will not write is not built, is not marked,
+        // and does not count toward the cap, so the next tick that can write it writes it. A line that cannot be built writes nothing, and its key stays
+        // unmarked. The key is marked before the write, so a logger that throws is never asked for the same line again.
+        private static void LogOnce(KeyBook book, string key, Func<string> line, bool warning)
         {
-            if (loggedFailures.Contains(key)) return;
+            if (book.Keys.Contains(key)) return;
+            if (!WillWrite()) return;
             string text;
             try
             {
@@ -270,22 +305,63 @@ namespace ZLevelsRimatomics
                 // The line could not be built, so nothing is written and the key stays unmarked. The next tick builds the line again.
                 return;
             }
-            if (loggedFailures.Count >= MaxFailureKeys)
+            if (book.Keys.Count >= book.Max)
             {
-                if (capReported) return;
-                capReported = true;
-                Write("Z-Levels cooling has logged " + MaxFailureKeys + " distinct failures in this game. Further distinct failures are not logged in this game.",
-                    true);
+                if (book.CapReported) return;
+                book.CapReported = true;
+                Write(book.CapText, true);
                 return;
             }
-            loggedFailures.Add(key);
+            book.Keys.Add(key);
             Write(text, warning);
         }
 
-        // Writes one line through the Verse logger. The key is already marked, so a throw from the logger is never retried. If the Verse call throws,
-        // the text goes out once through UnityEngine.Debug.LogError with the exception type. If that call throws too, nothing is written.
+        // Whether the logger will write a line now. Unity drops every line while its logger is off. Verse drops a line while PreventLogging is true, which is
+        // while a LockMessages lock is held and after the 10,000th message. When the flag cannot be read, lines go through Unity, so only the Unity check
+        // applies. This never throws. If the check throws, the write is attempted, and Write guards it.
+        private static bool WillWrite()
+        {
+            try
+            {
+                if (!UnityEngine.Debug.unityLogger.logEnabled) return false;
+                Func<bool> prevent = PreventLoggingGetter();
+                return prevent == null || !prevent();
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        // The getter of Verse's PreventLogging flag. The lookup runs once. When it fails, one notice goes out through Unity, and the getter stays null.
+        private static Func<bool> PreventLoggingGetter()
+        {
+            if (preventLoggingLookedUp) return preventLoggingGetter;
+            preventLoggingLookedUp = true;
+            try
+            {
+                PropertyInfo property = typeof(Log).GetProperty("PreventLogging", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                MethodInfo getter = property == null ? null : property.GetGetMethod(true);
+                if (getter == null) throw new InvalidOperationException("Verse.Log has no PreventLogging getter.");
+                preventLoggingGetter = (Func<bool>)Delegate.CreateDelegate(typeof(Func<bool>), getter);
+            }
+            catch (Exception lookupFailure)
+            {
+                UnityWrite("Z-Levels cooling could not read Verse's log flag PreventLogging (" + TypeNameOf(lookupFailure)
+                    + "). Its lines go out through UnityEngine.Debug.", true);
+            }
+            return preventLoggingGetter;
+        }
+
+        // Writes one line through the Verse logger. When the flag cannot be read, the line goes through Unity. When the Verse call throws, the text goes out
+        // once through UnityEngine.Debug.LogError with the exception type. If that call throws too, nothing is written.
         private static void Write(string text, bool warning)
         {
+            if (PreventLoggingGetter() == null)
+            {
+                UnityWrite(text, warning);
+                return;
+            }
             try
             {
                 if (warning) Log.Warning(text);
@@ -293,21 +369,27 @@ namespace ZLevelsRimatomics
             }
             catch (Exception loggerFailure)
             {
-                try
-                {
-                    UnityEngine.Debug.LogError(text + " Logger threw " + TypeNameOf(loggerFailure) + ".");
-                }
-                catch (Exception)
-                {
-                    // Unity logging threw as well, so no channel is left. The key stays marked, so the line is not tried again.
-                    return;
-                }
+                UnityWrite(text + " Logger threw " + TypeNameOf(loggerFailure) + ".", false);
+            }
+        }
+
+        // Writes one line through UnityEngine.Debug. A throw from Unity is dropped, because no channel is left after it.
+        private static void UnityWrite(string text, bool warning)
+        {
+            try
+            {
+                if (warning) UnityEngine.Debug.LogWarning(text);
+                else UnityEngine.Debug.LogError(text);
+            }
+            catch (Exception)
+            {
+                // Unity logging threw too, so no channel is left. The key stays marked, so the line is not tried again.
             }
         }
 
         private static void LogHelperFailureOnce(string name, Exception failure)
         {
-            LogOnce("helper " + name + "|" + DescribeException(failure),
+            LogOnce(failures, "helper " + name + "|" + DescribeException(failure),
                 () => "Z-Levels cooling helper " + name + " failed, so the original Tick runs: " + ExceptionText(failure), false);
         }
 
@@ -363,15 +445,15 @@ namespace ZLevelsRimatomics
             return name + " at IL offset " + frame.GetILOffset();
         }
 
-        // A game other than the one the set belongs to clears the set. The reference is weak, so a game that is over can be collected.
+        // A game other than the one the books belong to clears them. The reference is weak, so a game that is over can be collected.
         private static void ForgetFailuresOfEarlierGames()
         {
             Verse.Game game = Current.Game;
             Verse.Game logged;
             if (loggedGame != null && loggedGame.TryGetTarget(out logged) && ReferenceEquals(logged, game)) return;
             loggedGame = game == null ? null : new System.WeakReference<Verse.Game>(game);
-            loggedFailures.Clear();
-            capReported = false;
+            failures.Clear();
+            notices.Clear();
         }
 
         // The name of a column for a line. When the name read fails, the cell and the map name the column instead, and each read is guarded.
@@ -380,30 +462,37 @@ namespace ZLevelsRimatomics
             string name = Helper("column name", () => ColumnName(column), (string)null);
             if (name != null) return name;
             string cell = Helper("column cell", () => column.parent.Position.ToString(), "a cell that could not be read");
-            string map = Helper("column map", () => column.parent.Map.uniqueID.ToString(), "a map that could not be read");
-            return "at cell " + cell + " on map " + map;
+            string place = Helper("column map", () => column.parent.Map == null ? " with no map" : " on map " + column.parent.Map.uniqueID,
+                " on a map that could not be read");
+            return "at cell " + cell + place;
         }
 
         // An unusable column forms no loop, so its loop is dropped. The other loops of its net still join.
         private static void LogUnknownLoopOnce(CompCoolingColumn start)
         {
-            string name = NameOrPlace(start);
             string key = Helper("column key", () => ColumnKey(start), "column " + IdentityOf(start));
-            LogOnce("unknown loop|" + key,
-                () => "Z-Levels cooling column " + name + " is not usable, so its loop is dropped. The other loops of its net still join."
+            LogOnce(failures, "unknown loop|" + key,
+                () => "Z-Levels cooling column " + NameOrPlace(start) + " is not usable, so its loop is dropped. The other loops of its net still join."
                     + " This is logged once for each column in each game.", true);
         }
 
-        // A column with an empty pipe field has no net that this merge can read, so the merge skips it. This is the normal case while a column is
-        // placed. Joins start after the next pipe grid rebuild.
+        // A column with no pipe net is not a failure. The merge skips it until it joins, and joins start after the next pipe grid rebuild. The notice is written
+        // only when the column still has no net NoNetGraceTicks after it spawned. It has its own key set and cap.
         private static void LogNoNetOnce(CompCoolingColumn column)
         {
-            string name = NameOrPlace(column);
+            if (!PastNoNetGrace(column)) return;
             string key = Helper("column key", () => ColumnKey(column), "column " + IdentityOf(column));
-            LogOnce("no net|" + key,
-                () => "Z-Levels cooling column " + name + " has no pipe net in its field yet. This is the normal case while a column is placed."
-                    + " Joins start after the next pipe grid rebuild, so this merge skips the column until then."
+            LogOnce(notices, "no net|" + key,
+                () => "Z-Levels cooling column " + NameOrPlace(column) + " has no pipe net in its field " + NoNetGraceTicks
+                    + " ticks after it spawned, so it does not join a loop yet. Joins start after the next pipe grid rebuild."
                     + " This is logged once for each column in each game.", true);
+        }
+
+        // Whether the column spawned at least NoNetGraceTicks ago. A column with no readable spawn tick is not past the grace period. A failed read logs once.
+        private static bool PastNoNetGrace(CompCoolingColumn column)
+        {
+            return Helper("grace period", () => column.SpawnedAtTick.HasValue
+                && Find.TickManager.TicksGame - column.SpawnedAtTick.Value >= NoNetGraceTicks, false);
         }
     }
 }
