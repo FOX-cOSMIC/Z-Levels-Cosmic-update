@@ -1941,7 +1941,8 @@ namespace ZLevelsValidation
         }
 
         // The colonist is new and has no current job, the state Z-Levels is in when it takes the next queued job. The queued SocialRelax
-        // job reserves its chair against pawn.CurJob, which is null then. The row passes when the game keeps running and the job is queued
+        // job reserves its chair against pawn.CurJob in vanilla, which is null then, so the reservation is refused. The prefix reserves against the queued job instead.
+        // The row passes when the game keeps running and the job is queued
         // and holds its chair.
         private void RunSocialRelaxQueueCheck()
         {
@@ -2016,7 +2017,7 @@ namespace ZLevelsValidation
                 Job drinkJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair, beer);
                 bool drinkReserved = drinkJob.TryMakePreToilReservations(colonist, false);
                 bool chairLeft = map.reservationManager.ReservedBy(chair, colonist, drinkJob);
-                // The release touches only the drink job's claims, so the queued job keeps its chair.
+                // The release clears the drink job's reservations and the pawn's enroute claims, and leaves the queued job's reservation alone.
                 bool queuedKeepsChair = map.reservationManager.ReservedBy(chair, colonist, job);
                 Record("social relax drink releases chair", !drinkReserved && !chairLeft && queuedKeepsChair ? "PASS" : "FAIL: drink reservation succeeded " + drinkReserved + ", chair still held for the drink job " + chairLeft + ", chair held for the queued job " + queuedKeepsChair);
             }

@@ -8,7 +8,7 @@ namespace ZLevels
     // Vanilla JobDriver_SocialRelax reserves its chair with pawn.CurJob. Z-Levels runs this check on a queued job before the job
     // becomes the colonist's current job, when pawn.CurJob may be null or another job. This prefix runs the same steps with the
     // driver's own job. When the chair or the drink cannot be reserved, it releases the job's reservations, as vanilla
-    // TryTakeOrderedJob does. When the job is current, the result matches vanilla.
+    // TryTakeOrderedJob does. When the job is current, the result matches vanilla. The chair call passes the caller's errorOnFailed, so a refused chair is logged only when the caller asks for errors. Vanilla's chair call always logs.
     [HarmonyPatch(typeof(JobDriver_SocialRelax), nameof(JobDriver_SocialRelax.TryMakePreToilReservations))]
     public static class JobDriverSocialRelaxReservationPatch
     {
