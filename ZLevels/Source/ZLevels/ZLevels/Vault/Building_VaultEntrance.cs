@@ -15,7 +15,16 @@ namespace ZLevels
                 SpawnExitIn(shared);
                 return shared;
             }
-            shared = base.GeneratePocketMapInt();
+            // The base call can throw while the first exit spawns. The portal saved here is put back either way, so no later exit links to this entrance by mistake.
+            MapPortal previous = PocketMapUtility.currentlyGeneratingPortal;
+            try
+            {
+                shared = base.GeneratePocketMapInt();
+            }
+            finally
+            {
+                PocketMapUtility.currentlyGeneratingPortal = previous;
+            }
             vault.Pocket = shared;
             return shared;
         }

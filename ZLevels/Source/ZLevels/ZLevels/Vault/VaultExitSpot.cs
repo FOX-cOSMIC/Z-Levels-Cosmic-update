@@ -11,12 +11,23 @@ namespace ZLevels
         // Every cell within this distance of the pocket's centre is open floor. GenStep_VaultRock clears the same cells.
         public const float RoomRadius = 10f;
 
-        private const float Spacing = 6f;
+        // Exits stay more than this far from each other. At this spacing the room holds 27 exits, as the -VaultFull run measures.
+        private const float Spacing = 3f;
 
         public static IntVec3 Find(Map pocket)
         {
+            if (TryFind(pocket, out IntVec3 spot))
+            {
+                return spot;
+            }
+            throw new InvalidOperationException("The vault room has no room for another exit.");
+        }
+
+        // False when the room has no open cell that keeps its distance from the other exits. The placement check uses this to refuse an entrance.
+        public static bool TryFind(Map pocket, out IntVec3 spot)
+        {
             IntVec3 centre = pocket.Center;
-            IntVec3 best = IntVec3.Invalid;
+            spot = IntVec3.Invalid;
             float bestDistance = float.MaxValue;
             foreach (IntVec3 cell in GenRadial.RadialCellsAround(centre, RoomRadius, useCenter: true))
             {
@@ -27,15 +38,11 @@ namespace ZLevels
                 }
                 if (distance < bestDistance)
                 {
-                    best = cell;
+                    spot = cell;
                     bestDistance = distance;
                 }
             }
-            if (!best.IsValid)
-            {
-                throw new InvalidOperationException("The vault room has no room for another exit.");
-            }
-            return best;
+            return spot.IsValid;
         }
 
         private static bool NearExit(IntVec3 cell, Map pocket)

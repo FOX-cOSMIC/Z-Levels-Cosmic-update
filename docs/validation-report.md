@@ -776,20 +776,31 @@ The Task 6 research summarizes the Dubs Rimatomics code that the reactor scenari
 - Four entries load with the note `incompatible version`: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`.
 - The user's list still contains `7h0m4s.rimworldreadablenumbers`. Lucas has not decided whether to remove it, so this section does not claim that the user's list passes.
 
-## Vault rock (2026-11-04)
+## Vault rock and exit cap (2026-11-04)
 
-The vault pocket is now underground: solid rock with ore, no caves, and a clear room of radius 10 at the centre where the exit stands. A colonist enters and mines a wall beside the room. Source: `GenStep_VaultRock`, `VaultExitSpot.RoomRadius`, and the `-VaultRock` scenario in `tools/RuntimeValidation/RuntimeValidation.cs`.
+The vault pocket is underground. It is solid rock with the underground's ore, no caves, and a clear room of radius 10 at the centre. The exit stands at the centre. The `-VaultRock` scenario checks that layout, then forces a mine job on a wall beside the room. Normal work selection is not tested. The `-VaultFull` scenario checks the exit cap. Source: `GenStep_VaultRock`, `VaultExitSpot.RoomRadius`, and the `-VaultRock` and `-VaultFull` scenarios in `tools/RuntimeValidation/RuntimeValidation.cs`.
 
-All runs below were made from a clean worktree at `origin/zlevels-1.7`, so they show this change alone. The game's mod links were pointed at that worktree for each run, then restored.
+Each run was made in a clean worktree, with the game's mod links pointed at that worktree for that run, then restored. Runs from `20261104-144403` on use the exit cap, the placement refusal, and the rock-types row. Earlier runs are kept as history, and each entry says which code it ran.
 
-Sol's review of round 1 asked for the centre check to be exact. The red and green pair below ran after that change. The earlier pair, red `20261104-132942` and green `20261104-133017`, allowed one cell of tolerance, and their other rows match.
+### Final proof
 
-- Red `20261104-134847` (`-VaultRock`, original mod code): fails on the first three checks. 9683 cells outside the room hold no rock, the exit is at (3, 0, 3) instead of the centre (50, 0, 50), and the pocket holds no ore wall. The final row is `vault rock | FAIL`.
-- Green `20261104-134919` (`-VaultRock`): every check passes. The room is standable, the exit is at the centre, ore is in the rock, the colonist enters the pocket, and it mines the wall beside the room.
+- Green `-VaultRock` `20261104-144512` passes every row, including the rock-types row. The colonist enters the pocket and mines the wall beside the room. The final row is `vault rock | PASS`.
+- `-VaultFull` `20261104-144438` places 27 entrances, and each gets an exit. The 28th entrance is refused with `The vault has no room for another entrance.` The final row is `vault full | PASS`.
+- Red `-VaultFull` `20261104-144403` runs on the committed mod code, which has no cap. The scenario fails with `The vault room has no room for another exit.` thrown from `VaultExitSpot.Find`, while the harness generates the pocket for an entrance that has no free exit cell. The final row is `vault full | FAIL`.
+- The regression runs on the final code are `-VaultPlacement` `20261104-144706`, `-VaultPocket` `144745`, `-VaultEnter` `144818`, `-VaultLoad` `144907`, `-VaultSave` `144950`, `-VaultInfestation` `145039`, `-InfestationGuard` `145112`, and the core run `145155`. All exit 0.
+
+### Earlier runs
+
+- Red `-VaultRock` `20261104-134847` runs on the original mod code, the flat floor. Three of the four checks it runs fail. 9683 cells outside the room hold no rock, the exit is at (3, 0, 3) instead of the centre (50, 0, 50), and the pocket holds no ore wall. The room-standable check passes, as it does on the flat floor. The final row is `vault rock | FAIL`. This run predates the rock-types row. The original code cannot run the current harness, because the harness reads `VaultExitSpot.RoomRadius`, so this run stands as the red proof for the layout.
+- Green `-VaultRock` `20261104-134919` runs on `e1dbc60`, and every row passes. It predates the rock-types row.
+- Red `-VaultRock` `20261104-132942` and green `20261104-133017` ran on the harness before `e1dbc60`. They allowed the exit one cell off the centre. Sol raised that in round 1 of review, and `e1dbc60` made the check exact. Their other rows match.
 - First regression pass `20261104-132622` (`-VaultInfestation`): the three scenario rows pass, and the runner's log gate fails. The harness put the infestation meal at the map centre, where the exit now stands. Its clean-up destroyed the exit, and the engine logged `Tried to destroy non-destroyable thing ZL_VaultExit`. The harness now puts the meal two cells east of the centre. This is a harness fix, not a mod change.
-- Final regression runs, all on the final harness and mod code: `-VaultPlacement` `20261104-133226`, `-VaultPocket` `133259`, `-VaultEnter` `133332`, `-VaultLoad` `133416`, `-VaultSave` `133454`, `-VaultInfestation` `133543`, `-InfestationGuard` `133616`, and the core run `133659`. All pass.
+- Regression runs `-VaultPlacement` through the core run, `20261104-133226` to `133659`, all pass. They ran on the harness before `e1dbc60` and on the mod code before the cap, so the final set above is the proof.
 
-Not tested: raids or threats on the vault pocket, and existing saves. A pocket made before this change keeps its old floor, and it is not regenerated.
+### Not tested and known limits
+
+- Raids or threats on the vault pocket, and existing saves. A pocket made before this change keeps its old floor, and it is not regenerated.
+- More than 27 entrances placed before the first of them is entered. The placement check counts only the exits that already exist in the pocket, so entrances placed earlier are not counted. The use that needs a 28th exit throws from `VaultExitSpot.Find`. No run covers this case.
 
 ## Evidence
 

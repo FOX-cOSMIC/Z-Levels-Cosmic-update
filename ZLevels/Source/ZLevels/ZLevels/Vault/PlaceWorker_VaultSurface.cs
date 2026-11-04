@@ -12,6 +12,12 @@ namespace ZLevels
             {
                 return new AcceptanceReport("Vault entrances can only be built on the surface.");
             }
+            // Each entrance needs its own exit in the shared pocket. A full pocket refuses the next entrance here, not when a colonist enters it.
+            Map pocket = VaultPocket.Get().Pocket;
+            if (pocket != null && !VaultExitSpot.TryFind(pocket, out IntVec3 _))
+            {
+                return new AcceptanceReport("The vault has no room for another entrance.");
+            }
             return AcceptanceReport.WasAccepted;
         }
     }

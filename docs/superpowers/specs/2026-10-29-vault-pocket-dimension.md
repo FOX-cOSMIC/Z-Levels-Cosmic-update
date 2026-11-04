@@ -12,7 +12,7 @@ Date: 2026-10-29
 - Automatic hauling into the vault stays. Lucas reversed an earlier "no automatic hauling".
 - The vault is a pocket dimension, outside the level stack. The number of levels is unlimited, so the vault does not count as one. Lucas confirmed on 2026-10-30 that the vault is not a numbered level, and that only one vault level exists.
 - Power generators in the vault, and tubes (RimAtomics or similar) between levels, are not goals now. They are on `docs/roadmap.md`.
-- 2026-11-04: The vault is underground, not a flat concrete floor. It is solid rock with the ore the underground spawns, and no caves. The exit, which is the way back up, stands in the middle of the pocket. A clear room of radius 10 surrounds the centre, and colonists mine out through the rock from there. The first exit takes the centre. Later exits take the open room cell nearest the centre that keeps six cells from the other exits.
+- 2026-11-04: The vault is underground, not a flat concrete floor. It is solid rock with the ore the underground spawns, and no caves. The exit, which is the way back up, stands in the middle of the pocket. A clear room of radius 10 surrounds the centre, and colonists mine out through the rock from there. The first exit takes the centre. Later exits take the open room cell nearest the centre that stays more than 3 cells from every other exit, so the room holds 27 exits. Placement refuses an entrance when no such cell is left.
 
 ## Answered question
 
