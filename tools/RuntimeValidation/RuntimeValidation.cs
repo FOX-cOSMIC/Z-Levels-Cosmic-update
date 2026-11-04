@@ -1950,11 +1950,14 @@ namespace ZLevelsValidation
                 var tracker = Current.Game.GetComponent<ZLevelsManager>();
                 Map map = Find.CurrentMap;
                 IntVec3 tableCell = FindOpenBlock(map, 2, 4);
-                IntVec3 chairCell = FindOpenBlock(map, 1, 1);
-                if (!tableCell.IsValid || !chairCell.IsValid)
-                    throw new InvalidOperationException("no open cells for the table and the chair");
+                if (!tableCell.IsValid)
+                    throw new InvalidOperationException("no open cells for the table");
                 ThingDef tableDef = ThingDef.Named("Table2x4c");
                 Thing table = GenSpawn.Spawn(ThingMaker.MakeThing(tableDef, tableDef.MadeFromStuff ? GenStuff.DefaultStuffFor(tableDef) : null), tableCell, map, Rot4.North);
+                // The chair cell is searched after the table stands, so the search cannot pick a cell under the table.
+                IntVec3 chairCell = FindOpenBlock(map, 1, 1);
+                if (!chairCell.IsValid)
+                    throw new InvalidOperationException("no open cell for the chair");
                 ThingDef chairDef = ThingDef.Named("DiningChair");
                 Thing chair = GenSpawn.Spawn(ThingMaker.MakeThing(chairDef, chairDef.MadeFromStuff ? GenStuff.DefaultStuffFor(chairDef) : null), chairCell, map, Rot4.South);
                 IntVec3 colonistCell = FindOpenBlock(map, 1, 1);
@@ -1981,6 +1984,22 @@ namespace ZLevelsValidation
                     Record("social relax queue", "FAIL: queued " + queued + ", chair held for the job " + holdsChair);
                 else
                     Record("social relax queue", "PASS");
+                // A drink that another colonist holds must not leave the chair reserved for the drink job.
+                ThingDef beerDef = ThingDef.Named("Beer");
+                IntVec3 beerCell = FindOpenBlock(map, 1, 1);
+                if (!beerCell.IsValid)
+                    throw new InvalidOperationException("no open cell for the drink");
+                Thing beer = GenSpawn.Spawn(ThingMaker.MakeThing(beerDef), beerCell, map);
+                Pawn holder = map.mapPawns.FreeColonistsSpawned.FirstOrDefault(p => p != colonist);
+                if (holder == null)
+                    throw new InvalidOperationException("no other colonist to hold the drink");
+                Job holdJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair);
+                if (!holder.Reserve(beer, holdJob))
+                    throw new InvalidOperationException("the other colonist could not hold the drink");
+                Job drinkJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair, beer);
+                bool drinkReserved = drinkJob.TryMakePreToilReservations(colonist, false);
+                bool chairLeft = map.reservationManager.ReservedBy(chair, colonist, drinkJob);
+                Record("social relax drink releases chair", !drinkReserved && !chairLeft ? "PASS" : "FAIL: drink reservation succeeded " + drinkReserved + ", chair still held for the drink job " + chairLeft);
             }
             catch (Exception exception)
             {

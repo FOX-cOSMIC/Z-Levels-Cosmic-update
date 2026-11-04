@@ -6,8 +6,9 @@ using Verse.AI;
 namespace ZLevels
 {
     // Vanilla JobDriver_SocialRelax reserves its chair with pawn.CurJob. Z-Levels runs this check on a queued job before the job
-    // becomes the colonist's current job, so CurJob is null and the chair reservation is refused. This prefix runs the same steps
-    // with the driver's own job. When the job is current, the result is the same as vanilla.
+    // becomes the colonist's current job, when pawn.CurJob may be null or another job. This prefix runs the same steps with the
+    // driver's own job. When the chair or the drink cannot be reserved, it releases the job's reservations, as vanilla
+    // TryTakeOrderedJob does. When the job is current, the result matches vanilla.
     [HarmonyPatch(typeof(JobDriver_SocialRelax), nameof(JobDriver_SocialRelax.TryMakePreToilReservations))]
     public static class JobDriverSocialRelaxReservationPatch
     {
@@ -21,19 +22,18 @@ namespace ZLevels
             {
                 cell = job.GetTarget(TargetIndex.B).Cell;
             }
-            if (!pawn.ReserveSittableOrSpot(cell, job))
+            bool reserved = pawn.ReserveSittableOrSpot(cell, job);
+            if (reserved)
             {
-                __result = false;
-                return false;
+                job.SetTarget(TargetIndex.B, cell);
+                bool hasDrink = job.GetTarget(TargetIndex.C).HasThing;
+                reserved = !hasDrink || pawn.Reserve(job.GetTarget(TargetIndex.C), job, 1, -1, null, errorOnFailed);
             }
-            job.SetTarget(TargetIndex.B, cell);
-            bool hasDrink = job.GetTarget(TargetIndex.C).HasThing;
-            if (hasDrink && !pawn.Reserve(job.GetTarget(TargetIndex.C), job, 1, -1, null, errorOnFailed))
+            if (!reserved)
             {
-                __result = false;
-                return false;
+                pawn.ClearReservationsForJob(job);
             }
-            __result = true;
+            __result = reserved;
             return false;
         }
     }
