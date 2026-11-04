@@ -11,6 +11,7 @@ param(
     [switch]$VaultSave,
     [switch]$VaultInfestation,
     [switch]$VaultRock,
+    [switch]$VaultFull,
     [switch]$Supply,
     [switch]$AllColonistsHaul,
     [switch]$OtherColonistHauls,
@@ -325,6 +326,7 @@ $scenarioSwitches = [ordered]@{
     VaultSave = $VaultSave
     VaultInfestation = $VaultInfestation
     VaultRock = $VaultRock
+    VaultFull = $VaultFull
     Supply = $Supply
     UnreachableZone = $UnreachableZone
     MultiBuild = $MultiBuild
@@ -525,6 +527,7 @@ if ($VaultLoad) { $arguments += '-zlevelsvaultload' }
 if ($VaultSave) { $arguments += '-zlevelsvaultsave' }
 if ($VaultInfestation) { $arguments += '-zlevelsvaultinfestation' }
 if ($VaultRock) { $arguments += '-zlevelsvaultrock' }
+if ($VaultFull) { $arguments += '-zlevelsvaultfull' }
 if ($Supply) { $arguments += '-zlevelssupply' }
 if ($AllColonistsHaul) { $arguments += '-zlevelsallcolonistshaul' }
 if ($OtherColonistHauls) { $arguments += '-zlevelsothercolonistshaul' }
@@ -580,7 +583,7 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 # The partner tint rows of a -Visual cooling run are written from its two partner screenshots after the cross-check, so the cross-check does not count them.
 if ($Visual -and $Cooling -and -not $CoolingNoColumns) { Add-OutlineTintRows -ResultsPath $resultsPath -ShotFolder (Join-Path $runDirectory 'Screenshots') }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($VaultRock) { 'vault rock' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } else { 'core validation' }
+$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($VaultRock) { 'vault rock' } elseif ($VaultFull) { 'vault full' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } else { 'core validation' }
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }

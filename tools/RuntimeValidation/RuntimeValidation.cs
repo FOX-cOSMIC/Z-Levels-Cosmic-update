@@ -295,6 +295,12 @@ namespace ZLevelsValidation
                     RunVaultRockTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultfull"))
+                {
+                    finished = true;
+                    RunVaultFullCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssupply"))
                 {
                     RunSupplyTick();
@@ -1620,7 +1626,7 @@ namespace ZLevelsValidation
 
         // Vault rock. The pocket is solid rock with ore in it, except a room at its centre, and the exit stands in that room. The checks run
         // when the entrance makes the pocket, and each one gets its own row. A colonist then walks in and mines a wall beside the room.
-        private const float VaultRoomRadius = 10f;
+        private const float VaultRoomRadius = VaultExitSpot.RoomRadius;
 
         private void RunVaultRockTick()
         {
@@ -1658,12 +1664,19 @@ namespace ZLevelsValidation
                         }
                     }
                     bool ore = vaultPocket.listerThings.AllThings.OfType<Mineable>().Any(m => m.def.building.isResourceRock);
+                    // The pocket's rock types must be the surface's natural rock types, the list the underground draws from.
+                    List<ThingDef> pocketRock = vaultPocket.AllCells.Where(c => c.DistanceTo(center) > VaultRoomRadius)
+                        .Select(c => c.GetEdifice(vaultPocket)).OfType<Mineable>().Where(m => !m.def.building.isResourceRock)
+                        .Select(m => m.def).Distinct().ToList();
+                    List<ThingDef> surfaceRock = Find.World.NaturalRockTypesIn(surface.Tile).ToList();
+                    bool surfaceRocks = pocketRock.Count > 0 && pocketRock.All(d => surfaceRock.Contains(d));
                     bool atCentre = exit == center;
                     Record("vault rock: outside the room every cell is rock", openOutsideRoom == 0 ? "PASS" : "FAIL: " + openOutsideRoom + " cells outside the room hold no rock");
                     Record("vault rock: every room cell can be stood on", roomBlocked == 0 ? "PASS" : "FAIL: " + roomBlocked + " room cells cannot be stood on");
                     Record("vault rock: exit in the middle", atCentre ? "PASS" : "FAIL: exit at " + exit + ", centre " + center);
                     Record("vault rock: ore in the rock", ore ? "PASS" : "FAIL: no ore wall in the pocket");
-                    if (openOutsideRoom > 0 || roomBlocked > 0 || !atCentre || !ore)
+                    Record("vault rock: rock types are the surface's natural rock", surfaceRocks ? "PASS" : "FAIL: pocket rock " + string.Join(", ", pocketRock.Select(d => d.defName).ToArray()) + ", surface rock " + string.Join(", ", surfaceRock.Select(d => d.defName).ToArray()));
+                    if (openOutsideRoom > 0 || roomBlocked > 0 || !atCentre || !ore || !surfaceRocks)
                     {
                         throw new InvalidOperationException("the vault pocket is not underground rock with the exit in the middle");
                     }
@@ -1733,6 +1746,63 @@ namespace ZLevelsValidation
                 }
             }
             throw new InvalidOperationException("No rock wall stands beside the vault room.");
+        }
+
+        // Vault full. Entrances go on the surface one after another, and each one makes its exit in the shared pocket. When the pocket has
+        // no room for another exit, the placement check refuses the next entrance, and no exit is attempted for it.
+        private void RunVaultFullCheck()
+        {
+            try
+            {
+                deadline = DateTime.UtcNow.AddMinutes(10);
+                var entranceDef = DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance");
+                Map surface = Find.CurrentMap;
+                var entrances = new List<MapPortal>();
+                string refusal = null;
+                for (int x = surface.Center.x - 60; x <= surface.Center.x + 60; x += 2)
+                {
+                    IntVec3 cell = new IntVec3(x, 0, surface.Center.z + 12);
+                    // A thing the game will not destroy, such as a geyser, takes this cell. Skip it rather than clear it.
+                    if (cell.GetThingList(surface).Any(t => !t.def.destroyable))
+                    {
+                        continue;
+                    }
+                    ClearCell(surface, cell);
+                    surface.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+                    // The game refuses placement in fog, and the player would see this cell.
+                    surface.fogGrid.Unfog(cell);
+                    AcceptanceReport report = GenConstruct.CanPlaceBlueprintAt(entranceDef, cell, Rot4.North, surface);
+                    if (!report.Accepted)
+                    {
+                        if (report.Reason.Contains("no room"))
+                        {
+                            refusal = report.Reason;
+                            break;
+                        }
+                        continue;
+                    }
+                    MapPortal entrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), cell, surface);
+                    entrances.Add(entrance);
+                    entrance.GetOtherMap();
+                }
+                Require(entrances.Count >= 20, "the pocket took only " + entrances.Count + " entrances before it refused one");
+                Require(refusal != null, "the next entrance was not refused by the room");
+                Map pocket = entrances[0].GetOtherMap();
+                int exits = entrances.Count(e => e.exit != null && e.exit.Map == pocket);
+                Require(exits == entrances.Count, "each entrance has an exit in the pocket: " + exits + " of " + entrances.Count);
+                Record("vault full: entrances placed, each with an exit", entrances.Count.ToString());
+                Record("vault full: the next entrance is refused", refusal);
+                finished = true;
+                Record("vault full", "PASS");
+                Root.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault full", "FAIL: " + exception);
+                Log.Error("Z-Levels vault full validation failed: " + exception);
+                Root.Shutdown();
+            }
         }
 
         // Every vault entrance shares one pocket map, and each entrance gets its own exit in it. The first entrance makes the pocket.
