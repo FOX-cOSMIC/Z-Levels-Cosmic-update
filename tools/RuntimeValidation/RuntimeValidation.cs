@@ -1748,8 +1748,9 @@ namespace ZLevelsValidation
             throw new InvalidOperationException("No rock wall stands beside the vault room.");
         }
 
-        // Vault full. Entrances go on the surface one after another, and each one makes its exit in the shared pocket. When the pocket has
-        // no room for another exit, the placement check refuses the next entrance, and no exit is attempted for it.
+        // Vault full. The room holds 27 exits, and every entrance and blueprint needs one of them. Twenty entrances are entered as they go down.
+        // Four more are built and left unentered, and three more are blueprints. The room must refuse the next one, so exactly 27 get in.
+        // Then the blueprints are built, all 27 are entered, and each one must get an exit.
         private void RunVaultFullCheck()
         {
             try
@@ -1758,7 +1759,10 @@ namespace ZLevelsValidation
                 var entranceDef = DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance");
                 Map surface = Find.CurrentMap;
                 var entrances = new List<MapPortal>();
+                var unentered = new List<MapPortal>();
+                var blueprints = new List<Thing>();
                 string refusal = null;
+                int accepted = 0;
                 for (int x = surface.Center.x - 60; x <= surface.Center.x + 60; x += 2)
                 {
                     IntVec3 cell = new IntVec3(x, 0, surface.Center.z + 12);
@@ -1781,15 +1785,44 @@ namespace ZLevelsValidation
                         }
                         continue;
                     }
-                    MapPortal entrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), cell, surface);
+                    accepted++;
+                    if (accepted <= 20)
+                    {
+                        MapPortal entrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), cell, surface);
+                        entrances.Add(entrance);
+                        entrance.GetOtherMap();
+                    }
+                    else if (accepted <= 24 || accepted > 27)
+                    {
+                        // Built and not entered yet. Its exit is made only when someone enters it.
+                        MapPortal entrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), cell, surface);
+                        entrances.Add(entrance);
+                        unentered.Add(entrance);
+                    }
+                    else
+                    {
+                        // A blueprint that nobody has built yet. The room counts it too.
+                        blueprints.Add(GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef.blueprintDef), cell, surface));
+                    }
+                }
+                Require(refusal != null, "the room refused no entrance after " + accepted + " placements");
+                Require(accepted == 27, "the room accepted " + accepted + " entrances and blueprints, not 27");
+                // The blueprints are built now. Each entrance takes the cell of its blueprint.
+                foreach (Thing blueprint in blueprints)
+                {
+                    IntVec3 blueprintCell = blueprint.Position;
+                    blueprint.Destroy();
+                    MapPortal entrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(entranceDef), blueprintCell, surface);
                     entrances.Add(entrance);
+                    unentered.Add(entrance);
+                }
+                foreach (MapPortal entrance in unentered)
+                {
                     entrance.GetOtherMap();
                 }
-                Require(entrances.Count >= 20, "the pocket took only " + entrances.Count + " entrances before it refused one");
-                Require(refusal != null, "the next entrance was not refused by the room");
                 Map pocket = entrances[0].GetOtherMap();
                 int exits = entrances.Count(e => e.exit != null && e.exit.Map == pocket);
-                Require(exits == entrances.Count, "each entrance has an exit in the pocket: " + exits + " of " + entrances.Count);
+                Require(exits == 27, "each entrance has an exit in the pocket: " + exits + " of 27");
                 Record("vault full: entrances placed, each with an exit", entrances.Count.ToString());
                 Record("vault full: the next entrance is refused", refusal);
                 finished = true;
