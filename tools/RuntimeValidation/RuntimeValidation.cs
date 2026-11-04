@@ -80,6 +80,7 @@ namespace ZLevelsValidation
         private MapPortal vaultEntrance;
         private Map vaultPocket;
         private IntVec3 vaultWallCell;
+        private IntVec3 vaultMineCell;
         private ThingDef vaultWallDef;
         private DateTime vaultDeadline;
         private bool wentDownForWall;
@@ -287,6 +288,11 @@ namespace ZLevelsValidation
                 if (GenCommandLine.CommandLineArgPassed("zlevelsvaultinfestation"))
                 {
                     RunVaultInfestationGuard();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsvaultrock"))
+                {
+                    RunVaultRockTick();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssupply"))
@@ -1086,7 +1092,7 @@ namespace ZLevelsValidation
                 Map pocket = vaultEntrance.GetOtherMap();
                 var pocketComp = pocket.GetComponent<MapComponentZLevel>();
                 pocketComp.hasCavesBelow = true;
-                SpawnFood(pocket);
+                SpawnFood(pocket, pocket.Center + new IntVec3(2, 0, 0));
                 int recordsBefore = pocketComp.TotalInfestations == null ? 0 : pocketComp.TotalInfestations.Count;
                 int activeBefore = pocketComp.ActiveInfestations == null ? 0 : pocketComp.ActiveInfestations.Count;
                 infestation.Worker.TryExecute(new IncidentParms { target = pocket, points = 1000f });
@@ -1612,6 +1618,123 @@ namespace ZLevelsValidation
             throw new InvalidOperationException("The vault pocket has no room for a wall.");
         }
 
+        // Vault rock. The pocket is solid rock with ore in it, except a room at its centre, and the exit stands in that room. The checks run
+        // when the entrance makes the pocket, and each one gets its own row. A colonist then walks in and mines a wall beside the room.
+        private const float VaultRoomRadius = 10f;
+
+        private void RunVaultRockTick()
+        {
+            try
+            {
+                if (vaultStage == 0)
+                {
+                    deadline = DateTime.MaxValue;
+                    vaultDeadline = DateTime.UtcNow.AddMinutes(8);
+                    Map surface = Find.CurrentMap;
+                    vaultColonist = surface.mapPawns.FreeColonistsSpawned.First();
+                    RestoreWork(vaultColonist);
+                    IntVec3 entranceCell = FindVaultEntranceCell(surface, vaultColonist);
+                    ClearCell(surface, entranceCell);
+                    surface.terrainGrid.SetTerrain(entranceCell, TerrainDefOf.Concrete);
+                    foreach (IntVec3 around in GenRadial.RadialCellsAround(entranceCell, 1.5f, useCenter: true))
+                    {
+                        ClearCell(surface, around);
+                    }
+                    vaultEntrance = (MapPortal)GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("ZL_VaultEntrance")), entranceCell, surface);
+                    vaultPocket = vaultEntrance.GetOtherMap();
+                    IntVec3 center = vaultPocket.Center;
+                    IntVec3 exit = vaultEntrance.exit.Position;
+                    int openOutsideRoom = 0;
+                    int roomBlocked = 0;
+                    foreach (IntVec3 cell in vaultPocket.AllCells)
+                    {
+                        if (cell.DistanceTo(center) <= VaultRoomRadius)
+                        {
+                            if (!cell.Standable(vaultPocket)) roomBlocked++;
+                        }
+                        else if (!(cell.GetEdifice(vaultPocket) is Mineable))
+                        {
+                            openOutsideRoom++;
+                        }
+                    }
+                    bool ore = vaultPocket.listerThings.AllThings.OfType<Mineable>().Any(m => m.def.building.isResourceRock);
+                    float exitOffset = exit.DistanceTo(center);
+                    Record("vault rock: outside the room every cell is rock", openOutsideRoom == 0 ? "PASS" : "FAIL: " + openOutsideRoom + " cells outside the room hold no rock");
+                    Record("vault rock: every room cell can be stood on", roomBlocked == 0 ? "PASS" : "FAIL: " + roomBlocked + " room cells cannot be stood on");
+                    Record("vault rock: exit in the middle", exitOffset <= 1f ? "PASS" : "FAIL: exit at " + exit + ", centre " + center);
+                    Record("vault rock: ore in the rock", ore ? "PASS" : "FAIL: no ore wall in the pocket");
+                    if (openOutsideRoom > 0 || roomBlocked > 0 || exitOffset > 1f || !ore)
+                    {
+                        throw new InvalidOperationException("the vault pocket is not underground rock with the exit in the middle");
+                    }
+                    vaultMineCell = FindVaultMineCell(vaultPocket, center);
+                    vaultPocket.designationManager.AddDesignation(new Designation(vaultMineCell, DesignationDefOf.Mine));
+                    Record("vault rock: wall beside the room marked to mine", "PASS");
+                    vaultColonist.jobs.StartJob(JobMaker.MakeJob(JobDefOf.EnterPortal, vaultEntrance), JobCondition.InterruptForced);
+                    vaultStage = 1;
+                    return;
+                }
+                if (DateTime.UtcNow > vaultDeadline)
+                {
+                    throw new InvalidOperationException("Timed out at vault rock stage " + vaultStage + ", colonist job " + vaultColonist?.CurJob?.def?.defName + ", colonist on the pocket " + (vaultColonist?.Map == vaultPocket) + ", wall still rock " + (vaultMineCell.GetEdifice(vaultPocket) is Mineable));
+                }
+                if (vaultStage == 1)
+                {
+                    if (vaultColonist.Map != vaultPocket)
+                    {
+                        return;
+                    }
+                    Record("colonist enters the pocket", "PASS");
+                    Mineable wall = vaultMineCell.GetEdifice(vaultPocket) as Mineable;
+                    Require(wall != null, "the wall beside the room is not rock");
+                    vaultColonist.jobs.StartJob(JobMaker.MakeJob(JobDefOf.Mine, wall), JobCondition.InterruptForced);
+                    vaultStage = 2;
+                    return;
+                }
+                if (vaultStage == 2)
+                {
+                    if (vaultMineCell.GetEdifice(vaultPocket) is Mineable)
+                    {
+                        return;
+                    }
+                    Require(vaultMineCell.Walkable(vaultPocket), "the mined cell is not open floor");
+                    Record("colonist mines a wall beside the room", "PASS");
+                    finished = true;
+                    Record("vault rock", "PASS");
+                    Root.Shutdown();
+                }
+            }
+            catch (Exception exception)
+            {
+                finished = true;
+                Record("vault rock", "FAIL: " + exception);
+                Log.Error("Z-Levels vault rock validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        // A rock wall beside the room, with a room cell on one of its sides for the colonist to mine from.
+        private static IntVec3 FindVaultMineCell(Map pocket, IntVec3 center)
+        {
+            IntVec3[] sides = { new IntVec3(1, 0, 0), new IntVec3(-1, 0, 0), new IntVec3(0, 0, 1), new IntVec3(0, 0, -1) };
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(center, VaultRoomRadius + 1.5f, useCenter: false))
+            {
+                if (!cell.InBounds(pocket) || cell.DistanceTo(center) <= VaultRoomRadius || !(cell.GetEdifice(pocket) is Mineable))
+                {
+                    continue;
+                }
+                foreach (IntVec3 side in sides)
+                {
+                    IntVec3 beside = cell + side;
+                    if (beside.InBounds(pocket) && beside.DistanceTo(center) <= VaultRoomRadius && beside.Standable(pocket))
+                    {
+                        return cell;
+                    }
+                }
+            }
+            throw new InvalidOperationException("No rock wall stands beside the vault room.");
+        }
+
         // Every vault entrance shares one pocket map, and each entrance gets its own exit in it. The first entrance makes the pocket.
         private void RunVaultPocketCheck()
         {
@@ -1733,7 +1856,12 @@ namespace ZLevelsValidation
 
         private static void SpawnFood(Map map)
         {
-            IntVec3 spot = map.Center;
+            SpawnFood(map, map.Center);
+        }
+
+        // A meal on the given cell. The vault exit stands at the pocket's centre, so the vault test puts its meal beside it.
+        private static void SpawnFood(Map map, IntVec3 spot)
+        {
             ClearCell(map, spot);
             map.terrainGrid.SetTerrain(spot, TerrainDefOf.Concrete);
             GenSpawn.Spawn(ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("MealSimple")), spot, map);
