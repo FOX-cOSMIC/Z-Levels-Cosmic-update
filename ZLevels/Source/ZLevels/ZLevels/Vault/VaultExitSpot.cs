@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using RimWorld;
 using Verse;
 
@@ -13,6 +14,23 @@ namespace ZLevels
 
         // Exits stay more than this far from each other. At this spacing the room holds 27 exits, as the -VaultFull run measures.
         private const float Spacing = 3f;
+
+        // The room holds this many exits at that spacing. The -VaultFull run measures it.
+        public const int Capacity = 27;
+
+        // Exits the room has, or will need: every exit in the pocket, every entrance with no exit yet, and every blueprint or frame of an entrance.
+        // A portal never removes its exit, so the exits of deconstructed entrances still count.
+        public static int ExitsClaimed(Map pocket, ThingDef entrance)
+        {
+            int claimed = pocket == null ? 0 : pocket.listerThings.ThingsOfDef(entrance.portal.exitDef).Count();
+            foreach (Map map in Verse.Find.Maps)
+            {
+                claimed += map.listerThings.ThingsOfDef(entrance).Count(thing => thing is Building_VaultEntrance portal && portal.exit == null);
+                claimed += map.listerThings.ThingsInGroup(ThingRequestGroup.Blueprint).Count(thing => thing.def.entityDefToBuild == entrance);
+                claimed += map.listerThings.ThingsInGroup(ThingRequestGroup.BuildingFrame).Count(thing => thing.def.entityDefToBuild == entrance);
+            }
+            return claimed;
+        }
 
         public static IntVec3 Find(Map pocket)
         {
