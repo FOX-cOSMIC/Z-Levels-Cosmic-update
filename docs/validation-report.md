@@ -782,8 +782,10 @@ The vault pocket is now underground: solid rock with ore, no caves, and a clear 
 
 All runs below were made from a clean worktree at `origin/zlevels-1.7`, so they show this change alone. The game's mod links were pointed at that worktree for each run, then restored.
 
-- Red `20261104-132942` (`-VaultRock`, original mod code): fails on the first three checks. 9683 cells outside the room hold no rock, the exit is at (3, 0, 3) instead of the centre (50, 0, 50), and the pocket holds no ore wall. The final row is `vault rock | FAIL`.
-- Green `20261104-133017` (`-VaultRock`): every check passes. The room is standable, the exit is at the centre, ore is in the rock, the colonist enters the pocket, and it mines the wall beside the room.
+Sol's review of round 1 asked for the centre check to be exact. The red and green pair below ran after that change. The earlier pair, red `20261104-132942` and green `20261104-133017`, allowed one cell of tolerance, and their other rows match.
+
+- Red `20261104-134847` (`-VaultRock`, original mod code): fails on the first three checks. 9683 cells outside the room hold no rock, the exit is at (3, 0, 3) instead of the centre (50, 0, 50), and the pocket holds no ore wall. The final row is `vault rock | FAIL`.
+- Green `20261104-134919` (`-VaultRock`): every check passes. The room is standable, the exit is at the centre, ore is in the rock, the colonist enters the pocket, and it mines the wall beside the room.
 - First regression pass `20261104-132622` (`-VaultInfestation`): the three scenario rows pass, and the runner's log gate fails. The harness put the infestation meal at the map centre, where the exit now stands. Its clean-up destroyed the exit, and the engine logged `Tried to destroy non-destroyable thing ZL_VaultExit`. The harness now puts the meal two cells east of the centre. This is a harness fix, not a mod change.
 - Final regression runs, all on the final harness and mod code: `-VaultPlacement` `20261104-133226`, `-VaultPocket` `133259`, `-VaultEnter` `133332`, `-VaultLoad` `133416`, `-VaultSave` `133454`, `-VaultInfestation` `133543`, `-InfestationGuard` `133616`, and the core run `133659`. All pass.
 

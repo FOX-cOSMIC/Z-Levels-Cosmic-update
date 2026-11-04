@@ -1658,12 +1658,12 @@ namespace ZLevelsValidation
                         }
                     }
                     bool ore = vaultPocket.listerThings.AllThings.OfType<Mineable>().Any(m => m.def.building.isResourceRock);
-                    float exitOffset = exit.DistanceTo(center);
+                    bool atCentre = exit == center;
                     Record("vault rock: outside the room every cell is rock", openOutsideRoom == 0 ? "PASS" : "FAIL: " + openOutsideRoom + " cells outside the room hold no rock");
                     Record("vault rock: every room cell can be stood on", roomBlocked == 0 ? "PASS" : "FAIL: " + roomBlocked + " room cells cannot be stood on");
-                    Record("vault rock: exit in the middle", exitOffset <= 1f ? "PASS" : "FAIL: exit at " + exit + ", centre " + center);
+                    Record("vault rock: exit in the middle", atCentre ? "PASS" : "FAIL: exit at " + exit + ", centre " + center);
                     Record("vault rock: ore in the rock", ore ? "PASS" : "FAIL: no ore wall in the pocket");
-                    if (openOutsideRoom > 0 || roomBlocked > 0 || exitOffset > 1f || !ore)
+                    if (openOutsideRoom > 0 || roomBlocked > 0 || !atCentre || !ore)
                     {
                         throw new InvalidOperationException("the vault pocket is not underground rock with the exit in the middle");
                     }
