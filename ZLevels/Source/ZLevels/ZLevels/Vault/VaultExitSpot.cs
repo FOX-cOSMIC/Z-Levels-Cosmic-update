@@ -1,26 +1,66 @@
 using System;
+using System.Linq;
 using RimWorld;
 using Verse;
 
 namespace ZLevels
 {
-    // Chooses where the next vault exit goes. Exits keep their distance from each other, and each one stands on open floor.
+    // Chooses where the next vault exit goes. The room at the centre of the pocket is cleared by GenStep_VaultRock, and every exit stands in it.
+    // The first exit takes the centre. Later exits take the open cell nearest the centre that keeps its distance from the other exits.
     public static class VaultExitSpot
     {
-        private const float Spacing = 6f;
+        // Every cell within this distance of the pocket's centre is open floor. GenStep_VaultRock clears the same cells.
+        public const float RoomRadius = 10f;
 
-        private const int EdgeMargin = 3;
+        // Exits stay more than this far from each other. At this spacing the room holds 27 exits, as the -VaultFull run measures.
+        private const float Spacing = 3f;
+
+        // The room holds this many exits at that spacing. The -VaultFull run measures it.
+        public const int Capacity = 27;
+
+        // Exits the room has, or will need: every exit in the pocket, every entrance with no exit yet, and every blueprint or frame of an entrance.
+        // A portal never removes its exit, so the exits of deconstructed entrances still count.
+        public static int ExitsClaimed(Map pocket, ThingDef entrance)
+        {
+            int claimed = pocket == null ? 0 : pocket.listerThings.ThingsOfDef(entrance.portal.exitDef).Count();
+            foreach (Map map in Verse.Find.Maps)
+            {
+                claimed += map.listerThings.ThingsOfDef(entrance).Count(thing => thing is Building_VaultEntrance portal && portal.exit == null);
+                claimed += map.listerThings.ThingsInGroup(ThingRequestGroup.Blueprint).Count(thing => thing.def.entityDefToBuild == entrance);
+                claimed += map.listerThings.ThingsInGroup(ThingRequestGroup.BuildingFrame).Count(thing => thing.def.entityDefToBuild == entrance);
+            }
+            return claimed;
+        }
 
         public static IntVec3 Find(Map pocket)
         {
-            foreach (IntVec3 cell in pocket.AllCells)
+            if (TryFind(pocket, out IntVec3 spot))
             {
-                if (cell.DistanceToEdge(pocket) >= EdgeMargin && cell.Standable(pocket) && !NearExit(cell, pocket))
+                return spot;
+            }
+            throw new InvalidOperationException("The vault room has no room for another exit.");
+        }
+
+        // False when the room has no open cell that keeps its distance from the other exits. The placement check uses this to refuse an entrance.
+        public static bool TryFind(Map pocket, out IntVec3 spot)
+        {
+            IntVec3 centre = pocket.Center;
+            spot = IntVec3.Invalid;
+            float bestDistance = float.MaxValue;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(centre, RoomRadius, useCenter: true))
+            {
+                float distance = cell.DistanceTo(centre);
+                if (distance > RoomRadius || !cell.InBounds(pocket) || !cell.Standable(pocket) || NearExit(cell, pocket))
                 {
-                    return cell;
+                    continue;
+                }
+                if (distance < bestDistance)
+                {
+                    spot = cell;
+                    bestDistance = distance;
                 }
             }
-            throw new InvalidOperationException("The vault pocket has no room for another exit.");
+            return spot.IsValid;
         }
 
         private static bool NearExit(IntVec3 cell, Map pocket)
