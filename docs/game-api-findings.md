@@ -180,3 +180,14 @@ Rimatomics lines come from `.artifacts/ilspy/rimatomics-1.7-installed/Rimatomics
 - `RimWorld.CompPowerBattery.SetStoredEnergyPct` is a public method at `RimWorld.CompPowerBattery.cs`, line 100. Its stored energy starts at 0, at line 9.
 - `RimWorld.PowerConnectionMaker` searches a box of 6 cells around a connector, at lines 103 and 117.
 - `Verse.GenSpawn` has no reference to `placeWorkers`, `PlaceWorker`, or `AllowsPlacing`. Its RimWorld decompile is `.artifacts/ilspy/rimworld-1.7-installed-power/Verse.GenSpawn.cs`.
+
+## Jobs and reservations
+
+Checked against RimWorld 1.7.4998 rev1299, from the game's `Assembly-CSharp.dll`. The full decompile is under `.artifacts/decomp-1.7.4998/project/` (gitignored).
+
+- `JobDriver_SocialRelax.TryMakePreToilReservations(bool errorOnFailed)` reserves its chair with `pawn.ReserveSittableOrSpot(cell, pawn.CurJob)` (`RimWorld/JobDriver_SocialRelax.cs`, line 30). A search of the decompile found no other `TryMakePreToilReservations` body that passes `pawn.CurJob` to a reservation on one line.
+- `JobDriver_Refuel.TryMakePreToilReservations` reserves with its own `job` (`RimWorld/JobDriver_Refuel.cs`, line 23).
+- `Pawn.ReserveSittableOrSpot(this Pawn pawn, IntVec3 exactSittingPos, Job job, bool errorOnFailed = true)` passes `job` to `Pawn.Reserve` (`Verse.AI.ReservationUtility` decompile, lines 44-61).
+- `ReservationManager.Reserve` returns false when `job` is null, and first logs a warning, `<claimant> tried to reserve thing <target> without a valid job` (`Verse.AI.ReservationManager` decompile, lines 306-310).
+- `Pawn_JobTracker.StartJob` sets `curJob` (line 331) before it calls `curDriver.TryMakePreToilReservations` (line 336). `Pawn_JobTracker.TryTakeOrderedJob` runs the pre-check before the job is current (lines 922-956).
+- Z-Levels runs `TryTakeFirstJob` from an `EndCurrentJob` postfix only when the pawn is humanlike, `pawn.CurJob` is null, the pawn's Z-Levels `activeJobs` list is not empty, and no queued start is in progress (`HarmonyPatches/JobPatches.cs`, lines 1121-1125). `TryTakeFirstJob` runs the pre-check on the queued job before the job is current (`ZLevelsManager.cs`, line 1236). A refused pre-check calls `ZLogger.Pause`, which logs `ERROR` and pauses the game (`ZLogger.cs`, lines 12-16), regardless of `DebugSettings.pauseOnError`. The same path runs when another pawn holds the chair or the drink.

@@ -333,6 +333,12 @@ namespace ZLevelsValidation
                     RunCoolingLinkTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelssocialrelaxqueue"))
+                {
+                    finished = true;
+                    RunSocialRelaxQueueCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstalelookup"))
                 {
                     finished = true;
@@ -1932,6 +1938,119 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels stale look-up validation failed: " + exception);
                 Root.Shutdown();
             }
+        }
+
+        // The colonist is new and has no current job, the state Z-Levels is in when it takes the next queued job. The queued SocialRelax
+        // job reserves its chair against pawn.CurJob in vanilla, which is null then, so the reservation is refused. The prefix reserves against the queued job instead.
+        // The row passes when the game keeps running and the job is queued
+        // and holds its chair.
+        private void RunSocialRelaxQueueCheck()
+        {
+            try
+            {
+                var tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Map map = Find.CurrentMap;
+                IntVec3 tableCell = FindOpenBlock(map, 2, 4);
+                if (!tableCell.IsValid)
+                    throw new InvalidOperationException("no open cells for the table");
+                ThingDef tableDef = ThingDef.Named("Table2x4c");
+                Thing table = GenSpawn.Spawn(ThingMaker.MakeThing(tableDef, tableDef.MadeFromStuff ? GenStuff.DefaultStuffFor(tableDef) : null), tableCell, map, Rot4.North);
+                // The chair cell is searched after the table stands, so the search cannot pick a cell under the table.
+                IntVec3 chairCell = FindOpenBlock(map, 1, 1);
+                if (!chairCell.IsValid)
+                    throw new InvalidOperationException("no open cell for the chair");
+                ThingDef chairDef = ThingDef.Named("DiningChair");
+                Thing chair = GenSpawn.Spawn(ThingMaker.MakeThing(chairDef, chairDef.MadeFromStuff ? GenStuff.DefaultStuffFor(chairDef) : null), chairCell, map, Rot4.South);
+                IntVec3 colonistCell = FindOpenBlock(map, 1, 1);
+                if (!colonistCell.IsValid)
+                    throw new InvalidOperationException("no open cell for the colonist");
+                Pawn colonist = PawnGenerator.GeneratePawn(PawnKindDefOf.Colonist, Faction.OfPlayer);
+                GenSpawn.Spawn(colonist, colonistCell, map);
+                Job job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair);
+                if (!tracker.jobTracker.TryGetValue(colonist, out JobTracker jobTracker))
+                {
+                    jobTracker = new JobTracker();
+                    tracker.jobTracker[colonist] = jobTracker;
+                }
+                jobTracker.activeJobs = new List<Job> { job };
+                jobTracker.mainJob = job;
+                Find.TickManager.CurTimeSpeed = TimeSpeed.Normal;
+                tracker.TryTakeFirstJob(colonist);
+                bool paused = Find.TickManager.CurTimeSpeed == TimeSpeed.Paused;
+                bool queued = colonist.CurJob == job || colonist.jobs.jobQueue.Contains(job);
+                bool holdsChair = map.reservationManager.ReservedBy(chair, colonist, job);
+                if (paused)
+                    Record("social relax queue", "FAIL: the game paused when the queued job was taken");
+                else if (!queued || !holdsChair)
+                    Record("social relax queue", "FAIL: queued " + queued + ", chair held for the job " + holdsChair);
+                else
+                    Record("social relax queue", "PASS");
+                // A job that is current reserves its chair as vanilla does. The check runs with curJob set to the job, as StartJob sets it first.
+                Job currentJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair);
+                Job previousJob = colonist.jobs.curJob;
+                colonist.jobs.curJob = currentJob;
+                bool currentReserved;
+                bool currentHoldsChair;
+                try
+                {
+                    currentReserved = currentJob.TryMakePreToilReservations(colonist, false);
+                    currentHoldsChair = map.reservationManager.ReservedBy(chair, colonist, currentJob);
+                }
+                finally
+                {
+                    colonist.jobs.curJob = previousJob;
+                    colonist.ClearReservationsForJob(currentJob);
+                }
+                Record("social relax current job reserves chair", currentReserved && currentHoldsChair ? "PASS" : "FAIL: reserved " + currentReserved + ", chair held for the current job " + currentHoldsChair);
+                // A drink that another colonist holds must not leave the chair reserved for the drink job.
+                ThingDef beerDef = ThingDef.Named("Beer");
+                IntVec3 beerCell = FindOpenBlock(map, 1, 1);
+                if (!beerCell.IsValid)
+                    throw new InvalidOperationException("no open cell for the drink");
+                Thing beer = GenSpawn.Spawn(ThingMaker.MakeThing(beerDef), beerCell, map);
+                Pawn holder = map.mapPawns.FreeColonistsSpawned.FirstOrDefault(p => p != colonist);
+                if (holder == null)
+                    throw new InvalidOperationException("no other colonist to hold the drink");
+                Job holdJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair);
+                if (!holder.Reserve(beer, holdJob))
+                    throw new InvalidOperationException("the other colonist could not hold the drink");
+                Job drinkJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair, beer);
+                bool drinkReserved = drinkJob.TryMakePreToilReservations(colonist, false);
+                bool chairLeft = map.reservationManager.ReservedBy(chair, colonist, drinkJob);
+                // The release clears the drink job's reservations and the pawn's enroute claims, and leaves the queued job's reservation alone.
+                bool queuedKeepsChair = map.reservationManager.ReservedBy(chair, colonist, job);
+                Record("social relax drink releases chair", !drinkReserved && !chairLeft && queuedKeepsChair ? "PASS" : "FAIL: drink reservation succeeded " + drinkReserved + ", chair still held for the drink job " + chairLeft + ", chair held for the queued job " + queuedKeepsChair);
+            }
+            catch (Exception exception)
+            {
+                Record("social relax queue", "FAIL: " + exception);
+                Log.Error("Z-Levels social relax queue validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The lowest corner of a width by height block whose cells and the ring of cells around them are walkable and empty.
+        // IntVec3.Invalid when no such block exists.
+        private static IntVec3 FindOpenBlock(Map map, int width, int height)
+        {
+            for (int x = 2; x < map.Size.x - width - 2; x++)
+            {
+                for (int z = 2; z < map.Size.z - height - 2; z++)
+                {
+                    bool open = true;
+                    for (int dx = -1; dx <= width && open; dx++)
+                    {
+                        for (int dz = -1; dz <= height && open; dz++)
+                        {
+                            IntVec3 cell = new IntVec3(x + dx, 0, z + dz);
+                            open = cell.Walkable(map) && map.thingGrid.ThingsListAt(cell).Count == 0;
+                        }
+                    }
+                    if (open)
+                        return new IntVec3(x, 0, z);
+                }
+            }
+            return IntVec3.Invalid;
         }
 
         private static Map CreateLevelBelow(ZLevelsManager tracker, Map origin)
