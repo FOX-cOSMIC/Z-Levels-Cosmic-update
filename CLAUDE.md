@@ -1,6 +1,6 @@
 # Z-Levels for RimWorld 1.7
 
-Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public).
+Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4990 rev1069. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public GitHub fork of RamRod6198/Z-Levels).
 
 ## Documents
 
@@ -10,13 +10,13 @@ Port of Z-Levels (RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069. On
 ## Constraints
 
 - Target RimWorld 1.7.4990 rev1069 on the Steam unstable branch (authorized permanently). Not 1.6.
-- Keep the namespace, package id `ZLevels1.1`, the types XML uses, and the subsystem boundaries.
+- Keep the namespace, the types XML uses, and the subsystem boundaries. Package id is `foxcosmic.zlevels17` (changed from `ZLevels1.1` on 2026-11-04 so the Steam item does not collide with upstream's Workshop item; `About.xml` marks `ZLevels1.1` incompatible).
 - Leave `ZLevels/1.1`, `1.2` and `1.3` unchanged. 1.7 loads through `ZLevels/LoadFolders.xml`.
 - Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships as the older versions do.
 - Keep `HarmonyPatches/JobPatches - Copy.cs` out of the build.
 - Multiplayer stays optional and unverified.
 - Validate only in isolated savedata and a new colony. Never open existing saves or change the user's mod list.
-- No Workshop publishing. Claim no modpack or multiplayer compatibility.
+- Steam Workshop: Lucas decided on 2026-11-04 to publish with credit to RamRod. The original author could not be reached and has published no license. Upload as Private first; Lucas switches it to Public after testing. Claim no modpack or multiplayer compatibility.
 - Keep attribution. Upstream has no license file, and this port grants no redistribution rights.
 
 ## Commands

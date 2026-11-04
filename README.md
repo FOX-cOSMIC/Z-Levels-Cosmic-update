@@ -6,20 +6,21 @@ Created in [T3 Code](https://t3.codes).
 
 ## Z-Levels for RimWorld 1.7
 
-This repository holds a port of **Z-Levels Beta** (by RamRod, package `ZLevels1.1`) to RimWorld 1.7.4990 rev1069, the Steam unstable branch. The mod is in `ZLevels/`. Its 1.1, 1.2 and 1.3 folders are the upstream files, unchanged. `ZLevels/LoadFolders.xml` loads `Common` and `1.7` for RimWorld 1.7.
+This repository holds a port of **Z-Levels Beta** (by RamRod, package `foxcosmic.zlevels17`, formerly `ZLevels1.1`) to RimWorld 1.7.4990 rev1069, the Steam unstable branch. It is a GitHub fork of [RamRod6198/Z-Levels](https://github.com/RamRod6198/Z-Levels). The mod is in `ZLevels/`. Its 1.1, 1.2 and 1.3 folders are the upstream files, unchanged. `ZLevels/LoadFolders.xml` loads `Common` and `1.7` for RimWorld 1.7.
 
 `docs/validation-report.md` lists what was run, what passed, and what was not tested.
 
 ### Provenance and licence
 
-- Upstream: [FOX-cOSMIC/Z-Levels-Cosmic-update](https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update) at commit `7cf66ce417d8fc4928afa7b713f925e9a6494239`. It was imported under `ZLevels/` in commit `a1b072d`.
-- Upstream has no licence file, and this port grants no redistribution rights. Keep the original author credit (RamRod) wherever the mod is shown.
-- Nothing is published to the Steam Workshop. No modpack or multiplayer compatibility is claimed.
+- Original project: [RamRod6198/Z-Levels](https://github.com/RamRod6198/Z-Levels), master at commit `7cf66ce417d8fc4928afa7b713f925e9a6494239`. This repository is a GitHub fork of it. The original files were imported under `ZLevels/` in commit `a1b072d`.
+- The original project has no licence file, and this port grants no redistribution rights. The original author could not be reached before the Steam Workshop release. Keep the original author credit (RamRod) wherever the mod is shown.
+- The Steam Workshop item is planned as a Private upload first. Its link is added here once it exists. The Steam item ships only the 1.7 files. No modpack or multiplayer compatibility is claimed.
 
 ### Requirements
 
 - RimWorld 1.7.4990 rev1069, Steam unstable branch. Not for 1.6.
 - Harmony, Steam Workshop item `2009463077`. The build reads its `1.7/Assemblies/0Harmony.dll`.
+- Optional: Dubs Rimatomics, for the cooling module only. Rimatomics++ works only together with Dubs.
 - .NET SDK 10.0.301 or a compatible 10.0 SDK, to build.
 - Windows PowerShell, to run the validation harness.
 
@@ -29,7 +30,7 @@ This repository holds a port of **Z-Levels Beta** (by RamRod, package `ZLevels1.
 dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release
 ```
 
-The output goes to `ZLevels/1.7/Assemblies/`. Only `ZLevels.dll` and `0MultiplayerAPI.dll` belong to the mod. The `.pdb` and `.deps.json` files are build output and are git-ignored. The build ships no game DLL and no second copy of Harmony. `HarmonyPatches/JobPatches - Copy.cs` is excluded from the build.
+The output goes to `ZLevels/1.7/Assemblies/`. `ZLevels.dll`, `ZLevelsRimatomics.dll` and `0MultiplayerAPI.dll` belong to the mod. The `.pdb` and `.deps.json` files are build output and are git-ignored. The build ships no game DLL and no second copy of Harmony. `HarmonyPatches/JobPatches - Copy.cs` is excluded from the build.
 
 If RimWorld or Harmony is installed somewhere else, override the two properties:
 

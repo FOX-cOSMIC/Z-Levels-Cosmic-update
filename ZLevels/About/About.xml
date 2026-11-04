@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <ModMetaData>
-	<name>Z-Levels Beta</name>
-	<author>RamRod</author>
-	<packageId>ZLevels1.1</packageId>
+	<name>Z-Levels for RimWorld 1.7</name>
+	<author>RamRod (original), FOX-cOSMIC (1.7 port)</author>
+	<packageId>foxcosmic.zlevels17</packageId>
 	<supportedVersions>
 		<li>1.7</li>
-		<li>1.1</li>
-		<li>1.2</li>
-		<li>1.3</li>
 	</supportedVersions>
+	<incompatibleWith>
+		<li>ZLevels1.1</li>
+	</incompatibleWith>
 	<description>
 Add the ability to dig underground or build upwards!
 
@@ -20,14 +20,19 @@ When building upwards you have to watch out for the floor collapsing similar to 
 
 
 	-----
-	
+
 Known Bugs:Natural hole, this is found in the structures tab and it should be avoided, it is only used for infestations underground. Avoid it.
 Please report any bugs.
 
 
 This is a BETA so it might have issues.
 
-If you enjoy this mod please consider donating.
+Rimatomics: optional cooling across levels when Dubs Rimatomics is active.
+
+Credit: this is a 1.7 port of Z-Levels Beta by RamRod. Original project: https://github.com/RamRod6198/Z-Levels
+1.7 port and fork: https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update
+
+If you enjoy this mod please consider donating to the original author.
 	-----
 Patreon: https://www.patreon.com/RamRodMods
 Github: https://github.com/Zylleon/MapDesigner/releases/latest

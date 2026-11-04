@@ -471,18 +471,18 @@ __ACTIVE_MODS__
 '@
 # Without -ModsConfigSource the run loads only the validation mods. With it, the run loads the source's mods in their order, then this mod.
 # The source file is read, never written.
-$activeMods = @('brrainz.harmony', 'ludeon.rimworld', 'zlevels1.1', 'local.zlevels.validation')
+$activeMods = @('brrainz.harmony', 'ludeon.rimworld', 'foxcosmic.zlevels17', 'local.zlevels.validation')
 if ($ModsConfigSource) {
     [xml]$source = Get-Content -LiteralPath $ModsConfigSource -Raw -Encoding UTF8
-    $activeMods = @($source.SelectNodes('/ModsConfigData/activeMods/li') | ForEach-Object { $_.InnerText } | Where-Object { $_ -and $_ -notin @('zlevels1.1', 'local.zlevels.validation') })
-    $activeMods += @('zlevels1.1', 'local.zlevels.validation')
+    $activeMods = @($source.SelectNodes('/ModsConfigData/activeMods/li') | ForEach-Object { $_.InnerText } | Where-Object { $_ -and $_ -notin @('foxcosmic.zlevels17', 'local.zlevels.validation') })
+    $activeMods += @('foxcosmic.zlevels17', 'local.zlevels.validation')
 }
 # The cooling runs need Dubs Rimatomics. Rimatomics++ depends on it, so -RimatomicsPlusPlus adds it too. Each mod goes before Z-Levels, unless the list already has it.
 $rimatomicsMods = @()
 if ($Cooling -or $CoolingNoColumns -or $CoolingTwoNets -or $RimatomicsPlusPlus) { $rimatomicsMods += 'dubwise.rimatomics' }
 if ($RimatomicsPlusPlus) { $rimatomicsMods += 'nachotoast.rimatomicsplusplus' }
 $rimatomicsMods = @($rimatomicsMods | Where-Object { $activeMods -notcontains $_ })
-$activeMods = @($activeMods | ForEach-Object { if ($_ -eq 'zlevels1.1') { $rimatomicsMods }; $_ })
+$activeMods = @($activeMods | ForEach-Object { if ($_ -eq 'foxcosmic.zlevels17') { $rimatomicsMods }; $_ })
 $configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n"))
 $configuration | Set-Content -LiteralPath (Join-Path $configDirectory 'ModsConfig.xml') -Encoding UTF8
 if ($ModsConfigSource) {
