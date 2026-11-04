@@ -70,7 +70,7 @@ function Assert-SwitchesRead {
 # drawn match the planes expected, with the cell and paired counts matching too. Its two partner tint rows, which Add-OutlineTintRows writes from the
 # screenshots, must also read PASS.
 function Get-RequiredLabels {
-    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false, [bool]$CoolingNoColumns = $false, [bool]$CoolingTwoNets = $false)
+    param([string]$ScenarioLabel, [bool]$FreeColonists, [bool]$OtherColonistsWork, [bool]$RimatomicsPlusPlus, [bool]$Visual, [string[]]$ScreenshotLabels = @(), [bool]$CoolingColumns = $false, [bool]$CoolingNoColumns = $false, [bool]$CoolingTwoNets = $false, [bool]$SocialRelaxQueue = $false)
     $labels = @([pscustomobject]@{ Label = $ScenarioLabel; Accept = 'PASS' })
     # A -Cooling run names its three link rows and its seven reactor rows, the last of which is the overheating row, so a missing row fails the gate by name. The cooling link row alone would hide which row is missing.
     if ($CoolingColumns) {
@@ -93,6 +93,11 @@ function Get-RequiredLabels {
     if ($FreeColonists) { $labels += [pscustomobject]@{ Label = 'colonist work recorded'; Accept = 'PASS' } }
     if ($OtherColonistsWork) { $labels += [pscustomobject]@{ Label = 'other colonists work recorded'; Accept = 'PASS' } }
     if ($RimatomicsPlusPlus) { $labels += [pscustomobject]@{ Label = 'rimatomics++ mod active'; Accept = 'PASS' } }
+    # A -SocialRelaxQueue run names its drink row and its current-job row, so a missing row fails the gate by name.
+    if ($SocialRelaxQueue) {
+        $labels += [pscustomobject]@{ Label = 'social relax drink releases chair'; Accept = 'PASS' }
+        $labels += [pscustomobject]@{ Label = 'social relax current job reserves chair'; Accept = 'PASS' }
+    }
     if ($Visual) {
         # A -Visual run with no screenshot labels would check nothing, so the function refuses to build that list.
         if (@($ScreenshotLabels).Count -eq 0) { throw '-Visual was given no screenshot labels, so its rows would not be checked.' }
@@ -590,7 +595,7 @@ $requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'm
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
-$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)) -CoolingNoColumns ([bool]$CoolingNoColumns) -CoolingTwoNets ([bool]$CoolingTwoNets))
+$requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)) -CoolingNoColumns ([bool]$CoolingNoColumns) -CoolingTwoNets ([bool]$CoolingTwoNets) -SocialRelaxQueue ([bool]$SocialRelaxQueue))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
 $gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)

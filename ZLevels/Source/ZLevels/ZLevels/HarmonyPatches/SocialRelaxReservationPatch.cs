@@ -22,7 +22,7 @@ namespace ZLevels
             {
                 cell = job.GetTarget(TargetIndex.B).Cell;
             }
-            bool reserved = pawn.ReserveSittableOrSpot(cell, job);
+            bool reserved = pawn.ReserveSittableOrSpot(cell, job, errorOnFailed);
             if (reserved)
             {
                 job.SetTarget(TargetIndex.B, cell);

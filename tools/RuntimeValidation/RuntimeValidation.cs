@@ -1984,6 +1984,23 @@ namespace ZLevelsValidation
                     Record("social relax queue", "FAIL: queued " + queued + ", chair held for the job " + holdsChair);
                 else
                     Record("social relax queue", "PASS");
+                // A job that is current reserves its chair as vanilla does. The check runs with curJob set to the job, as StartJob sets it first.
+                Job currentJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair);
+                Job previousJob = colonist.jobs.curJob;
+                colonist.jobs.curJob = currentJob;
+                bool currentReserved;
+                bool currentHoldsChair;
+                try
+                {
+                    currentReserved = currentJob.TryMakePreToilReservations(colonist, false);
+                    currentHoldsChair = map.reservationManager.ReservedBy(chair, colonist, currentJob);
+                }
+                finally
+                {
+                    colonist.jobs.curJob = previousJob;
+                    colonist.ClearReservationsForJob(currentJob);
+                }
+                Record("social relax current job reserves chair", currentReserved && currentHoldsChair ? "PASS" : "FAIL: reserved " + currentReserved + ", chair held for the current job " + currentHoldsChair);
                 // A drink that another colonist holds must not leave the chair reserved for the drink job.
                 ThingDef beerDef = ThingDef.Named("Beer");
                 IntVec3 beerCell = FindOpenBlock(map, 1, 1);
@@ -1999,7 +2016,9 @@ namespace ZLevelsValidation
                 Job drinkJob = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("SocialRelax"), table, chair, beer);
                 bool drinkReserved = drinkJob.TryMakePreToilReservations(colonist, false);
                 bool chairLeft = map.reservationManager.ReservedBy(chair, colonist, drinkJob);
-                Record("social relax drink releases chair", !drinkReserved && !chairLeft ? "PASS" : "FAIL: drink reservation succeeded " + drinkReserved + ", chair still held for the drink job " + chairLeft);
+                // The release touches only the drink job's claims, so the queued job keeps its chair.
+                bool queuedKeepsChair = map.reservationManager.ReservedBy(chair, colonist, job);
+                Record("social relax drink releases chair", !drinkReserved && !chairLeft && queuedKeepsChair ? "PASS" : "FAIL: drink reservation succeeded " + drinkReserved + ", chair still held for the drink job " + chairLeft + ", chair held for the queued job " + queuedKeepsChair);
             }
             catch (Exception exception)
             {
