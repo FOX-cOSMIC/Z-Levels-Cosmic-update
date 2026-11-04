@@ -9,15 +9,15 @@
 			<destroyOnParentMapAbandoned>false</destroyOnParentMapAbandoned>
 		</pocketMapProperties>
 		<genSteps>
-			<li>ZL_VaultFloor</li>
+			<li>ZL_VaultRock</li>
 			<li>ZL_VaultExitStep</li>
 		</genSteps>
 	</MapGeneratorDef>
 
 	<GenStepDef>
-		<defName>ZL_VaultFloor</defName>
+		<defName>ZL_VaultRock</defName>
 		<order>10</order>
-		<genStep Class="ZLevels.GenStep_VaultFloor"/>
+		<genStep Class="ZLevels.GenStep_VaultRock"/>
 	</GenStepDef>
 
 	<GenStepDef>

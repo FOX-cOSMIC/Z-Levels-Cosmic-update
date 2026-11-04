@@ -776,6 +776,19 @@ The Task 6 research summarizes the Dubs Rimatomics code that the reactor scenari
 - Four entries load with the note `incompatible version`: `adaptive.storage.framework`, `Sov.Nephilim`, `Ancot.AncotLibrary`, and `Ancot.MiliraRace`.
 - The user's list still contains `7h0m4s.rimworldreadablenumbers`. Lucas has not decided whether to remove it, so this section does not claim that the user's list passes.
 
+## Vault rock (2026-11-04)
+
+The vault pocket is now underground: solid rock with ore, no caves, and a clear room of radius 10 at the centre where the exit stands. A colonist enters and mines a wall beside the room. Source: `GenStep_VaultRock`, `VaultExitSpot.RoomRadius`, and the `-VaultRock` scenario in `tools/RuntimeValidation/RuntimeValidation.cs`.
+
+All runs below were made from a clean worktree at `origin/zlevels-1.7`, so they show this change alone. The game's mod links were pointed at that worktree for each run, then restored.
+
+- Red `20261104-132942` (`-VaultRock`, original mod code): fails on the first three checks. 9683 cells outside the room hold no rock, the exit is at (3, 0, 3) instead of the centre (50, 0, 50), and the pocket holds no ore wall. The final row is `vault rock | FAIL`.
+- Green `20261104-133017` (`-VaultRock`): every check passes. The room is standable, the exit is at the centre, ore is in the rock, the colonist enters the pocket, and it mines the wall beside the room.
+- First regression pass `20261104-132622` (`-VaultInfestation`): the three scenario rows pass, and the runner's log gate fails. The harness put the infestation meal at the map centre, where the exit now stands. Its clean-up destroyed the exit, and the engine logged `Tried to destroy non-destroyable thing ZL_VaultExit`. The harness now puts the meal two cells east of the centre. This is a harness fix, not a mod change.
+- Final regression runs, all on the final harness and mod code: `-VaultPlacement` `20261104-133226`, `-VaultPocket` `133259`, `-VaultEnter` `133332`, `-VaultLoad` `133416`, `-VaultSave` `133454`, `-VaultInfestation` `133543`, `-InfestationGuard` `133616`, and the core run `133659`. All pass.
+
+Not tested: raids or threats on the vault pocket, and existing saves. A pocket made before this change keeps its old floor, and it is not regenerated.
+
 ## Evidence
 
 - Other-mod run: `.artifacts/runs/20261101-141256/`
