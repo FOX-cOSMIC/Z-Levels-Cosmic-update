@@ -743,7 +743,7 @@ namespace ZLevels
                             if (pawn.MentalStateDef != null)
                             {
                                 result = JobGiver_GetRestPatch.TryGiveJob(pawn, ___minCategory, ___maxLevelPercentage);
-                                if (result.targetA.Thing == null && result.targetA.Thing.Map == pawn.Map)
+                                if (result != null && result.targetA.Thing != null && result.targetA.Thing.Map == pawn.Map)
                                 {
                                     __result = result;
                                     return false;
@@ -772,6 +772,12 @@ namespace ZLevels
                             }
                             ZUtils.TeleportThing(pawn, oldMap, oldPosition);
 
+                            if (result == null)
+                            {
+                                // No floor gave a job. Vanilla decides, as it does when a colonist is not tired enough.
+                                if (select) Find.Selector.Select(pawn);
+                                return true;
+                            }
                             if (result.targetA.Thing == null)
                             {
                                 ZLogger.Message(pawn + " taking rest on the ground");

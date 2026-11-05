@@ -321,6 +321,12 @@ namespace ZLevelsValidation
                     RunCoolingLinkTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsrestsearchnull"))
+                {
+                    finished = true;
+                    RunRestSearchNullCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssocialrelaxqueue"))
                 {
                     finished = true;
