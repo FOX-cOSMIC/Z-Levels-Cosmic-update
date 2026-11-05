@@ -8,6 +8,7 @@
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableSourceLink>false</EnableSourceLink>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <HarmonyAssembly Condition="'$(HarmonyAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/2009463077/1.7/Assemblies/0Harmony.dll</HarmonyAssembly>
   </PropertyGroup>
