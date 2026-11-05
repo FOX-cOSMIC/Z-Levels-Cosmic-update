@@ -42,7 +42,7 @@ Defaults: `RimWorldDirectory` is set in `Directory.Build.props` to `C:/SteamLibr
 
 ### Install
 
-1. Copy the `ZLevels` folder into the game's `Mods` folder. A junction works too; the validation harness uses junctions.
+1. Copy the `ZLevels` folder into the game's `Mods` folder. A junction works too. The validation script runs from its own game copy and leaves your `Mods` folder alone.
 2. In the mod list, enable Harmony and Z-Levels. `About/About.xml` declares Harmony as a dependency.
 3. Start a **new colony**. The mod's description says it requires a new save. Existing saves were not opened or tested.
 
@@ -59,11 +59,13 @@ powershell -ExecutionPolicy Bypass -File tools\Invoke-RuntimeValidation.ps1 -Vis
 
 Parameters: `-Visual` takes screenshots. `-HarmonyAssembly <path>` overrides the Harmony DLL for the build. `-RimWorldDirectory <path>` sets the game folder. `-TimeoutSeconds` defaults to 900.
 
-The script builds the validation mod, adds two junctions to the game's `Mods` folder (`ZLevels-Local17` and `ZLevels-Validation`), and starts RimWorld with `-savedatafolder` set to a new run folder. It then plays a scripted colony. Everything it writes goes under `.artifacts/runs/<yyyyMMdd-HHmmss>/`: `Config/`, `Saves/`, `Player.log`, `validation-results.txt`, `power-samples.txt`, and `Screenshots/` with `-Visual`. The run uses its own config and saves, so the normal game's saves and mod list are not used.
+The script builds the mods and stages them in the run folder. It then copies the game into `%TEMP%\claude-scratch\zlevels-validation\<runId>\`, and that copy has its own `Mods` folder. The copy links each install folder except `Mods` with a junction, hard-links `Assets.zip`, and copies the other files. The script starts RimWorld from the copy, with `-savedatafolder` set to the new run folder. It writes nothing to the install or to your `Mods` folder. It then plays a scripted colony. The run keeps its files under `.artifacts/runs/<yyyyMMdd-HHmmss>/`: `Config/`, `staged/`, `Saves/`, `Player.log`, `validation-results.txt`, `power-samples.txt`, and `Screenshots/` with `-Visual`. The run uses its own config and saves, so the normal game's saves and mod list are not used.
 
-The run passes when every scenario reports PASS, `core validation | PASS` is present, and the log has no ERROR line except duplicate-package messages for other mods. The last line is `Runtime validation passed. Evidence: <run folder>`.
+The run passes when every scenario reports PASS, `core validation | PASS` is present, and the log has no ERROR line except duplicate-package messages for other mods. The last line is `Runtime validation passed. Evidence: <run folder>`. A passing run removes its game copy. A failing run keeps the copy and prints its path.
 
-To remove the two junctions, run `cmd /c rmdir "<RimWorld>\Mods\ZLevels-Local17"` and the same for `ZLevels-Validation`. Do not use `Remove-Item -Recurse` on a junction, because it can delete the contents of the folder it links to.
+The first five lines of `validation-results.txt` form an identity header. They name the commit, whether the tree was dirty, the RimWorld version, and the SHA-256 of the built and the staged `ZLevels.dll`. A run fails if a header line is missing or malformed. It also fails if the staged hash differs from the built hash, or the built hash differs from `bin/Release/ZLevels.dll`.
+
+Earlier versions of the script added two junctions to the game's `Mods` folder, `ZLevels-Local17` and `ZLevels-Validation`. The current script adds none. To remove leftover junctions, run `cmd /c rmdir "<RimWorld>\Mods\ZLevels-Local17"` and the same for `ZLevels-Validation`. Do not use `Remove-Item -Recurse` on a junction, because it can delete the contents of the folder it links to.
 
 ### Limitations
 

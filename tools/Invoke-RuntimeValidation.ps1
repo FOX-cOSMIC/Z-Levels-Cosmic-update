@@ -163,6 +163,41 @@ function Get-GateProblems {
     }
     return $problems
 }
+# The identity header is the first five lines of validation-results.txt. It names the commit, whether the tree was dirty, the RimWorld version, and the SHA-256
+# of the ZLevels.dll that was built and the one that was staged. The gate refuses a results file whose header is missing or malformed, whose staged DLL is not
+# the built one, or whose built hash is not the hash of the bin ZLevels.dll now. Each problem names its key.
+function Get-IdentityProblems {
+    param([string[]]$Results, [Parameter(Mandatory)][string]$BuiltDllSha256)
+    $keys = [ordered]@{
+        commit = 'identity commit: '
+        dirty = 'identity dirty: '
+        rimworld = 'identity rimworld: '
+        built = 'identity built ZLevels.dll sha256: '
+        staged = 'identity staged ZLevels.dll sha256: '
+    }
+    $lines = @($Results | Where-Object { $null -ne $_ })
+    $values = @{}
+    $problems = @()
+    foreach ($name in $keys.Keys) {
+        $prefix = $keys[$name]
+        $line = $lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) } | Select-Object -First 1
+        $value = if ($null -eq $line) { '' } else { $line.Substring($prefix.Length).Trim() }
+        if ([string]::IsNullOrEmpty($value)) { $problems += 'missing identity header line: ' + $prefix.TrimEnd(); continue }
+        $values[$name] = $value
+    }
+    if ($values.ContainsKey('commit') -and $values['commit'] -notmatch '^[0-9a-f]{40}$') { $problems += 'identity commit is not a full commit SHA: ' + $values['commit'] }
+    if ($values.ContainsKey('dirty') -and $values['dirty'] -notmatch '^(True|False)$') { $problems += 'identity dirty is not True or False: ' + $values['dirty'] }
+    foreach ($name in @('built', 'staged')) {
+        if ($values.ContainsKey($name) -and $values[$name] -notmatch '^[0-9A-Fa-f]{64}$') { $problems += 'identity ' + $name + ' ZLevels.dll sha256 is not a SHA-256 value: ' + $values[$name] }
+    }
+    if ($values.ContainsKey('built') -and $values.ContainsKey('staged') -and $values['built'] -ne $values['staged']) {
+        $problems += 'identity staged ZLevels.dll sha256 ' + $values['staged'] + ' differs from identity built ZLevels.dll sha256 ' + $values['built']
+    }
+    if ($values.ContainsKey('built') -and $values['built'] -ne $BuiltDllSha256) {
+        $problems += 'identity built ZLevels.dll sha256 ' + $values['built'] + ' differs from the bin ZLevels.dll now, ' + $BuiltDllSha256
+    }
+    return $problems
+}
 # The partner outline tint, read from the saved screenshots. Get-OutlineTintSettings holds every threshold and the sampled region, so the calibration
 # sits in one place. The sampled region is the highlight cell: 15 by 15 pixels at x 632 to 646 and y 352 to 366 of a 1280 by 720 screenshot. A
 # cooling column stands in the middle 7 by 7 block (x 636 to 642 and y 356 to 362), so that block is left out. The rest of the cell is sampled.
@@ -435,7 +470,6 @@ function Assert-ResultsMatchLog {
 }
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
-$executable = Join-Path $game 'RimWorld.exe'
 if (Get-Process -Name RimWorld -ErrorAction SilentlyContinue) {
     throw 'Close the running RimWorld process before starting isolated validation.'
 }
@@ -443,31 +477,64 @@ $runDirectory = Join-Path $workspace ('.artifacts/runs/' + (Get-Date -Format 'yy
 $configDirectory = Join-Path $runDirectory 'Config'
 New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 
-$buildArguments = @('build', (Join-Path $PSScriptRoot 'RuntimeValidation/RuntimeValidation.csproj'), '-c', 'Release', '--nologo', "-p:RimWorldDirectory=$game")
+# The version that the build expects. The ModsConfig and the identity header both name it, so a run cannot name one version and load another.
+$rimWorldVersion = [regex]::Match([IO.File]::ReadAllText((Join-Path $workspace 'Directory.Build.props')), '<RimWorldVersion>([^<]+)</RimWorldVersion>').Groups[1].Value
+if (-not $rimWorldVersion) { throw 'Directory.Build.props does not name a RimWorldVersion.' }
+Import-Module -Name (Join-Path $PSScriptRoot 'ValidationGame.psm1')
+# Each project is rebuilt with -t:Rebuild and built explicitly. RuntimeValidation references the two mod projects, and a Rebuild of one project does not
+# guarantee that its references are rebuilt, so a stale ZLevels.dll would otherwise be hashed and staged.
+$buildArguments = @('-c', 'Release', '--nologo', '-t:Rebuild', "-p:RimWorldDirectory=$game")
 if ($HarmonyAssembly) { $buildArguments += "-p:HarmonyAssembly=$HarmonyAssembly" }
-& dotnet @buildArguments
-if ($LASTEXITCODE -ne 0) { throw 'Validation build failed.' }
+foreach ($project in @((Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj'), (Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj'), (Join-Path $PSScriptRoot 'RuntimeValidation/RuntimeValidation.csproj'))) {
+    & dotnet build $project @buildArguments
+    if ($LASTEXITCODE -ne 0) { throw "Validation build failed: $project" }
+}
 
-$installations = @{
-    'ZLevels-Local17' = (Join-Path $workspace 'ZLevels')
-    'ZLevels-Validation' = (Join-Path $PSScriptRoot 'RuntimeValidation')
+# The built files that a run stages. Each comes from bin/Release, so the staged mod is the build that was just made, never a tracked release file.
+$builtZLevelsDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/bin/Release/ZLevels.dll'
+$builtMultiplayerDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/bin/Release/0MultiplayerAPI.dll'
+$builtRimatomicsDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevelsRimatomics/bin/Release/ZLevelsRimatomics.dll'
+$builtValidationDll = Join-Path $PSScriptRoot 'RuntimeValidation/bin/Release/RuntimeValidation.dll'
+foreach ($built in @($builtZLevelsDll, $builtMultiplayerDll, $builtRimatomicsDll, $builtValidationDll)) {
+    if (!(Test-Path -LiteralPath $built)) { throw "Missing build output: $built" }
 }
-foreach ($name in $installations.Keys) {
-    $link = Join-Path (Join-Path $game 'Mods') $name
-    $target = (Resolve-Path -LiteralPath $installations[$name]).Path
-    if (Test-Path -LiteralPath $link) {
-        $existing = Get-Item -LiteralPath $link
-        if ($existing.LinkType -ne 'Junction' -or $existing.Target -notcontains $target) {
-            throw "Existing mod folder is not this checkout's junction: $link"
-        }
-    }
-    else { New-Item -ItemType Junction -Path $link -Target $target | Out-Null }
-}
+$builtSha256 = (Get-FileHash -LiteralPath $builtZLevelsDll -Algorithm SHA256).Hash
+# The mods are staged in the run folder, then copied into the game copy. ZLevels takes About, Common, LoadFolders.xml and the 1.7 folder without its tracked
+# Assemblies, which take the built DLLs instead. ZLevels-Validation takes About and its built DLL.
+$stageRoot = Join-Path $runDirectory 'staged'
+$stagedZLevels = Join-Path $stageRoot 'ZLevels'
+$stagedValidation = Join-Path $stageRoot 'ZLevels-Validation'
+$stagedAssemblies = Join-Path (Join-Path $stagedZLevels '1.7') 'Assemblies'
+New-Item -ItemType Directory -Path $stagedAssemblies, (Join-Path $stagedValidation 'Assemblies') -Force | Out-Null
+$modSource = Join-Path $workspace 'ZLevels'
+foreach ($item in @('About', 'Common', 'LoadFolders.xml')) { Copy-Item -LiteralPath (Join-Path $modSource $item) -Destination $stagedZLevels -Recurse }
+Get-ChildItem -LiteralPath (Join-Path $modSource '1.7') -Force | Where-Object { $_.Name -ne 'Assemblies' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagedZLevels '1.7') -Recurse }
+foreach ($dll in @($builtZLevelsDll, $builtRimatomicsDll, $builtMultiplayerDll)) { Copy-Item -LiteralPath $dll -Destination $stagedAssemblies }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'RuntimeValidation/About') -Destination $stagedValidation -Recurse
+Copy-Item -LiteralPath $builtValidationDll -Destination (Join-Path $stagedValidation 'Assemblies')
+# The game copy is made from the install and the staged mods, and it is the only game this run starts. The install and the user's Mods folder are only read.
+$runId = Split-Path -Leaf $runDirectory
+$gameCopy = New-ValidationGame -SourceGame $game -Destination (Join-Path $env:TEMP ('claude-scratch\zlevels-validation\' + $runId)) -RunId $runId -ModFolders @($stagedZLevels, $stagedValidation)
+Write-Host "Game copy for this run: $($gameCopy.Root). A passing run removes it. A failing run keeps it."
+$stagedSha256 = (Get-FileHash -LiteralPath (Join-Path $gameCopy.Root 'Mods\ZLevels\1.7\Assemblies\ZLevels.dll') -Algorithm SHA256).Hash
+# The identity header is written before the game starts. The game appends its rows to this file, so the header stays at the top.
+$commit = (git -C $workspace rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed.' }
+$dirtyPaths = @(git -C $workspace status --porcelain --untracked-files=normal -- ZLevels tools/RuntimeValidation Directory.Build.props RimWorld.targets)
+if ($LASTEXITCODE -ne 0) { throw 'git status failed.' }
+$identityLines = @(
+    "identity commit: $commit",
+    "identity dirty: $($dirtyPaths.Count -gt 0)",
+    "identity rimworld: $rimWorldVersion",
+    "identity built ZLevels.dll sha256: $builtSha256",
+    "identity staged ZLevels.dll sha256: $stagedSha256"
+)
+[System.IO.File]::WriteAllLines((Join-Path $runDirectory 'validation-results.txt'), [string[]]$identityLines, (New-Object System.Text.UTF8Encoding $false))
 
 $configuration = @'
 <?xml version="1.0" encoding="utf-8"?>
 <ModsConfigData>
-  <version>1.7.4990 rev1069</version>
+  <version>__RIMWORLD_VERSION__</version>
   <activeMods>
 __ACTIVE_MODS__
   </activeMods>
@@ -494,7 +561,7 @@ if ($Cooling -or $CoolingNoColumns -or $CoolingTwoNets -or $RimatomicsPlusPlus) 
 if ($RimatomicsPlusPlus) { $rimatomicsMods += 'nachotoast.rimatomicsplusplus' }
 $rimatomicsMods = @($rimatomicsMods | Where-Object { $activeMods -notcontains $_ })
 $activeMods = @($activeMods | ForEach-Object { if ($_ -eq 'foxcosmic.zlevels17') { $rimatomicsMods }; $_ })
-$configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n"))
+$configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n")).Replace('__RIMWORLD_VERSION__', $rimWorldVersion)
 $configuration | Set-Content -LiteralPath (Join-Path $configDirectory 'ModsConfig.xml') -Encoding UTF8
 if ($ModsConfigSource) {
     # A fresh save has no language set, and Readable Numbers throws on that during load. Use the language from the source's Prefs.xml.
@@ -549,7 +616,7 @@ if ($CoolingNoColumns) { $arguments += '-zlevelscoolingnocolumns' }
 if ($CoolingTwoNets) { $arguments += '-zlevelscoolingtwonets' }
 if ($SocialRelaxQueue) { $arguments += '-zlevelssocialrelaxqueue' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
-$process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
+$process = Start-Process -FilePath $gameCopy.Executable -WorkingDirectory $gameCopy.Root -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
 $limit = (Get-Date).AddSeconds($TimeoutSeconds)
 while (!$process.HasExited -and (Get-Date) -lt $limit) {
@@ -598,7 +665,7 @@ $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column scre
 $requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)) -CoolingNoColumns ([bool]$CoolingNoColumns) -CoolingTwoNets ([bool]$CoolingTwoNets) -SocialRelaxQueue ([bool]$SocialRelaxQueue))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
-$gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
+$gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed) + @(Get-IdentityProblems -Results $results -BuiltDllSha256 (Get-FileHash -LiteralPath $builtZLevelsDll -Algorithm SHA256).Hash)
 Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } elseif ($_.Accept -eq 'PASS or TAKEN') { $_.Label + ' (PASS or TAKEN)' } else { $_.Label + ' (' + $_.Accept + ')' } }) -join ', ') + '.')
 foreach ($label in $observed.Keys) { Write-Host "Observed by the runner: $label = $($observed[$label])." }
 if ($gateProblems.Count -gt 0) {
@@ -635,6 +702,7 @@ if ($ModsConfigSource) {
         throw "Runtime log contains Z-Levels errors: $runDirectory"
     }
     Write-Host "Other mods logged $($errors.Count) error lines. See $(Join-Path $runDirectory 'other-mod-errors.txt')"
+    Remove-ValidationGame -Destination $gameCopy.Root
     Write-Host "Runtime validation passed with other mods. Evidence: $runDirectory"
     return
 }
@@ -647,4 +715,5 @@ if ($relevantErrors.Count) {
     throw "Runtime log contains errors: $runDirectory"
 }
 if ($errors.Count) { Write-Warning 'The log also contains unrelated installed-Workshop duplicate discovery errors; see the retained Player.log.' }
+Remove-ValidationGame -Destination $gameCopy.Root
 Write-Host "Runtime validation passed. Evidence: $runDirectory"
