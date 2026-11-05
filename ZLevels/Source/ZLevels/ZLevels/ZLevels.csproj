@@ -7,15 +7,15 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <OutputPath>../../../1.7/Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableSourceLink>false</EnableSourceLink>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <RimWorldDirectory Condition="'$(RimWorldDirectory)' == ''">C:/SteamLibrary/steamapps/common/RimWorld</RimWorldDirectory>
     <HarmonyAssembly Condition="'$(HarmonyAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/2009463077/1.7/Assemblies/0Harmony.dll</HarmonyAssembly>
   </PropertyGroup>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('RimWorld.targets', '$(MSBuildThisFileDirectory)'))" />
   <ItemGroup>
     <Compile Remove="HarmonyPatches/JobPatches - Copy.cs" />
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4990-unstable" PrivateAssets="all" />
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="$(RimWorldPackageVersion)" PrivateAssets="all" />
     <PackageReference Include="Krafs.Publicizer" Version="2.3.2" PrivateAssets="all" />
     <PackageReference Include="RimWorld.MultiplayerAPI" Version="0.6.0" />
     <Reference Include="0Harmony" HintPath="$(HarmonyAssembly)" Private="false" />

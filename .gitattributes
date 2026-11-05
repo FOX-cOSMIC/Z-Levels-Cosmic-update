@@ -1,0 +1,4 @@
+# Text files: git normalizes line endings. Binary files: git never edits them or shows a text diff.
+* text=auto
+*.dll binary
+*.png binary

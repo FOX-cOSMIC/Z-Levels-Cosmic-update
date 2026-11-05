@@ -1,6 +1,6 @@
 # Z-Levels for RimWorld 1.7
 
-Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4990 rev1069. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public GitHub fork of RamRod6198/Z-Levels).
+Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4998 rev1299. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public GitHub fork of RamRod6198/Z-Levels).
 
 ## Documents
 
@@ -9,10 +9,10 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4990 re
 
 ## Constraints
 
-- Target RimWorld 1.7.4990 rev1069 on the Steam unstable branch (authorized permanently). Not 1.6.
+- Target RimWorld 1.7.4998 rev1299 on the Steam unstable branch (authorized permanently). Not 1.6.
 - Keep the namespace, the types XML uses, and the subsystem boundaries. Package id is `foxcosmic.zlevels17` (changed from `ZLevels1.1` on 2026-11-04 so the Steam item does not collide with upstream's Workshop item; `About.xml` marks `ZLevels1.1` incompatible).
-- Leave `ZLevels/1.1`, `1.2` and `1.3` unchanged. 1.7 loads through `ZLevels/LoadFolders.xml`.
-- Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships as the older versions do.
+- The 1.1 and 1.3 folders were retired on 2026-11-05 (ADR-0009). Their history stays in git. Only `ZLevels/1.7` ships. `ZLevels/LoadFolders.xml` loads `Common` and `1.7`.
+- Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships in `ZLevels/1.7/Assemblies`.
 - Keep `HarmonyPatches/JobPatches - Copy.cs` out of the build.
 - Multiplayer stays optional and unverified.
 - Validate only in isolated savedata and a new colony. Never open existing saves or change the user's mod list.
@@ -21,7 +21,8 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4990 re
 
 ## Commands
 
-- Build: `dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release`. Output: `ZLevels/1.7/Assemblies/`. The Harmony DLL defaults to the Steam Workshop path; override with `-p:HarmonyAssembly=<path>`.
+- Build (main mod only): `dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release`. Output: `ZLevels/1.7/Assemblies/`. The Harmony DLL defaults to the Steam Workshop path; override with `-p:HarmonyAssembly=<path>`.
+- Full build, which covers every project the validation harness references, including any optional assemblies: `dotnet build tools/RuntimeValidation/RuntimeValidation.csproj -c Release`. The validation runner runs this before each run.
 - Runtime validation: close RimWorld, then run `tools/Invoke-RuntimeValidation.ps1` (`-Visual` adds screenshots). Evidence: the run folder under `.artifacts/runs/`.
 - Decompile installed game code: `ilspycmd`, a dotnet global tool. Write output under `.artifacts/`.
 
@@ -36,7 +37,7 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4990 re
 ## Git
 
 - Commit only your own paths: `git commit -- <paths>`. The tree may hold other sessions' changes; check `git status` and leave changes you did not make alone.
-- Stay on `master`. Push only when Lucas asks, and only to a branch on `origin`. Do not push to `origin`'s `master`. Never force-push.
+- Stay on `master`. Push only when Lucas asks, and only to a branch on `origin`. Do not push to `origin`'s `master`: it shares no history with this branch, so that needs a merge decision. Never force-push.
 
 ## Routes
 
