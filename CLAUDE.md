@@ -11,8 +11,8 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4998 re
 
 - Target RimWorld 1.7.4998 rev1299 on the Steam unstable branch (authorized permanently). Not 1.6.
 - Keep the namespace, the types XML uses, and the subsystem boundaries. Package id is `foxcosmic.zlevels17` (changed from `ZLevels1.1` on 2026-11-04 so the Steam item does not collide with upstream's Workshop item; `About.xml` marks `ZLevels1.1` incompatible).
-- Leave `ZLevels/1.1`, `1.2` and `1.3` unchanged. 1.7 loads through `ZLevels/LoadFolders.xml`.
-- Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships as the older versions do.
+- The 1.1 and 1.3 folders were retired on 2026-11-05 (ADR-0009). Their history stays in git. Only `ZLevels/1.7` ships. `ZLevels/LoadFolders.xml` loads `Common` and `1.7`.
+- Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships in `ZLevels/1.7/Assemblies`.
 - Keep `HarmonyPatches/JobPatches - Copy.cs` out of the build.
 - Multiplayer stays optional and unverified.
 - Validate only in isolated savedata and a new colony. Never open existing saves or change the user's mod list.

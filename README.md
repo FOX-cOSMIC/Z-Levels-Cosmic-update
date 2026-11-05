@@ -6,7 +6,7 @@ Created in [T3 Code](https://t3.codes).
 
 ## Z-Levels for RimWorld 1.7
 
-This repository holds a port of **Z-Levels Beta** (by RamRod, package `foxcosmic.zlevels17`, formerly `ZLevels1.1`) to RimWorld 1.7.4998 rev1299, the Steam unstable branch. It is a GitHub fork of [RamRod6198/Z-Levels](https://github.com/RamRod6198/Z-Levels). The mod is in `ZLevels/`. Its 1.1, 1.2 and 1.3 folders are the upstream files, unchanged. `ZLevels/LoadFolders.xml` loads `Common` and `1.7` for RimWorld 1.7.
+This repository holds a port of **Z-Levels Beta** (by RamRod, package `foxcosmic.zlevels17`, formerly `ZLevels1.1`) to RimWorld 1.7.4998 rev1299, the Steam unstable branch. It is a GitHub fork of [RamRod6198/Z-Levels](https://github.com/RamRod6198/Z-Levels). The mod is in `ZLevels/`. The 1.1 and 1.3 folders were retired on 2026-11-05 (ADR-0009). Their history stays in git. `ZLevels/LoadFolders.xml` loads `Common` and `1.7` for RimWorld 1.7.
 
 `docs/validation-report.md` lists what was run, what passed, and what was not tested.
 
@@ -79,7 +79,7 @@ Earlier versions of the script added two junctions to the game's `Mods` folder, 
 
 ### Layout
 
-- `ZLevels/`: the mod. `Common/` holds the shared defs. `1.7/` holds the 1.7 assemblies and patches. `1.1`, `1.2` and `1.3` are upstream.
+- `ZLevels/`: the mod. `Common/` holds the shared defs. `1.7/` holds the 1.7 assemblies and patches. The 1.1 and 1.3 folders were retired on 2026-11-05 (ADR-0009).
 - `ZLevels/Source/ZLevels/ZLevels/`: the C# source.
 - `tools/`: the validation mod (`RuntimeValidation/`) and the harness (`Invoke-RuntimeValidation.ps1`).
 - `docs/`: game API findings, the validation report, and the design spec and plan under `docs/superpowers/`.
