@@ -92,6 +92,85 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
+        // The game ignores a time-speed change unless the player has control. Control is lost while the screen fades in and while a
+        // gravship landing waits for confirmation. A check that expects a pause to stick waits for control first.
+        private static bool PlayerControlReady()
+        {
+            return Current.Game.PlayerHasControl && !(Find.GravshipController != null && Find.GravshipController.LandingAreaConfirmationInProgress);
+        }
+
+        // Task 4 (idea 2 on docs/mod-comparison/ideas.html). A queued job whose reservation is refused must not pause the game. The
+        // colonist's job list is cleared, so the colonist searches again.
+        private void RunReservationRefusedCheck()
+        {
+            int pauses = 0;
+            UnityEngine.Application.LogCallback counter = (condition, stackTrace, type) =>
+            {
+                if (type == UnityEngine.LogType.Error && condition.Contains("Fail in TryMakePreToilReservations"))
+                {
+                    pauses++;
+                }
+            };
+            UnityEngine.Application.logMessageReceived += counter;
+            try
+            {
+                Map map = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                IntVec3 steelCell = FindOpenBlock(map, 1, 1);
+                if (!steelCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell for the steel");
+                }
+                Thing steel = ThingMaker.MakeThing(ThingDef.Named("Steel"));
+                steel.stackCount = 30;
+                GenSpawn.Spawn(steel, steelCell, map);
+                IntVec3 destCell = FindOpenBlock(map, 1, 1);
+                if (!destCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell for the destination");
+                }
+                Pawn holder = SpawnRestPawn(map);
+                Job holdJob = JobMaker.MakeJob(JobDefOf.HaulToCell, steel, destCell);
+                if (!holder.Reserve(steel, holdJob))
+                {
+                    throw new InvalidOperationException("the holder could not reserve the steel");
+                }
+                Pawn colonist = SpawnRestPawn(map);
+                Job job = JobMaker.MakeJob(JobDefOf.HaulToCell, steel, destCell);
+                job.count = 30;
+                if (!tracker.jobTracker.TryGetValue(colonist, out JobTracker jobTracker))
+                {
+                    jobTracker = new JobTracker();
+                    tracker.jobTracker[colonist] = jobTracker;
+                }
+                jobTracker.activeJobs = new List<Job> { job };
+                jobTracker.mainJob = job;
+                bool refused = !job.TryMakePreToilReservations(colonist, false);
+                Find.TickManager.CurTimeSpeed = TimeSpeed.Normal;
+                tracker.TryTakeFirstJob(colonist);
+                bool paused = Find.TickManager.CurTimeSpeed == TimeSpeed.Paused;
+                bool cleared = !tracker.jobTracker.TryGetValue(colonist, out JobTracker after) || after.activeJobs == null || !after.activeJobs.Any();
+                bool noJob = colonist.CurJob == null;
+                Record("reservation diagnostic", "INFO: player control " + Current.Game.PlayerHasControl + ", fading " + ScreenFader.IsFading() + ", landing confirmation " + (Find.GravshipController != null && Find.GravshipController.LandingAreaConfirmationInProgress) + ", speed after the refusal " + Find.TickManager.CurTimeSpeed + ", pause entries " + pauses);
+                Record("reservation refusal is set up", refused ? "PASS" : "FAIL: the steel was not reserved for the holder");
+                Record("refused reservation does not pause the game", paused ? "FAIL: the game paused" : "PASS");
+                Record("no pause logged for a refused reservation", pauses == 0 ? "PASS" : "FAIL: " + pauses + " pause entries logged");
+                Record("refused colonist searches again", cleared && noJob ? "PASS" : "FAIL: job list cleared " + cleared + ", current job " + colonist.CurJob);
+                bool allOk = refused && !paused && pauses == 0 && cleared && noJob;
+                Record("reservation refused", allOk ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("reservation refused", "FAIL: " + exception);
+                Log.Error("Z-Levels reservation refusal validation failed: " + exception);
+            }
+            finally
+            {
+                UnityEngine.Application.logMessageReceived -= counter;
+            }
+            Root.Shutdown();
+        }
+
         // Task 2 (bug 3 on docs/mod-comparison/ideas.html). Pawn_TraderTracker.ColonyThingsWillingToBuy saves the negotiator's cell and sends
         // the trader back to it. The trader must end on its own cell and map.
         private void RunTraderReturnCheck()

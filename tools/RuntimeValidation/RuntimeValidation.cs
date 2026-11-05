@@ -321,6 +321,15 @@ namespace ZLevelsValidation
                     RunCoolingLinkTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsreservationrefused"))
+                {
+                    // The game ignores a pause while the screen fades in, so the check waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunReservationRefusedCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelstradereturn"))
                 {
                     finished = true;

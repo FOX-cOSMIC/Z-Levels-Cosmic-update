@@ -1257,7 +1257,9 @@ namespace ZLevels
                     }
                     else
                     {
-                        ZLogger.Pause($"Fail in TryMakePreToilReservations, pawn: {pawn}, job: {job}, driver: {job.GetCachedDriver(pawn)}, map: {this.GetMapInfo(pawn.Map)}");
+                        // A refused reservation is a normal race, when another colonist takes the target first. The colonist's jobs are
+                        // reset below, so the colonist searches again. The debug log records it, and the game keeps running.
+                        ZLogger.Message($"Fail in TryMakePreToilReservations, pawn: {pawn}, job: {job}, driver: {job.GetCachedDriver(pawn)}, map: {this.GetMapInfo(pawn.Map)}");
                         this.ResetJobTrackerFor(pawn);
                     }
                 }
