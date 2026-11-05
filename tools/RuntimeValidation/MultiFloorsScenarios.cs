@@ -92,6 +92,39 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
+        // Task 2 (bug 3 on docs/mod-comparison/ideas.html). Pawn_TraderTracker.ColonyThingsWillingToBuy saves the negotiator's cell and sends
+        // the trader back to it. The trader must end on its own cell and map.
+        private void RunTraderReturnCheck()
+        {
+            try
+            {
+                Map map = Find.CurrentMap;
+                IntVec3 traderCell = FindOpenBlock(map, 1, 1);
+                if (!traderCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell for the trader");
+                }
+                Pawn trader = PawnGenerator.GeneratePawn(PawnKindDefOf.Colonist, Faction.OfPlayer);
+                trader.mindState.wantsToTradeWithColony = true;
+                GenSpawn.Spawn(trader, traderCell, map);
+                PawnComponentsUtility.AddAndRemoveDynamicComponents(trader, true);
+                if (trader.trader == null)
+                {
+                    throw new InvalidOperationException("the trader has no trader tracker");
+                }
+                Pawn negotiator = SpawnRestPawn(map);
+                trader.trader.ColonyThingsWillingToBuy(negotiator).ToList();
+                bool back = trader.Spawned && trader.Map == map && trader.Position == traderCell;
+                Record("trader return", back ? "PASS" : "FAIL: the trader stands on " + trader.Position + " after the trade, not on its own cell " + traderCell + "; the negotiator stands on " + negotiator.Position);
+            }
+            catch (Exception exception)
+            {
+                Record("trader return", "FAIL: " + exception);
+                Log.Error("Z-Levels trader return validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
         // Calls the rest giver's TryGiveJob, which the Z-Levels prefix patches. The method is protected, so it is reached by reflection.
         private static Job TryGiveRestJob(JobGiver_GetRest giver, Pawn pawn)
         {

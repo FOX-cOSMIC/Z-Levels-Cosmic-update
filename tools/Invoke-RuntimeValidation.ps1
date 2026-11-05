@@ -25,6 +25,7 @@ param(
     [switch]$RimatomicsPlusPlus,
     [switch]$SocialRelaxQueue,
     [switch]$RestSearchNull,
+    [switch]$TraderReturn,
     [switch]$ZLevelsDebug,
     # A ModsConfig.xml whose mods run together with Z-Levels. It is only read. The isolated run gets a copy of its mod list.
     [string]$ModsConfigSource,
@@ -334,6 +335,7 @@ $scenarioSwitches = [ordered]@{
     CoolingTwoNets = $CoolingTwoNets
     SocialRelaxQueue = $SocialRelaxQueue
     RestSearchNull = $RestSearchNull
+    TraderReturn = $TraderReturn
 }
 # The other switches. Each one is read only by the runs listed for it in $switchReaders. 'Core' is the run with no scenario switch.
 $modifierSwitches = [ordered]@{
@@ -540,6 +542,7 @@ if ($CoolingNoColumns) { $arguments += '-zlevelscoolingnocolumns' }
 if ($CoolingTwoNets) { $arguments += '-zlevelscoolingtwonets' }
 if ($SocialRelaxQueue) { $arguments += '-zlevelssocialrelaxqueue' }
 if ($RestSearchNull) { $arguments += '-zlevelsrestsearchnull' }
+if ($TraderReturn) { $arguments += '-zlevelstradereturn' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
@@ -583,7 +586,7 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 # The partner tint rows of a -Visual cooling run are written from its two partner screenshots after the cross-check, so the cross-check does not count them.
 if ($Visual -and $Cooling -and -not $CoolingNoColumns) { Add-OutlineTintRows -ResultsPath $resultsPath -ShotFolder (Join-Path $runDirectory 'Screenshots') }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } elseif ($RestSearchNull) { 'rest search null checks' } else { 'core validation' }
+$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } elseif ($RestSearchNull) { 'rest search null checks' } elseif ($TraderReturn) { 'trader return' } else { 'core validation' }
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }

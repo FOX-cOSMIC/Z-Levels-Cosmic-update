@@ -321,6 +321,12 @@ namespace ZLevelsValidation
                     RunCoolingLinkTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelstradereturn"))
+                {
+                    finished = true;
+                    RunTraderReturnCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsrestsearchnull"))
                 {
                     finished = true;
