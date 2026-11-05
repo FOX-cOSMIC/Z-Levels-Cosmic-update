@@ -6,9 +6,10 @@
     <OutputPath>Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('RimWorld.targets', '$(MSBuildThisFileDirectory)'))" />
   <ItemGroup>
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj" Private="false" />
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj" Private="false" />
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4990-unstable" PrivateAssets="all" />
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="$(RimWorldPackageVersion)" PrivateAssets="all" />
   </ItemGroup>
 </Project>
