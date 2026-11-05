@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Z-Levels Rebuild Question</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html">The short answer</a>
+  <a href="how-they-work.html">How each mod works</a>
+  <a href="side-by-side.html">Side by side</a>
+  <a href="rebuild.html" aria-current="page">Does it need a rebuild?</a>
+  <a href="evidence.html">Evidence and word list</a>
+</nav>
+
+<h1>Does Z-Levels need a rebuild?</h1>
+<p class="lede">Part of it does. Think of a house with sound walls and bad plumbing. You replace the plumbing and keep the house. First, measure how bad the plumbing is, because nobody has.</p>
+
+<h2>What is sound</h2>
+<p>These have passing test runs in your repository. The runner starts the real game with a new colony, carries out each step, and records the result. The repository keeps 568 run folders, including failed runs.</p>
+<ul>
+  <li>Generating floors above and below, and walking the stairs both ways</li>
+  <li>Hauling, mining, and building on another floor, with the colonist choosing the work</li>
+  <li>Power and reactor cooling across floors</li>
+  <li>The vault pocket, including saving and reloading it</li>
+  <li>A staircase destroyed by damage, which used to crash</li>
+</ul>
+<p>Your port has fixed real faults too: rivers, a stairs crash, unreachable storage, stale map records, and fighting errors. A rewrite has to earn all of that again.</p>
+<h3>So is it "very buggy"?</h3>
+<p>In places, and some of it is simply unknown. These are from your own test report and roadmap.</p>
+<ul>
+  <li><b>Failures with no known cause.</b> One cross-floor hauling timeout and a campfire failure came back in some runs and not others.</li>
+  <li><b>Never tested.</b> Food, rest, and fun across floors have no scenario, because the tests hold those needs full. Fighting, raids, right-click orders, and other DLC are also untested.</li>
+  <li><b>Known and not fixed.</b> The stranded colonist below, storage on other floors that nobody checks can be reached, and insects that the game's letter says tunnel up but never do.</li>
+</ul>
+
+<h2>What is not sound</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Problem</th><th>In plain terms</th><th>Where</th><th>Size</th></tr></thead>
+  <tbody>
+    <tr><th>The job search is a photocopy that loops over every floor</th><td>Every colonist reads every floor's board for each job type before moving to the next type. Nothing limits how often this runs</td><td><code>JobPatches.cs:1987-2319</code></td><td><span class="chip no">Largest</span></td></tr>
+    <tr><th>Hauling repeats floors inside floors</th><td>All floors' items are offered at each floor, then each storage lookup walks all floors again</td><td><code>JobPatches.cs:944-955, 1463</code></td><td><span class="chip no">Large</span></td></tr>
+    <tr><th>Notes on the busiest pages</th><td>Each successful "can I use this?" check loops through all tracked colonists and what they hold</td><td><code>ReachAndReservationPatches.cs:201-207</code></td><td><span class="chip no">Large</span></td></tr>
+    <tr><th>Every floor gets a full update</th><td>Floors with nobody on them still run wind, weather choice, and wild spawning</td><td>No skip patch found</td><td><span class="chip part">Unknown until timed</span></td></tr>
+    <tr><th>A failure can strand a colonist</th><td>Five pairs of patches move a colonist and rely on a later step to move them back</td><td><code>ReachAndReservationPatches.cs:62, 110</code>, recorded in the test report</td><td><span class="chip no">A real bug</span></td></tr>
+    <tr><th>Stale copied rules</th><td>The job search copy lacks 1.7's newer checks on which colonists can do which work. The food copy lacks newer checks too</td><td><code>JobPatches.cs:2321-2349</code></td><td><span class="chip no">A real bug risk</span></td></tr>
+    <tr><th>Diary lines that nobody reads</th><td>The code writes out a log sentence for each job type and floor, then throws it away when logging is off. More than 300 call sites use this logger</td><td><code>JobPatches.cs:2027</code>, <code>ZLogger.cs:11, 17</code></td><td><span class="chip part">Cheap to fix</span></td></tr>
+    <tr><th>A switched-off graphics shortcut</th><td>A leftover <code>|| true</code> makes the code rebuild something it had saved, on each use, when you look at lower floors from above</td><td><code>RenderPatches.cs:224</code></td><td><span class="chip part">Cheap to fix</span></td></tr>
+    <tr><th>Empty error traps</th><td>22 places in the source hide failures in floor setup, darkness, map adjustment, and fog</td><td>13 of them in <code>ZLevelsManager.cs</code></td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>Dead code</th><td>The 612-line route finder is reached by no live path. About 650 further lines are commented out</td><td><code>ZPathfinder.cs</code>, <code>FloatMenuPatches.cs:196</code></td><td><span class="chip part">Cheap to fix</span></td></tr>
+  </tbody>
+</table></div>
+<p>Most of these came from the original mod. <code>JobPatches.cs</code> has changed by only 49 lines since your import, so the job search design is still the 2020 one. Your port has not yet aimed any work at speed. No document in the repository mentions a speed measurement.</p>
+
+<h2>Decision for you</h2>
+<h3>D1. How much of Z-Levels should be rebuilt?</h3>
+<div class="option rec">
+  <h3>A. Measure, then rebuild the job search in place (Recommended)</h3>
+  <dl>
+    <dt>Changes</dt><dd>Adds a speed test to the existing runner. Then replaces the worst parts of <code>JobPatches.cs</code> (2,284 lines) and <code>ReachAndReservationPatches.cs</code>, and adds a lighter update for empty floors. The vault, cooling, stairs, generation, and test runner stay.</dd>
+    <dt>Trade-off</dt><dd>You keep working features and test evidence, but you also keep separate maps and their memory cost.</dd>
+  </dl>
+</div>
+<div class="option">
+  <h3>B. Rewrite the whole mod around one map</h3>
+  <dl>
+    <dt>Changes</dt><dd>Replaces about 15,000 lines. As Above So Below II shows the likely scale, at 55,842 lines and about 295 patches. Vault, cooling, and most test scenarios get rebuilt.</dd>
+    <dt>Trade-off</dt><dd>Removes the separate-map costs and carried-job problems, but creates a new class of faults, such as explosions and gas crossing between floors, and competes with a mod that is already out.</dd>
+  </dl>
+</div>
+<div class="option">
+  <h3>C. Stop the port and build add-ons for another mod</h3>
+  <dl>
+    <dt>Changes</dt><dd>Moves your vault and cooling ideas to add-ons for MultiFloors or As Above So Below II. Z-Levels stops at its current state.</dd>
+    <dt>Trade-off</dt><dd>Least code to own, but neither mod publishes source I could find, so you would depend on their authors. MultiFloors has no official 1.7 version yet.</dd>
+  </dl>
+</div>
+<p><b>If you do not answer:</b> I change nothing in the mod. The report is finished without this answer, and the speed test and all rebuild work wait for your decision.</p>
+
+<h2 id="test">The test that settles the lag question</h2>
+<p>Before changing any code, I would add a speed scenario to the test runner, in its isolated save folder as usual.</p>
+<ul>
+  <li>Run new colonies of 10 and 30 colonists, on 1, 2, and 5 floors, with no work available and with plenty of work.</li>
+  <li>Record heartbeats per second, and the time spent inside the job search.</li>
+  <li>Compare plain RimWorld, your port, and As Above So Below II. Add MultiFloors if it runs on 1.7.4998.</li>
+  <li>Rerun after each fix, so every change has a before and after number.</li>
+</ul>
+<p>If the numbers show the lag is small, this page's priorities change, and the bugs come ahead of speed.</p>
+
+<h2>Order of work under option A</h2>
+<ol>
+  <li>Add the speed test and record a baseline.</li>
+  <li>Make the cheap fixes: stop writing unread log lines, restore the graphics shortcut, and remove dead code.</li>
+  <li>Add safety steps so a failure cannot strand a colonist.</li>
+  <li>Change the job search to read the colonist's own floor first, and look elsewhere only when that floor has nothing. Add a pause before an idle colonist searches again.</li>
+  <li>Fix the floors-inside-floors loop in hauling.</li>
+  <li>Give floors nobody is using a lighter update, then check that fires, plants, and temperature still work there.</li>
+  <li>Rerun the full test set and the speed test after each step.</li>
+</ol>
+
+<h2>What you may borrow</h2>
+<div class="table-box"><table>
+  <thead><tr><th>Source</th><th>What the record says</th><th>What that means for you</th></tr></thead>
+  <tbody>
+    <tr><th>Original Z-Levels</th><td>No license file. RamRod wrote that "any code that it contains is fair game to anyone who wants to use it."</td><td>Your project notes say no license was published, and that is still correct. This sentence is written permission from the project owner, and it is worth adding to your notes. Taranchuk wrote the code, and I found no statement from them.</td></tr>
+    <tr><th>MultiFloors, As Above II, True Z-Levels</th><td>I found no license for any of them</td><td>Use their ideas, and write your own code. Do not copy machine-rebuilt code into your mod. The rebuilt copies stayed in a temporary folder and are not in your repository.</td></tr>
+  </tbody>
+</table></div>
+<h3>Ideas worth taking</h3>
+<ul>
+  <li>From MultiFloors: own floor first, lighter updates on extra floors, saved stair routes, and leaving the busiest questions alone.</li>
+  <li>From As Above So Below II: built-in speed counters, and switches that turn off one failing system.</li>
+  <li>From True Z-Levels: clean-up steps that run even after a failure.</li>
+</ul>
+
+<footer>Sources are on the <a href="evidence.html">evidence page</a>.</footer>
+</div>
+</body>
+</html>

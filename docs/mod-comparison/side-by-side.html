@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Floor Mods Side by Side</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html">The short answer</a>
+  <a href="how-they-work.html">How each mod works</a>
+  <a href="side-by-side.html" aria-current="page">Side by side</a>
+  <a href="rebuild.html">Does it need a rebuild?</a>
+  <a href="evidence.html">Evidence and word list</a>
+</nav>
+
+<h1>Side by side</h1>
+<p class="lede">Your port is one of the smaller codebases here, with about the same number of patches as MultiFloors. Its problem is where those patches sit, and these counts cannot show that. They show size and risk. None of them measures speed.</p>
+
+<h2>The counts</h2>
+<p class="small muted">All five were counted the same way, from each mod's main compiled file turned back into code, so comments do not affect the totals. MultiFloors and True Z-Levels keep add-on code for other mods in separate files, which are not counted here. Z-Levels' optional cooling module is also left out.</p>
+<div class="charts">
+  <section>
+    <h3>Lines of code</h3>
+    <p>More code means more to read, fix, and update.</p>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-name">As Above II</span><span class="bar-track"><span class="bar" style="width:78%"></span><span class="bar-val">55,842</span></span></div>
+      <div class="bar-row"><span class="bar-name">MultiFloors</span><span class="bar-track"><span class="bar" style="width:31.6%"></span><span class="bar-val">22,647</span></span></div>
+      <div class="bar-row"><span class="bar-name">True Z-Levels</span><span class="bar-track"><span class="bar" style="width:23.6%"></span><span class="bar-val">16,915</span></span></div>
+      <div class="bar-row you"><span class="bar-name">Z-Levels</span><span class="bar-track"><span class="bar" style="width:22.9%"></span><span class="bar-val">16,413</span></span></div>
+      <div class="bar-row"><span class="bar-name">Deep &amp; Deeper</span><span class="bar-track"><span class="bar" style="width:5.6%"></span><span class="bar-val">3,979</span></span></div>
+    </div>
+  </section>
+  <section>
+    <h3>Patches on the game</h3>
+    <p>Each one is a place a game update could disturb.</p>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-name">True Z-Levels</span><span class="bar-track"><span class="bar" style="width:78%"></span><span class="bar-val">404</span></span></div>
+      <div class="bar-row"><span class="bar-name">As Above II</span><span class="bar-track"><span class="bar" style="width:57%"></span><span class="bar-val">295</span></span></div>
+      <div class="bar-row you"><span class="bar-name">Z-Levels</span><span class="bar-track"><span class="bar" style="width:22.2%"></span><span class="bar-val">115</span></span></div>
+      <div class="bar-row"><span class="bar-name">MultiFloors</span><span class="bar-track"><span class="bar" style="width:21.8%"></span><span class="bar-val">113</span></span></div>
+      <div class="bar-row"><span class="bar-name">Deep &amp; Deeper</span><span class="bar-track"><span class="bar" style="width:1%"></span><span class="bar-val">5</span></span></div>
+    </div>
+  </section>
+  <section>
+    <h3>Patches that edit the rule's text</h3>
+    <p>The kind most likely to break on an update.</p>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-name">MultiFloors</span><span class="bar-track"><span class="bar" style="width:78%"></span><span class="bar-val">46</span></span></div>
+      <div class="bar-row"><span class="bar-name">As Above II</span><span class="bar-track"><span class="bar" style="width:32.2%"></span><span class="bar-val">19</span></span></div>
+      <div class="bar-row you"><span class="bar-name">Z-Levels</span><span class="bar-track"><span class="bar" style="width:1.7%"></span><span class="bar-val">1</span></span></div>
+      <div class="bar-row"><span class="bar-name">True Z-Levels</span><span class="bar-track"><span class="bar" style="width:0"></span><span class="bar-val">0</span></span></div>
+      <div class="bar-row"><span class="bar-name">Deep &amp; Deeper</span><span class="bar-track"><span class="bar" style="width:0"></span><span class="bar-val">0</span></span></div>
+    </div>
+  </section>
+  <section>
+    <h3>Empty error traps</h3>
+    <p>Places where a failure disappears without a message.</p>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-name">As Above II</span><span class="bar-track"><span class="bar" style="width:78%"></span><span class="bar-val">60</span></span></div>
+      <div class="bar-row you"><span class="bar-name">Z-Levels</span><span class="bar-track"><span class="bar" style="width:29.9%"></span><span class="bar-val">23</span></span></div>
+      <div class="bar-row"><span class="bar-name">MultiFloors</span><span class="bar-track"><span class="bar" style="width:0"></span><span class="bar-val">0</span></span></div>
+      <div class="bar-row"><span class="bar-name">True Z-Levels</span><span class="bar-track"><span class="bar" style="width:0"></span><span class="bar-val">0</span></span></div>
+      <div class="bar-row"><span class="bar-name">Deep &amp; Deeper</span><span class="bar-track"><span class="bar" style="width:0"></span><span class="bar-val">0</span></span></div>
+    </div>
+  </section>
+</div>
+
+<h2>The same numbers, plus the facts behind them</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th></th><th class="mine">Z-Levels, your port</th><th>MultiFloors</th><th>As Above So Below II</th><th>True Z-Levels</th><th>Deep And Deeper</th></tr></thead>
+  <tbody>
+    <tr><th>Made by</th><td class="mine">Taranchuk, hired by RamRod, with Arisher. Port by you with Claude</td><td>telardo, XD</td><td>astryl, with Claude (stated)</td><td>Gamma, with AI help (stated)</td><td>Shashlichnik, Deebs</td></tr>
+    <tr><th>Stage</th><td class="mine">In testing</td><td>Released</td><td>Open beta</td><td>Alpha 0.0.1</td><td>Released</td></tr>
+    <tr><th>Game versions</th><td class="mine">1.7 (older code stays for 1.1 to 1.3)</td><td>1.5, 1.6</td><td>1.6, 1.7</td><td>1.7</td><td>1.5, 1.6</td></tr>
+    <tr><th>Floors</th><td class="mine">Above and below, separate maps</td><td>Above and below, separate maps</td><td>3 up and 3 down, within a 146,000-cell budget</td><td>Floors 0 to 9, none below ground</td><td>Caves nested below, 85% chance of a deeper one</td></tr>
+    <tr><th>Source code public</th><td class="mine">Yes, on your GitHub</td><td>No link found</td><td>No link found</td><td>Not checked</td><td>A GitHub label on the page, target not confirmed</td></tr>
+    <tr><th>Tests shipped or kept</th><td class="mine">4,763-line test runner, 568 recorded runs</td><td>None visible</td><td>Built-in speed counters and developer tools</td><td>None visible</td><td>None visible</td></tr>
+    <tr><th>Required extras</th><td class="mine">Harmony</td><td>Prepatcher (the game now covers this in 1.7, according to its author)</td><td>Harmony</td><td>Harmony</td><td>Harmony</td></tr>
+  </tbody>
+</table></div>
+
+<h2>What crosses floors</h2>
+<p><span class="chip yes">Tested</span> means a recorded test run passed in your repository. <span class="chip part">In code</span> means the code or the mod's page says it works, and I did not run it. <span class="chip no">No</span> means it is left out or unfinished.</p>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Feature</th><th class="mine">Z-Levels</th><th>MultiFloors</th><th>As Above II</th><th>True Z-Levels</th><th>Deep &amp; Deeper</th></tr></thead>
+  <tbody>
+    <tr><th>Hauling</th><td class="mine"><span class="chip yes">Tested</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span><span class="cell-note">Author played it</span></td><td><span class="chip part">Opt-in</span></td></tr>
+    <tr><th>Building and mining</th><td class="mine"><span class="chip yes">Tested</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span><span class="cell-note">Author played building</span></td><td><span class="chip part">Mining only</span></td></tr>
+    <tr><th>Power</th><td class="mine"><span class="chip yes">Tested</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span><span class="cell-note">Barely played</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Food and rest</th><td class="mine"><span class="chip part">In code</span><span class="cell-note">No test scenario</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span><span class="cell-note">Author played it</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Doctors</th><td class="mine"><span class="chip part">In code</span><span class="cell-note">No test scenario</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span><span class="cell-note">Barely played</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Shooting across floors</th><td class="mine"><span class="chip part">In code</span><span class="cell-note">Not tested on purpose</span></td><td><span class="chip no">No</span></td><td><span class="chip part">In code</span><span class="cell-note">Ranged only, no melee</span></td><td><span class="chip no">Unfinished</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Raiders on other floors</th><td class="mine"><span class="chip unk">Not tested</span></td><td><span class="chip part">In code</span><span class="cell-note">Arrive at ground, then climb</span></td><td><span class="chip part">In code</span><span class="cell-note">Can arrive by other floors</span></td><td><span class="chip unk">Not checked</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Right-click orders on other floors</th><td class="mine"><span class="chip part">In code</span><span class="cell-note">Not tested</span></td><td><span class="chip part">Mostly no</span><span class="cell-note">Stairs and rescue can</span></td><td><span class="chip unk">Not checked</span></td><td><span class="chip unk">Not checked</span></td><td><span class="chip no">No</span></td></tr>
+    <tr><th>Permanent base below ground</th><td class="mine"><span class="chip part">In code</span><span class="cell-note">Starts sealed, you dig out</span></td><td><span class="chip part">In code</span></td><td><span class="chip part">In code</span></td><td><span class="chip no">No</span></td><td><span class="chip part">Only with collapse off</span></td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">The yellow chips for rival mods reflect what I could read, not how well the feature works. Your column has green chips because your repository keeps test records, so the comparison favours whichever mod shows its work.</p>
+
+<h2>What players report</h2>
+<p>These are short samples from public pages, not statistics.</p>
+<ul>
+  <li><b>Z-Levels, 2020.</b> "They know there's a storage but can't find the route." A second player saw colonists stop and stand idle after a new floor was generated.</li>
+  <li><b>MultiFloors.</b> Items keep moving between floors when the target floor has no space, and storage rules can be ignored across floors. One comment reports getting stuck at world creation on 1.7 and another reports it working with Prepatcher switched off. The bug thread has 522 replies.</li>
+  <li><b>As Above So Below II.</b> One player says hunting on an underground floor makes the game "stutter." The author's own number is "about 2% of frame budget on a 96 colonist test colony, holding 60 fps." The mod ships no data behind that number.</li>
+</ul>
+
+<footer>Next: <a href="rebuild.html">does Z-Levels need a rebuild?</a></footer>
+</div>
+</body>
+</html>

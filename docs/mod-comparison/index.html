@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Multi-level Mods Compared</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html" aria-current="page">The short answer</a>
+  <a href="how-they-work.html">How each mod works</a>
+  <a href="side-by-side.html">Side by side</a>
+  <a href="rebuild.html">Does it need a rebuild?</a>
+  <a href="evidence.html">Evidence and word list</a>
+</nav>
+
+<h1>Multi-level mods compared</h1>
+<p class="lede">Alu is right about the history of Z-Levels and broadly right about what slows it down. Nobody has measured how bad that slowdown is, in your port or in any other mod. The evidence supports rebuilding one part of your mod, the part that helps a colonist choose their next job. It does not support throwing the whole mod away.</p>
+
+<div class="answer">
+  <h2>What I found</h2>
+  <ul>
+    <li>The mod Alu calls Multifloors is <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3384660931">MultiFloors by telardo</a>. It has 93,400 subscribers, publishes no source code, and has no official RimWorld 1.7 version.</li>
+    <li>I downloaded it and three of its rivals, turned their compiled files back into readable code, and compared them with your port using the same questions.</li>
+    <li>MultiFloors and Z-Levels both give every floor its own full game map. The biggest difference is that MultiFloors leaves the game's most-used questions alone and looks at the colonist's own floor first. Z-Levels adds checks to those questions and repeats its search on every floor.</li>
+    <li>Your port has been tested hard. Stairs, hauling, mining and building below, power, cooling, and saving have passing test runs. It is still buggy in places: a few test failures have no known cause, and food, rest, fighting, and raids across floors have never been tested.</li>
+  </ul>
+</div>
+
+<h2>Each thing Alu said, checked</h2>
+<div class="claims">
+
+  <div class="claim">
+    <div class="said"><q>That one was abandoned</q><br><span class="chip yes">True</span></div>
+    <div><p>The Z-Levels Workshop page says, in the owner's words: "I have abandoned this project and any code that it contains is fair game to anyone who wants to use it." The page's last update was 27 December 2020, for RimWorld 1.1 and 1.2.</p></div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>It was a commissioned mod and it got very expensive to maintain</q><br><span class="chip yes">Commission is true</span></div>
+    <div><p>RamRod ran the project and paid for the code: "he is the C# programmer, I just hired him." RamRod's Patreon says "I spent a lot of money on C# programming." I found nothing that checks Alu's remark that Taranchuk is the most popular commission coder.</p></div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>Pathfinding and immense lag</q><br><span class="chip part">Half proven</span></div>
+    <div>
+      <p><b>Lag.</b> The code proves the work grows with every floor you add, and nothing limits how often it runs. "Immense" is not proven. No report in this repository, and no page I read, gives a measured number for Z-Levels.</p>
+      <p><b>Pathfinding.</b> Players did report colonists who could not find routes in 2020. But the mod's big route-finding file, <code>ZPathfinder.cs</code> at 612 lines, is never reached in play, because the one line that would start it is commented out. So it cannot be the source of the lag today.</p>
+    </div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>He wanted the pawns and AI to flow freely between the 2 floors</q><br><span class="chip yes">True, and every rival wants it too</span></div>
+    <div><p>The code shows this goal. Your port kept it, and <a href="how-they-work.html#job-search">the job search page</a> shows what it costs. MultiFloors, As Above So Below II, and True Z-Levels all let colonists work across floors. The difference between them is the method.</p></div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>Multifloors is popular for its stable performance</q><br><span class="chip part">Popular yes, performance unmeasured</span></div>
+    <div>
+      <p>The popularity is real, at 93,400 subscribers against 18,707 for the old Z-Levels. The design has real savings, listed on <a href="how-they-work.html">the next page</a>. Its cost still grows with floors when a colonist has nothing to do. I found no independent speed test.</p>
+      <p>Part of its speed comes from leaving things out. Its page lists no fighting across floors and says this is "due to considerations of performance and compatibility."</p>
+    </div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>As Above is newer but made by a vibe coder</q><br><span class="chip part">Newer is true, the label is opinion</span></div>
+    <div>
+      <p>The sequel appeared on 2 August this year. Its author says: "This mod is AI assisted. I built it in a full development environment with Claude AI as a coding assistant, and I review, edit and change the code myself." "Vibe coder" is Alu's word, and a decompile cannot show how carefully the author reviewed the code.</p>
+      <p>The same question applies to your port, where 119 of 122 commits credit Claude. What matters for any of these mods is how they behave when tested.</p>
+    </div>
+  </div>
+
+  <div class="claim">
+    <div class="said"><q>Deep and Deeper is temp maps so not a full replacement</q><br><span class="chip yes">True by default</span></div>
+    <div><p>Each cave is a separate small map that collapses in about 12 game days if you leave it alone, and sooner if you mine it. A setting turns collapse off. Even then, colonists only cross for mining and hauling, and only if you opt in. It is a mining side trip, not a way to build a second floor.</p></div>
+  </div>
+
+</div>
+
+<h2>The five mods in one table</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Mod</th><th>How it builds a floor</th><th>RimWorld 1.7</th><th class="num">Subscribers</th><th>Last update</th></tr></thead>
+  <tbody>
+    <tr class="you"><th>Z-Levels, your port</th><td>A separate full map for each floor</td><td><span class="chip yes">Yes</span></td><td class="num">Not checked</td><td>5 Nov 2026 (old item: 27 Dec 2020, 18,707 subscribers)</td></tr>
+    <tr><th>MultiFloors</th><td>A separate map for each floor, with extra floors running a lighter update</td><td><span class="chip part">Not official</span><span class="cell-note">Players disagree on whether it runs</span></td><td class="num">93,400</td><td>27 Sep 2025</td></tr>
+    <tr><th>As Above So Below II</th><td>One tall map, cut into bands</td><td><span class="chip yes">Yes</span><span class="cell-note">Open beta</span></td><td class="num">21,211</td><td>18 Oct 2026</td></tr>
+    <tr><th>True Z-Levels</th><td>One map, with a set of floor data swapped in and out</td><td><span class="chip yes">Yes</span><span class="cell-note">Version 0.0.1 alpha</span></td><td class="num">108</td><td>25 Oct 2026</td></tr>
+    <tr><th>Deep And Deeper</th><td>Separate cave maps that collapse</td><td><span class="chip part">Not tagged</span><span class="cell-note">Author says it works</span></td><td class="num">110,480</td><td>13 Sep 2025</td></tr>
+  </tbody>
+</table></div>
+
+<h2>What this report cannot tell you</h2>
+<ul>
+  <li><b>No mod was run or timed.</b> Everything here comes from reading code and public pages. Which mod is fastest in a real colony is still unknown, and <a href="rebuild.html#test">the rebuild page</a> describes the test that would settle it.</li>
+  <li><b>The rival code is machine-rebuilt.</b> It works for tracing what the code does. Comments are gone, so I did not judge anyone's coding style from it.</li>
+  <li><b>MultiFloors was read at its 1.6 version.</b> The others were read at 1.7, except Deep And Deeper, also 1.6.</li>
+</ul>
+
+<footer>Written 5 November 2026. Sources and code references are on the <a href="evidence.html">evidence page</a>.</footer>
+</div>
+</body>
+</html>
