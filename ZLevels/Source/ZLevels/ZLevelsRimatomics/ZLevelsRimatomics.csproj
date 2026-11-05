@@ -7,7 +7,6 @@
     <EnableSourceLink>false</EnableSourceLink>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
-    <OutputPath>../../../1.7/Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <HarmonyAssembly Condition="'$(HarmonyAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/2009463077/1.7/Assemblies/0Harmony.dll</HarmonyAssembly>
     <RimatomicsAssembly Condition="'$(RimatomicsAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/1127530465/1.7/Assemblies/Rimatomics.dll</RimatomicsAssembly>

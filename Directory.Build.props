@@ -3,5 +3,6 @@
     <RimWorldVersion>1.7.4998 rev1299</RimWorldVersion>
     <RimWorldPackageVersion>$(RimWorldVersion.Split(' ')[0])-unstable</RimWorldPackageVersion>
     <RimWorldDirectory Condition="'$(RimWorldDirectory)' == ''">C:/SteamLibrary/steamapps/common/RimWorld</RimWorldDirectory>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
   </PropertyGroup>
 </Project>

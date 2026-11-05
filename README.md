@@ -30,7 +30,7 @@ This repository holds a port of **Z-Levels Beta** (by RamRod, package `foxcosmic
 dotnet build ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj -c Release
 ```
 
-The output goes to `ZLevels/1.7/Assemblies/`. `ZLevels.dll`, `ZLevelsRimatomics.dll` and `0MultiplayerAPI.dll` belong to the mod. The `.pdb` and `.deps.json` files are build output and are git-ignored. The build ships no game DLL and no second copy of Harmony. `HarmonyPatches/JobPatches - Copy.cs` is excluded from the build.
+Development builds write each project's `bin/Release/` folder, which git ignores. `tools/Publish-Mod.ps1` copies `ZLevels.dll`, `ZLevelsRimatomics.dll` and `0MultiplayerAPI.dll` into `ZLevels/1.7/Assemblies/`, the tracked release folder, and writes `build-info.txt` beside them with the source commit and the hashes. The `.pdb` and `.deps.json` files are build output and are git-ignored. The build ships no game DLL and no second copy of Harmony. `HarmonyPatches/JobPatches - Copy.cs` is excluded from the build.
 
 If RimWorld or Harmony is installed somewhere else, override the two properties:
 
