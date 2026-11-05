@@ -137,48 +137,49 @@ namespace ZLevels
             }
             Find.Selector.selected = selected;
         }
+        // The keys that switch floors. Their default keys are set in Common/Defs/KeybindingDefs/KeyBindings.xml.
+        public static KeyBindingDef UpperSwitchKey => ZLevelsDefOf.ZL_switchFloorUpper;
+        public static KeyBindingDef LowerSwitchKey => ZLevelsDefOf.ZL_switchFloorLower;
+
         public void CheckHotkeys()
         {
-            bool keyDownEvent = ZLevelsDefOf.ZL_switchToUpperMap.KeyDownEvent;
-            if (keyDownEvent)
+            if (UpperSwitchKey.KeyDownEvent)
             {
-                Map mapToSwitch = this.GetUpperLevel(Find.CurrentMap.Tile, Find.CurrentMap);
-                if (mapToSwitch != null)
-                {
-                    //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
-
-                    var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
-                    Current.Game.CurrentMap = mapToSwitch;
-                    rememberedCamera.rootPos.z -= 0.5f;
-                    Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
-
-                    //foreach (var select in selectedObjects)
-                    //{
-                    //    this.Select(select);
-                    //}
-                }
+                this.SwitchFloor(true);
                 Event.current.Use();
             }
-            bool keyDownEvent2 = ZLevelsDefOf.ZL_switchToLowerMap.KeyDownEvent;
-            if (keyDownEvent2)
+            if (LowerSwitchKey.KeyDownEvent)
             {
-                Map mapToSwitch = this.GetLowerLevel(Find.CurrentMap.Tile, Find.CurrentMap);
-                if (mapToSwitch != null)
-                {
-                    //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
-
-                    var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
-                    Current.Game.CurrentMap = mapToSwitch;
-                    rememberedCamera.rootPos.z += 0.5f;
-                    Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
-
-                    //foreach (var select in selectedObjects)
-                    //{
-                    //    this.Select(select);
-                    //}
-                }
+                this.SwitchFloor(false);
                 Event.current.Use();
             }
+        }
+
+        // Moves the view to the level above (up) or below the current one. The camera keeps its x and z. RimWorld's map switch
+        // (MapInterface.Notify_SwitchedMap) deselects the designator, so the designator is selected again after the switch.
+        public void SwitchFloor(bool up)
+        {
+            Map mapToSwitch = up ? this.GetUpperLevel(Find.CurrentMap.Tile, Find.CurrentMap) : this.GetLowerLevel(Find.CurrentMap.Tile, Find.CurrentMap);
+            if (mapToSwitch == null)
+            {
+                return;
+            }
+            //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
+
+            var designator = Find.DesignatorManager.SelectedDesignator;
+
+            var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
+            Current.Game.CurrentMap = mapToSwitch;
+            if (designator != null)
+            {
+                Find.DesignatorManager.Select(designator);
+            }
+            Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
+
+            //foreach (var select in selectedObjects)
+            //{
+            //    this.Select(select);
+            //}
         }
 
         public void SaveArea(Pawn pawn)

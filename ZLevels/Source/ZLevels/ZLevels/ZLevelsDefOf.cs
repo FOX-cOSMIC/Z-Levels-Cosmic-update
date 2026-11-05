@@ -33,9 +33,9 @@ namespace ZLevels
 
 		public static GameConditionDef ZL_UndergroundCondition;
 
-		public static KeyBindingDef ZL_switchToUpperMap;
+		public static KeyBindingDef ZL_switchFloorUpper;
 
-		public static KeyBindingDef ZL_switchToLowerMap;
+		public static KeyBindingDef ZL_switchFloorLower;
 
 		public static MapGeneratorDef ZL_EmptyMap;
 

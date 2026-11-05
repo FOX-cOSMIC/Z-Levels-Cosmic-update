@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorhotkeys"))
+                {
+                    finished = true;
+                    RunFloorHotkeysCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelstradereturn"))
                 {
                     finished = true;

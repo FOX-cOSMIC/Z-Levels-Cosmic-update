@@ -253,5 +253,103 @@ namespace ZLevelsValidation
             GenSpawn.Spawn(pawn, cell, map);
             return pawn;
         }
+
+        // Task 5 (idea 1 on docs/mod-comparison/ideas.html). N and M switch floors, and a switch keeps the selected designator and the
+        // camera's x and z. A player's prefs file can hold both switch keys as None. The game adds a default only for a key the file lacks,
+        // so such a file leaves the switch keys unbound. The scenario writes that saved state into the run's own Config folder and loads it
+        // with KeyPrefs.Init, the call the game makes at start.
+        private void RunFloorHotkeysCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                string prefsPath = GenFilePaths.KeyPrefsFilePath;
+                WriteUnboundSwitchKeysPrefs(prefsPath);
+                KeyPrefs.Init();
+                KeyBindingDef upKey = ZLevelsManager.UpperSwitchKey;
+                KeyBindingDef downKey = ZLevelsManager.LowerSwitchKey;
+                Record("floor hotkey diagnostic", "INFO: prefs file " + prefsPath + ", " + upKey.defName + " bound to " + upKey.MainKey + ", " + downKey.defName + " bound to " + downKey.MainKey + ", defaults " + upKey.defaultKeyCodeA + " and " + downKey.defaultKeyCodeA);
+                bool upOk = upKey.MainKey == UnityEngine.KeyCode.N;
+                bool downOk = downKey.MainKey == UnityEngine.KeyCode.M;
+                Record("upper switch key is N", upOk ? "PASS" : "FAIL: the upper switch key is " + upKey.MainKey + " after the prefs file loads");
+                Record("lower switch key is M", downOk ? "PASS" : "FAIL: the lower switch key is " + downKey.MainKey + " after the prefs file loads");
+
+                Map lower = CreateLevelBelow(tracker, surface);
+                Designator_Cancel designator = new Designator_Cancel();
+                Find.DesignatorManager.Select(designator);
+                UnityEngine.Vector3 start = new UnityEngine.Vector3(surface.Center.x + 0.25f, 15f, surface.Center.z + 0.25f);
+                Find.CameraDriver.SetRootPosAndSize(start, 24f);
+                SyncRememberedCamera();
+                UnityEngine.Vector3 before = LiveCameraRootPos();
+
+                tracker.SwitchFloor(false);
+                bool onLower = Current.Game.CurrentMap == lower;
+                UnityEngine.Vector3 atLower = LiveCameraRootPos();
+                bool designatorAtLower = Find.DesignatorManager.SelectedDesignator == designator;
+
+                SyncRememberedCamera();
+                tracker.SwitchFloor(true);
+                bool onSurface = Current.Game.CurrentMap == surface;
+                UnityEngine.Vector3 atSurface = LiveCameraRootPos();
+                bool designatorAtSurface = Find.DesignatorManager.SelectedDesignator == designator;
+
+                // A row needs the switch to have happened. Without this, a switch that did nothing would leave the camera where it was and pass.
+                bool designatorOk = onLower && onSurface && designatorAtLower && designatorAtSurface;
+                bool cameraOk = onLower && onSurface && SameXZ(before, atLower) && SameXZ(before, atSurface);
+                Record("floor switch keeps the selected designator", designatorOk ? "PASS" : "FAIL: reached the lower level " + onLower + ", back on the surface " + onSurface + ", designator kept " + designatorAtLower + " and " + designatorAtSurface);
+                Record("floor switch keeps the camera x and z", cameraOk ? "PASS" : "FAIL: the camera was at " + Describe(before) + ", then " + Describe(atLower) + " on the lower level and " + Describe(atSurface) + " back on the surface");
+                bool allOk = upOk && downOk && designatorOk && cameraOk;
+                Record("floor hotkeys", allOk ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("floor hotkeys", "FAIL: " + exception);
+                Log.Error("Z-Levels floor hotkey validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // Writes a prefs file in the form a player's file has: both switch keys saved as None, under the names the mod used before the fix.
+        private static void WriteUnboundSwitchKeysPrefs(string path)
+        {
+            string entries = "";
+            foreach (string name in new[] { "ZL_switchToUpperMap", "ZL_switchToLowerMap" })
+            {
+                entries += "  <li>\n    <key>" + name + "</key>\n    <value>\n      <keyBindingA>None</keyBindingA>\n      <keyBindingB>None</keyBindingB>\n    </value>\n  </li>\n";
+            }
+            System.IO.File.WriteAllText(path, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<KeyPrefsData>\n" + entries + "</KeyPrefsData>\n", new System.Text.UTF8Encoding(false));
+        }
+
+        // CameraDriver.rootPos is private, so the live position is read by reflection. The reflected value is exact, where
+        // CurrentViewRect rounds to cells.
+        private static UnityEngine.Vector3 LiveCameraRootPos()
+        {
+            System.Reflection.FieldInfo field = typeof(CameraDriver).GetField("rootPos", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (field == null)
+            {
+                throw new InvalidOperationException("CameraDriver has no rootPos field");
+            }
+            return (UnityEngine.Vector3)field.GetValue(Find.CameraDriver);
+        }
+
+        // CameraDriver.Update copies the camera's position into the map's remembered position every frame, and a switch reads the remembered
+        // position of the map it leaves. The scenario makes the same copy before each switch.
+        private static void SyncRememberedCamera()
+        {
+            RememberedCameraPos remembered = Current.Game.CurrentMap.rememberedCameraPos;
+            remembered.rootPos = LiveCameraRootPos();
+            remembered.rootSize = Find.CameraDriver.RootSize;
+        }
+
+        private static bool SameXZ(UnityEngine.Vector3 a, UnityEngine.Vector3 b)
+        {
+            return Math.Abs(a.x - b.x) < 0.001f && Math.Abs(a.z - b.z) < 0.001f;
+        }
+
+        private static string Describe(UnityEngine.Vector3 v)
+        {
+            return "(" + v.x + ", " + v.z + ")";
+        }
     }
 }
