@@ -791,3 +791,13 @@ The Task 6 research summarizes the Dubs Rimatomics code that the reactor scenari
 - Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.
 - Task 7 regression runs: `.artifacts/runs/20261103-134920/`, `.artifacts/runs/20261103-134331/`, `.artifacts/runs/20261103-135031/`, and `.artifacts/runs/20261103-135227/`.
 - Partial mod-list run without RimworldReadableNumbers: `.artifacts/runs/20261103-135706/`.
+
+## Commit method for shared files (2026-11-05)
+
+Another session's uncommitted vault work sits in `tools/RuntimeValidation/RuntimeValidation.cs` and `tools/Invoke-RuntimeValidation.ps1`. `git commit -- <file>` takes the whole working-tree file, so it would commit that work too. A shared file is committed in three steps:
+
+1. Write the committed text with only this task's edit: `git show HEAD:<file> | sed '<this task's edit>' > <scratch file>`.
+2. Store that text as a blob and point the index at it: `git hash-object -w <scratch file>` prints the blob, and `git update-index --cacheinfo 100644,<blob>,<file>` sets the index entry.
+3. Check `git diff --cached --stat` lists only this task's lines and files, then run `git commit -F <message file>` with no path arguments.
+
+After the commit the working copy still holds the other session's changes, so git status keeps the file as modified. That is expected. Committed text is LF, which `git show HEAD:<file> | tr -cd '\r' | wc -c` confirms.

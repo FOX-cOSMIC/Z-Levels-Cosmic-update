@@ -11,7 +11,7 @@ using ZLevels;
 
 namespace ZLevelsValidation
 {
-    public class RuntimeValidation : GameComponent
+    public partial class RuntimeValidation : GameComponent
     {
         private int stage;
         private Pawn pawn;
