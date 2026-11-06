@@ -562,6 +562,91 @@ namespace ZLevelsValidation
             return job == null ? "no job" : job.def.defName + " for " + job.targetA.Thing + " on " + job.targetA.Thing?.Map;
         }
 
+        // Task 7 (idea 5 on docs/mod-comparison/ideas.html). The stairs float menu offers "Work on this floor (100 s)". Its order locks the
+        // selected colonists to the floor of the stairs for 6000 ticks. The scenario reads the lock at 5999 and 6000 ticks after the order.
+        private void RunWorkOnFloorOrderCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                // The view is on the lower floor, where the colonist stands and the stairs are clicked.
+                Current.Game.CurrentMap = lower;
+                IntVec3 colonistCell = FindReachableCellNear(lower, stairs.Position + new IntVec3(1, 0, 0), new List<IntVec3>());
+                if (!colonistCell.IsValid)
+                {
+                    throw new InvalidOperationException("no cell the lower stairs can reach for the colonist");
+                }
+                Pawn colonist = SpawnPawnAt(lower, colonistCell);
+                List<FloatMenuOption> options = FloatMenuMakerMap.GetOptions(new List<Pawn> { colonist }, stairs.Position.ToVector3Shifted(), out FloatMenuContext context);
+                FloatMenuOption order = options?.FirstOrDefault(option => option.Label == "Work on this floor (100 s)");
+                bool offered = order != null;
+                Record("stairs float menu offers the order", offered ? "PASS" : "FAIL: the stairs float menu for the colonist offers no " + "Work on this floor (100 s)" + "; the menu has " + (options == null ? 0 : options.Count) + " options");
+                if (!offered)
+                {
+                    Record("order stores the floor index", "FAIL: no order to run");
+                    Record("lock is active 5999 ticks after the order", "FAIL: no order to run");
+                    Record("lock ends 6000 ticks after the order", "FAIL: no order to run");
+                    Record("work on floor order", "FAIL: the stairs float menu offers no order");
+                    Root.Shutdown();
+                    return;
+                }
+
+                int orderTick = Find.TickManager.TicksGame;
+                order.action();
+                int lowerZ = tracker.GetZIndexFor(lower);
+                int? stored = tracker.floorPolicy.LockedFloorIndex(colonist, orderTick);
+                int? active = tracker.floorPolicy.LockedFloorIndex(colonist, orderTick + 5999);
+                int? ended = tracker.floorPolicy.LockedFloorIndex(colonist, orderTick + 6000);
+                bool storesFloor = stored == lowerZ;
+                bool activeAt5999 = active == lowerZ;
+                bool endsAt6000 = ended == null;
+                Record("order stores the floor index", storesFloor ? "PASS" : "FAIL: the order stored floor " + (stored == null ? "none" : stored.Value.ToString()) + ", the stairs are on floor " + lowerZ);
+                Record("lock is active 5999 ticks after the order", activeAt5999 ? "PASS" : "FAIL: the lock at 5999 ticks is " + (active == null ? "none" : active.Value.ToString()));
+                Record("lock ends 6000 ticks after the order", endsAt6000 ? "PASS" : "FAIL: the lock at 6000 ticks is still floor " + ended);
+                Record("work on floor order", storesFloor && activeAt5999 && endsAt6000 ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("work on floor order", "FAIL: " + exception);
+                Log.Error("Z-Levels work on floor order validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The lower level, the stairs between it and the surface, and an open area of radius 2.5 around the lower stairs. The stairs
+        // come from SpawnStairsBelow, and the registry is refilled by one game-component tick (see the stay on floor scenario).
+        private static Building_StairsUp SetUpLowerStairs(Map surface, ZLevelsManager tracker, out Map lower)
+        {
+            lower = CreateLevelBelow(tracker, surface);
+            IntVec3 stairCell = FindOpenBlock(surface, 1, 1);
+            if (!stairCell.IsValid)
+            {
+                throw new InvalidOperationException("no open cell on the surface for the stairs");
+            }
+            surface.terrainGrid.SetTerrain(stairCell, TerrainDefOf.Concrete);
+            Building_StairsDown surfaceStairs = (Building_StairsDown)ThingMaker.MakeThing(ZLevelsDefOf.ZL_StairsDown, ThingDefOf.Steel);
+            surfaceStairs.SetFaction(Faction.OfPlayer);
+            GenSpawn.Spawn(surfaceStairs, stairCell, surface);
+            ClearCell(lower, stairCell);
+            lower.terrainGrid.SetTerrain(stairCell, TerrainDefOf.Concrete);
+            tracker.SpawnStairsBelow(SpawnRestPawn(surface), stairCell, lower);
+            Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().FirstOrDefault();
+            if (stairs == null)
+            {
+                throw new InvalidOperationException("the lower level has no stairs up after SpawnStairsBelow");
+            }
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 2.5f, true))
+            {
+                if (cell == stairs.Position || !cell.InBounds(lower)) continue;
+                ClearCell(lower, cell);
+                lower.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+            }
+            tracker.GameComponentTick();
+            return stairs;
+        }
+
         private static Pawn FindPawnById(int id)
         {
             foreach (Map map in Find.Maps)

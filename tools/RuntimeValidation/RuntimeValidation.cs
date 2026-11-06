@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsworkonfloororder"))
+                {
+                    finished = true;
+                    RunWorkOnFloorOrderCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstayonfloor"))
                 {
                     // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
