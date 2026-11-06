@@ -1332,6 +1332,109 @@ namespace ZLevelsValidation
             return stairs.GetGizmos().OfType<Command_Action>().FirstOrDefault(gizmo => gizmo.defaultLabel == "View the connected floor");
         }
 
+        // Task 18 (idea "better stair placement messages" on docs/mod-comparison/ideas.html). A stairs piece is refused, with a message, when it
+        // cannot work: its room is under 25 cells, stairs up have no roof over their room, or stairs down start above ground. The scenario asks
+        // the game's own placement check (GenConstruct.CanPlaceBlueprintAt) about one cell for each rule and reads the answer.
+        private void RunStairPlacementCheck()
+        {
+            const string roomMessage = "This room is under 25 cells. Stairs need a room of at least 25 cells.";
+            const string roofMessage = "No roof to build on. Stairs up need a roof over the room.";
+            const string groundMessage = "Stairs going down cannot start above ground.";
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+
+                // No roof: stairs up on an open cell of the surface.
+                IntVec3 block = FindCentralOpenBlock(surface, 5, 5);
+                if (!block.IsValid)
+                {
+                    throw new InvalidOperationException("no open 5 by 5 block on the surface away from the edges");
+                }
+                // A plain stairs down on the open surface is allowed: the new rules must not refuse ordinary stairs.
+                string openDown = PlacementRefusal(ZLevelsDefOf.ZL_StairsDown, block + new IntVec3(2, 0, 2), surface);
+                Record("stairs down on the surface are allowed", openDown == null ? "PASS" : "FAIL: refused with \"" + openDown + "\"");
+                string noRoof = PlacementRefusal(ZLevelsDefOf.ZL_StairsUp, block + new IntVec3(2, 0, 2), surface);
+                Record("no roof refuses with its message", noRoof == roofMessage ? "PASS" : "FAIL: " + DescribeRefusal(noRoof, roofMessage));
+
+                // Room under 25 cells: stairs down in a closed room of 3 by 3 cells, with a roof over it.
+                for (int x = 0; x < 5; x++)
+                {
+                    for (int z = 0; z < 5; z++)
+                    {
+                        IntVec3 cell = block + new IntVec3(x, 0, z);
+                        ClearCell(surface, cell);
+                        if (x == 0 || z == 0 || x == 4 || z == 4)
+                        {
+                            GenSpawn.Spawn(ThingMaker.MakeThing(ThingDefOf.Wall, ThingDefOf.Steel), cell, surface);
+                        }
+                        else
+                        {
+                            surface.roofGrid.SetRoof(cell, RoofDefOf.RoofConstructed);
+                        }
+                    }
+                }
+                string smallRoom = PlacementRefusal(ZLevelsDefOf.ZL_StairsDown, block + new IntVec3(2, 0, 2), surface);
+                Record("room under 25 cells refuses with its message", smallRoom == roomMessage ? "PASS" : "FAIL: " + DescribeRefusal(smallRoom, roomMessage));
+
+                // Above ground: stairs down on an upper floor, which is above the surface.
+                Map upper = tracker.CreateUpperLevel(surface, surface.Center);
+                // The upper floor is fogged until seen, and the game refuses placement in undiscovered areas.
+                upper.fogGrid.ClearAllFog();
+                IntVec3 upperBlock = FindCentralOpenBlock(upper, 3, 3);
+                if (!upperBlock.IsValid)
+                {
+                    throw new InvalidOperationException("no open 3 by 3 block on the upper floor");
+                }
+                string aboveGround = PlacementRefusal(ZLevelsDefOf.ZL_StairsDown, upperBlock + new IntVec3(1, 0, 1), upper);
+                Record("stairs down from above ground refuses with its message", aboveGround == groundMessage ? "PASS" : "FAIL: " + DescribeRefusal(aboveGround, groundMessage));
+            }
+            catch (Exception exception)
+            {
+                Record("stairs down from above ground refuses with its message", "FAIL: " + exception);
+                Log.Error("Z-Levels stair placement validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The lowest corner of a width by height block that lies at least 10 cells inside every map edge, whose cells are standable and empty.
+        // The game refuses buildings near the map edge, so FindOpenBlock, which allows a 2 cell margin, is not enough here.
+        private static IntVec3 FindCentralOpenBlock(Map map, int width, int height)
+        {
+            for (int x = 10; x < map.Size.x - width - 10; x++)
+            {
+                for (int z = 10; z < map.Size.z - height - 10; z++)
+                {
+                    bool open = true;
+                    for (int i = 0; i < width && open; i++)
+                    {
+                        for (int j = 0; j < height && open; j++)
+                        {
+                            IntVec3 cell = new IntVec3(x + i, 0, z + j);
+                            open = cell.Standable(map) && cell.GetEdifice(map) == null && cell.GetThingList(map).Count == 0;
+                        }
+                    }
+                    if (open)
+                    {
+                        return new IntVec3(x, 0, z);
+                    }
+                }
+            }
+            return IntVec3.Invalid;
+        }
+
+        // The refusal message the game's placement check gives for a stairs piece at a cell, or null when the placement is allowed.
+        private static string PlacementRefusal(ThingDef def, IntVec3 cell, Map map)
+        {
+            AcceptanceReport report = GenConstruct.CanPlaceBlueprintAt(def, cell, Rot4.North, map);
+            return report.Accepted ? null : report.Reason;
+        }
+
+        private static string DescribeRefusal(string got, string expected)
+        {
+            return got == null ? "placement is allowed" : "refused with \"" + got + "\", expected \"" + expected + "\"";
+        }
+
         // The number of cross-floor searches that the action starts, read from FloorPolicy.CrossFloorSearches before and after it.
         private static int CrossFloorSearchesDuring(Action action)
         {

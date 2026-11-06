@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairplacement"))
+                {
+                    finished = true;
+                    RunStairPlacementCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairsview"))
                 {
                     finished = true;
