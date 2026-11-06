@@ -293,6 +293,11 @@ namespace ZLevelsValidation
 
         private static IntVec3 TakeCellNear(Map map, IntVec3 near, List<IntVec3> used)
         {
+            // FindReachableCellNear measures reachability from near, so an origin off the map can never succeed.
+            if (!near.InBounds(map))
+            {
+                throw new InvalidOperationException("the origin " + near + " is off " + map + "; pick a cell on the map");
+            }
             IntVec3 cell = FindReachableCellNear(map, near, used);
             if (!cell.IsValid)
             {
@@ -500,6 +505,334 @@ namespace ZLevelsValidation
                 }
             }
             throw new InvalidOperationException("no sealed rock cell away from the stairs on the lower floor");
+        }
+
+        // Task 28 (fighting across floors). Two checks around the stairs cell L. First, a hostile pawn on the lower floor shoots a colonist on the
+        // surface. The mod moves the shooter up for the shot (Verb_LaunchProjectile.TryCastShot prefix), so the shot should hit. Second, a colonist
+        // on the lower floor starts a melee attack on a hostile pawn on the surface, diagonally across the stairs cell. The attack should be refused.
+        // The two checks run one after the other, so the surface hostile cannot interfere with the shot target.
+        private int fightStage;
+        private int fightDueTick;
+        private int fightHits;
+        private int fightJobLost;
+        private int fightFirstHitTick;
+        private int fightShotStart;
+        private float fightTargetLast;
+        private bool fightDone;
+        private bool fightShotHit;
+        private float fightTargetBefore;
+        private float fightEnemyBefore;
+        private Map fightSurface;
+        private Map fightLower;
+        private IntVec3 fightStairs;
+        private Pawn fightShooter;
+        private Pawn fightTarget;
+        private Pawn fightMelee;
+        private Pawn fightEnemy;
+        private bool fightMeleeSeen;
+        private bool fightMeleeRefused;
+        private int fightControlDue;
+        private float fightControlBefore;
+        private Pawn fightControlColonist;
+        private Pawn fightControlEnemy;
+        private int fightControlStart;
+        private List<string> fightControlJobs = new List<string>();
+        private bool fightMeleeStartedAtOnce;
+        private bool fightControlStartedAtOnce;
+        private string fightLineFound = "nothing";
+        private int fightOffFloor;
+
+        private void RunCrossFloorFightTick()
+        {
+            if (fightDone)
+            {
+                return;
+            }
+            try
+            {
+                if (fightStage == 0)
+                {
+                    SetUpShotAcrossStairs();
+                    fightStage = 1;
+                    return;
+                }
+                if (fightStage == 1)
+                {
+                    SampleShot();
+                    if (Find.TickManager.TicksGame >= fightDueTick)
+                    {
+                        FinishShotAcrossStairs();
+                        fightStage = 2;
+                    }
+                    return;
+                }
+                if (fightStage == 2)
+                {
+                    SetUpMeleeAcrossStairs();
+                    fightStage = 3;
+                    return;
+                }
+                if (fightStage == 3)
+                {
+                    if (fightMelee.CurJob != null && fightMelee.CurJob.def == JobDefOf.AttackMelee)
+                    {
+                        fightMeleeSeen = true;
+                    }
+                    if (Find.TickManager.TicksGame >= fightDueTick)
+                    {
+                        FinishMeleeAcrossStairs();
+                        fightStage = 4;
+                    }
+                    return;
+                }
+                if (fightStage == 4)
+                {
+                    SetUpSameFloorMelee();
+                    fightStage = 5;
+                    return;
+                }
+                if (fightStage == 5)
+                {
+                    SampleControlJob();
+                    if (Find.TickManager.TicksGame >= fightControlDue)
+                    {
+                        FinishSameFloorMelee();
+                    }
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                fightDone = true;
+                Record("cross floor fight", "FAIL: " + exception);
+                Log.Error("Z-Levels cross floor fight validation failed: " + exception);
+                finished = true;
+                Root.Shutdown();
+            }
+        }
+
+        private void SetUpShotAcrossStairs()
+        {
+            fightSurface = Find.CurrentMap;
+            ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+            RequireFloors(tracker, fightSurface, 1);
+            Building_StairsUp stairs = SetUpLowerStairs(fightSurface, tracker, out fightLower);
+            RequireFloors(tracker, fightSurface, 2);
+            fightStairs = stairs.Position;
+            CarveAround(fightLower, fightStairs, 6f);
+            // SetUpLowerStairs takes the first open block, and this run put the stairs at (2, 0, 2), next to the corner. The shot's cells
+            // therefore go toward the map centre, so they stay on the map.
+            int inward = fightStairs.x < fightSurface.Center.x ? 1 : -1;
+            Faction enemy = Find.FactionManager.RandomEnemyFaction(allowNonHumanlike: false);
+            if (enemy == null)
+            {
+                throw new InvalidOperationException("no enemy humanlike faction for the shooter");
+            }
+            List<IntVec3> used = new List<IntVec3>();
+            fightShooter = PawnGenerator.GeneratePawn(enemy.def.basicMemberKind ?? PawnKindDefOf.Colonist, enemy);
+            IntVec3 shooterCell = TakeCellNear(fightLower, fightStairs + new IntVec3(2 * inward, 0, 0), used);
+            GenSpawn.Spawn(fightShooter, shooterCell, fightLower);
+            // A hostile pawn with no lord may walk off a map by its own choice, so the defend-point lord holds the shooter at its cell. The wander
+            // radius is one cell: with three, run 20261106-162135 ended with the shooter on the surface.
+            LordMaker.MakeNewLord(enemy, new LordJob_DefendPoint(shooterCell, wanderRadius: 1f, addFleeToil: false), fightLower, new List<Pawn> { fightShooter });
+            fightShooter.equipment.DestroyAllEquipment();
+            ThingWithComps revolver = (ThingWithComps)ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("Gun_Revolver"));
+            fightShooter.equipment.AddEquipment(revolver);
+            fightLineFound = ClearShotLine(inward);
+            fightTarget = SpawnPawnAt(fightSurface, TakeCellNear(fightSurface, fightStairs + new IntVec3(4 * inward, 0, 0), used));
+            fightTargetBefore = fightTarget.health.summaryHealth.SummaryHealthPercent;
+            fightDueTick = Find.TickManager.TicksGame + 1800;
+            fightShotStart = Find.TickManager.TicksGame;
+            fightTargetLast = fightTargetBefore;
+            // The shooter holds its cell on an attack job. AttackStatic stops the pawn's movement at its start, so the hostile does not walk
+            // up the stairs to reach the colonist, and every shot comes from the lower floor.
+            Job hold = JobMaker.MakeJob(JobDefOf.AttackStatic, fightTarget);
+            hold.maxNumStaticAttacks = 1000;
+            fightShooter.jobs.StartJob(hold, JobCondition.InterruptForced);
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Normal;
+            Record("cross floor fight setup", "INFO: the shooter from " + enemy.Name + " stands on the lower floor at " + fightShooter.Position
+                + ", the colonist on the surface at " + fightTarget.Position + ", the stairs at " + fightStairs
+                + "; the surface line held " + fightLineFound);
+        }
+
+        // One frame of the shot phase: whether the shooter is still on the lower floor and on its attack job, and the frame when the colonist first
+        // loses health.
+        private void SampleShot()
+        {
+            if (fightShooter.MapHeld != fightLower)
+            {
+                fightOffFloor++;
+            }
+            if (fightShooter.CurJob == null || fightShooter.CurJob.def != JobDefOf.AttackStatic)
+            {
+                fightJobLost++;
+            }
+            float health = fightTarget.health.summaryHealth.SummaryHealthPercent;
+            if (health < fightTargetLast - 0.0001f)
+            {
+                if (fightHits == 0)
+                {
+                    fightFirstHitTick = Find.TickManager.TicksGame - fightShotStart;
+                }
+                fightHits++;
+            }
+            fightTargetLast = health;
+        }
+
+        private void FinishShotAcrossStairs()
+        {
+            bool hit = fightHits > 0;
+            // The row proves a cross-floor shot only if the shooter held its cell on the lower floor, on its attack job, the whole time.
+            bool stayed = fightOffFloor == 0 && fightJobLost == 0;
+            fightShotHit = hit && stayed;
+            // The line of fire the shooter's verb computes from the lower floor, and the surface ground under the shooter's cell.
+            string lineOfFire = "no line of fire checked";
+            if (fightShooter.Spawned)
+            {
+                Verb shotVerb = fightShooter.equipment.PrimaryEq.PrimaryVerb;
+                bool lineClear = shotVerb.TryFindShootLineFromTo(fightShooter.Position, fightTarget, out ShootLine shootLine);
+                lineOfFire = "the line of fire from the lower floor is " + (lineClear ? "clear" : "refused") + "; the surface ground under the shooter is "
+                    + fightSurface.terrainGrid.TerrainAt(fightShooter.Position).defName;
+            }
+            string shooterState = fightShooter.Spawned
+                ? "the shooter is on " + fightShooter.MapHeld + " at " + fightShooter.Position
+                : "the shooter is not spawned";
+            string floors = fightOffFloor == 0 ? "the shooter stayed on the lower floor" : "the shooter was on another floor for " + fightOffFloor + " frames";
+            string jobs = fightJobLost == 0 ? "it held its attack job" : "it lost its attack job for " + fightJobLost + " frames";
+            string firstHit = fightHits == 0 ? "no hit" : fightHits + " frames with a hit, the first " + fightFirstHitTick + " ticks in";
+            string detail = firstHit + "; " + floors + "; " + jobs + "; " + shooterState + "; " + lineOfFire + "; the surface line held " + fightLineFound;
+            Record("a shot from the lower floor through the stairs hits a surface colonist, as it should", fightShotHit
+                ? "PASS: the colonist lost health" + (fightTarget.Dead ? " and died" : "") + "; " + detail
+                : "FAIL: " + (hit ? "the colonist lost health, but not only from the lower floor" : "the colonist was not hit") + "; " + detail);
+            // A colonist that the shots killed has already left the map, so only pawns that are still spawned are despawned here.
+            if (fightShooter.Spawned) fightShooter.DeSpawn(DestroyMode.Vanish);
+            if (fightTarget.Spawned) fightTarget.DeSpawn(DestroyMode.Vanish);
+        }
+
+        // Clears the surface cells one cell either side of the line from the stairs to the shot's target, and returns what was there. A rock or
+        // a tree on that line would stop the shot. That is terrain on the colony's map, not the cross-floor shot the scenario tests.
+        private string ClearShotLine(int inward)
+        {
+            List<string> found = new List<string>();
+            for (int k = 1; k <= 5; k++)
+            {
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    IntVec3 cell = fightStairs + new IntVec3(k * inward, 0, dz);
+                    if (!cell.InBounds(fightSurface))
+                    {
+                        continue;
+                    }
+                    foreach (Thing thing in fightSurface.thingGrid.ThingsAt(cell).ToList())
+                    {
+                        if (thing is Pawn)
+                        {
+                            continue;
+                        }
+                        found.Add(thing.def.defName + " at " + cell);
+                        thing.Destroy(DestroyMode.Vanish);
+                    }
+                }
+            }
+            return found.Count == 0 ? "nothing" : string.Join(", ", found);
+        }
+
+        private void SetUpMeleeAcrossStairs()
+        {
+            List<IntVec3> used = new List<IntVec3>();
+            fightMelee = SpawnPawnAt(fightLower, TakeCellNear(fightLower, fightStairs + new IntVec3(1, 0, 1), used));
+            Faction enemy = Find.FactionManager.RandomEnemyFaction(allowNonHumanlike: false);
+            if (enemy == null)
+            {
+                throw new InvalidOperationException("no enemy humanlike faction for the melee target");
+            }
+            fightEnemy = PawnGenerator.GeneratePawn(enemy.def.basicMemberKind ?? PawnKindDefOf.Colonist, enemy);
+            GenSpawn.Spawn(fightEnemy, TakeCellNear(fightSurface, fightStairs + new IntVec3(-1, 0, -1), used), fightSurface);
+            fightEnemyBefore = fightEnemy.health.summaryHealth.SummaryHealthPercent;
+            fightMelee.jobs.StartJob(JobMaker.MakeJob(JobDefOf.AttackMelee, fightEnemy), JobCondition.InterruptForced);
+            fightMeleeStartedAtOnce = fightMelee.CurJob != null && fightMelee.CurJob.def == JobDefOf.AttackMelee;
+            fightDueTick = Find.TickManager.TicksGame + 1200;
+            Record("cross floor fight melee setup", "INFO: the colonist on the lower floor at " + fightMelee.Position + " starts a melee attack on "
+                + fightEnemy.Name + " on the surface at " + fightEnemy.Position + ", across the stairs cell " + fightStairs);
+        }
+
+        private void FinishMeleeAcrossStairs()
+        {
+            float after = fightEnemy.health.summaryHealth.SummaryHealthPercent;
+            bool damaged = Math.Abs(after - fightEnemyBefore) >= 0.0001f;
+            bool taken = fightMeleeStartedAtOnce || fightMeleeSeen;
+            fightMeleeRefused = !fightEnemy.Dead && !damaged && !taken;
+            Record("melee across the stairs cell is refused, as it should", fightMeleeRefused
+                ? "PASS: the attack job was never taken and the target took no damage; the colonist's job is " + DescribeJob(fightMelee.CurJob)
+                    + " on " + fightMelee.MapHeld
+                : "FAIL: the attack job was taken or the target took damage across the stairs cell; the colonist is on " + fightMelee.MapHeld);
+        }
+
+        // A control for the melee row, on the lower floor: a colonist and a hostile stand on the same floor, next to each other, and the colonist
+        // starts the same attack job. If this does not land a hit, the refusal row says nothing about the stairs.
+        private void SetUpSameFloorMelee()
+        {
+            Faction enemy = Find.FactionManager.RandomEnemyFaction(allowNonHumanlike: false);
+            if (enemy == null)
+            {
+                throw new InvalidOperationException("no enemy humanlike faction for the control hostile");
+            }
+            int inward = fightStairs.x < fightLower.Center.x ? 1 : -1;
+            int inwardZ = fightStairs.z < fightLower.Center.z ? 1 : -1;
+            List<IntVec3> used = new List<IntVec3>();
+            IntVec3 attackerCell = TakeCellNear(fightLower, fightStairs + new IntVec3(3 * inward, 0, 3 * inwardZ), used);
+            IntVec3 hostileCell = IntVec3.Invalid;
+            foreach (IntVec3 step in new[] { new IntVec3(0, 0, 1), new IntVec3(1, 0, 0), new IntVec3(0, 0, -1), new IntVec3(-1, 0, 0) })
+            {
+                IntVec3 candidate = attackerCell + step;
+                if (candidate.InBounds(fightLower) && candidate.Standable(fightLower) && candidate.GetEdifice(fightLower) == null
+                    && candidate.GetFirstItem(fightLower) == null)
+                {
+                    hostileCell = candidate;
+                    break;
+                }
+            }
+            if (!hostileCell.IsValid)
+            {
+                throw new InvalidOperationException("no open cell next to the control colonist at " + attackerCell);
+            }
+            fightControlColonist = SpawnPawnAt(fightLower, attackerCell);
+            fightControlEnemy = PawnGenerator.GeneratePawn(enemy.def.basicMemberKind ?? PawnKindDefOf.Colonist, enemy);
+            GenSpawn.Spawn(fightControlEnemy, hostileCell, fightLower);
+            fightControlBefore = fightControlEnemy.health.summaryHealth.SummaryHealthPercent;
+            fightControlColonist.jobs.StartJob(JobMaker.MakeJob(JobDefOf.AttackMelee, fightControlEnemy), JobCondition.InterruptForced);
+            fightControlStartedAtOnce = fightControlColonist.CurJob != null && fightControlColonist.CurJob.def == JobDefOf.AttackMelee;
+            fightControlStart = Find.TickManager.TicksGame;
+            fightControlDue = fightControlStart + 600;
+            string weapon = fightControlEnemy.equipment.Primary == null ? "no weapon" : fightControlEnemy.equipment.Primary.Label;
+            Record("same floor melee control setup", "INFO: the colonist at " + attackerCell + " starts a melee attack on " + fightControlEnemy.Name
+                + " at " + hostileCell + ", both on the lower floor; the hostile has " + weapon);
+        }
+
+        // Records each job the control colonist holds, with the tick, counted from the start of the control, when it first appears.
+        private void SampleControlJob()
+        {
+            string job = fightControlColonist.CurJob == null ? "none" : fightControlColonist.CurJob.def.defName;
+            if (!fightControlJobs.Any(entry => entry.StartsWith(job + "@", StringComparison.Ordinal)))
+            {
+                fightControlJobs.Add(job + "@" + (Find.TickManager.TicksGame - fightControlStart));
+            }
+        }
+
+        private void FinishSameFloorMelee()
+        {
+            fightDone = true;
+            float after = fightControlEnemy.health.summaryHealth.SummaryHealthPercent;
+            bool landed = after < fightControlBefore;
+            bool taken = fightControlStartedAtOnce || fightControlJobs.Any(entry => entry.StartsWith("AttackMelee@", StringComparison.Ordinal));
+            string seen = string.Join(", ", fightControlJobs);
+            Record("melee on one floor is taken, as a control", taken
+                ? "PASS: the attack job was taken; the hostile " + (landed ? "lost health" : "took no damage") + "; jobs seen: " + seen
+                : "FAIL: the attack job was never taken on one floor; jobs seen: " + seen + "; the colonist's job is " + DescribeJob(fightControlColonist.CurJob));
+            bool ok = fightShotHit && fightMeleeRefused && taken;
+            Record("cross floor fight", ok ? "PASS" : "FAIL: a row above failed");
+            finished = true;
+            Root.Shutdown();
         }
     }
 }

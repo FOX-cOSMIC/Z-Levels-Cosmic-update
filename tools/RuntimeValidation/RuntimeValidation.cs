@@ -387,6 +387,13 @@ namespace ZLevelsValidation
                     RunChildAnimalMechCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscrossfloorfight"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCrossFloorFightTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsjobtakenonarrival"))
                 {
                     // The walk takes game time, so the check runs over several frames. It waits until the player has control, as the reservation check does.

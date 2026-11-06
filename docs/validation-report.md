@@ -1216,3 +1216,62 @@ Runs 153721 and 153854 of e expected a surface colonist to be unable to reach a 
 - d: a thief with the exit lord. The kidnapping job is not run.
 - e: a wild Muffalo, with the reach and reservation checks that roping, charging and child jobs depend on. Mech charging, the child routines and the roping jobs themselves are not run. Their Biotech setup is not built.
 - The reach fix changes which targets on another floor a pawn can reach. The 18 regression runs show no failure. They do not measure how much more cross-floor work the colony finds.
+
+## Fighting across floors
+
+Task 28 of the multi-floor ideas plan. The scenario is `-CrossFloorFight`, run by `RunCrossFloorFightTick` in `tools/RuntimeValidation/EventScenarios.cs`. No game code changed. The shot row fails. The failure is a finding about the game's line-of-fire rule, and that rule is not decided yet.
+
+### What the scenario checks
+
+The scenario builds a lower floor with stairs up to the surface, then runs three checks in order.
+
+1. A hostile on the lower floor shoots at a colonist on the surface for 1800 ticks. The hostile holds its cell on the `AttackStatic` job, so it cannot walk up the stairs. Each frame the scenario records the hostile's floor and job, and whether the colonist loses health.
+2. A colonist on the lower floor starts `AttackMelee` on a hostile on the surface, diagonally across the stairs cell, for 1200 ticks.
+3. A control. A colonist and a hostile on the lower floor, next to each other, start the same `AttackMelee` job for 600 ticks.
+
+Before the shot, the scenario removes every thing that is not a pawn from a band one cell either side of the line from the stairs to the colonist, five cells long. It records what it removed. The removal changes no game rule.
+
+### Result
+
+Run 20261106-163149, with the final scenario.
+
+| Row | Result | Detail |
+|---|---|---|
+| a shot from the lower floor through the stairs hits a surface colonist, as it should | FAIL | No hit in 1800 ticks. The hostile stayed on the lower floor and kept its job in every frame. The line of fire from the lower floor was refused, and the ground under the hostile on the surface is Sand. |
+| melee across the stairs cell is refused, as it should | PASS | The attack job was never taken, and the target took no damage. |
+| melee on one floor is taken, as a control | PASS | The attack job was taken at once. The hostile took no damage, and the colonist switched to `FleeAndCower` 17 ticks in. |
+| cross floor fight | FAIL | A row above failed. The runner exits with code 1. |
+
+### Why the shot is refused
+
+The mod moves the shooter onto the target's floor to check the line of fire. The prefix and postfix of `Verb.TryFindShootLineFromTo` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/CombatPatches.cs` (lines 362 to 421) do this. The postfix then refuses the line unless every cell on it that is at least two cells from the target is `ZL_OutsideTerrain`, which is open air. `IsVoidsEverywhereInShootingLineInBackWard` (lines 505 to 552) makes that check. Ordinary ground fails it. The stairs cell is `ZL_OutsideTerrainTwo`, which the check does not accept. The stairs set that terrain in `Building_StairsDown.cs` (lines 47 to 68).
+
+During the run, the scenario asked the shooter's verb for the line from the lower floor. The answer was refused. The ground under the shooter on the surface was Sand.
+
+The spec does not say whether a shot may cross from one floor to another over solid ground. The code sets the rule explicitly. The shot row stays red until someone decides whether the rule should change.
+
+### Why the melee across the stairs is refused
+
+The attack job is not current straight after `StartJob`, so the colonist never takes it, and the target takes no damage. On one floor the same job is current at once. The check that refuses it, whether reservation or reach across floors, is not isolated.
+
+### Earlier runs
+
+Two earlier runs passed the shot row. Neither one proves a shot from the lower floor.
+
+- 20261106-160723: the hostile's floor was not recorded.
+- 20261106-162135: the hostile walked up the stairs and shot from the surface. The enemy AI routes a hostile to a target on another floor. The postfixes of `JobGiver_AIGotoNearestHostile` and `JobGiver_AIFightEnemy` in `CombatPatches.cs` do that.
+
+Other early runs failed in the scenario's own setup. They are not listed here.
+
+### Limits
+
+- The hostile holds its cell only while it runs `AttackStatic`. Without that job, the enemy AI walks it up the stairs.
+- The control checks that the attack job starts on one floor. It does not check that the job lands a hit. In all six runs that sampled the control, the colonist switched to `FleeAndCower` between 9 and 27 ticks in.
+- The stairs sit at column 2 in every run, next to the low-x edge, because the setup takes the first open block on the surface. The generated lower level ranged from 262 to 4126 walkable cells between runs. The scenario does not set the layout, so the cells it picks differ from run to run.
+- The scenario does not test a shot through open air. So it says nothing about a shot the rule allows.
+- The cause of the melee refusal is not isolated. It may be reservation or reach across floors.
+
+### Run folders
+
+- `.artifacts/runs/20261106-163149`: the final scenario.
+- `.artifacts/runs/20261106-163519`: the core validation after the runner change, PASS.
