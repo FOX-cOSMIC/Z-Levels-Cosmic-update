@@ -943,3 +943,98 @@ The extra-floor cost of each step is not measured, because the patch skips the s
 - Green: `.artifacts/runs/20261106-083516/`, `.artifacts/runs/20261106-084041/` and `.artifacts/runs/20261106-084157/`.
 - Core: `.artifacts/runs/20261106-083608/`.
 - Benefit: `.artifacts/runs/20261106-083754/`, `.artifacts/runs/20261106-083827/` and `.artifacts/runs/20261106-083901/`.
+
+## Own floor first
+
+Task 21 of the multi-floor ideas plan, idea 8 on `docs/mod-comparison/ideas.html`. Code commit `ad922eb`. This section records the change, the red and green runs, the regression runs, the search timing and the limits.
+
+### What changed
+
+- A colonist's work search checks its own floor before the other floors. Work at or above the threshold priority is checked on every floor first. Lower-priority work on another floor is taken only when the own floor has none.
+- The threshold is `ZLevelsSettings.WorkGiverHighPriorityThreshold`. It defaults to 2, and the mod settings slider runs from 0 to 4. A value of 0 turns the high pass off. The threshold reads the game's work priorities, so with "Use work priorities" off the high pass does nothing.
+- The copied `TryIssueJobPackage` is removed from `JobPatches.cs`, about 430 lines. The vanilla search runs once per floor through `OwnFloorFirstSearch` in `HarmonyPatches/OwnFloorFirstPatch.cs`. Each pass sets which work givers the search may check.
+- While the own-floor search runs, the haul, bill, construction, refuel, tend and rescue givers answer with the helpers the copy used (`CrossFloorGiverJob`). Each giver keeps the copy's choice of validator and job. Rescue's job and tend's validator stay vanilla, as in the copy. A helper that calls back into its own giver gets the vanilla method, which stops the refuel helper from calling itself.
+- Two fixes came out of the regression runs:
+  - `IsGoodStoreCell` sets the look-up map to the stockpile's own map for the check, and restores the old map after it. The floor iterator leaves the last floor it yielded recorded, so own-floor cells were checked on the floor below, and every one was refused.
+  - In `BuildJobListFor`, a tend job without medicine no longer becomes a `ZL_HaulThingToDest` with no target. Without medicine, the colonist walks to the patient's floor only when that floor is not its own.
+- The own-floor check and the job-target check give their colonists the work types they set. Some backstories disable work types, and the setup logged an error for a colonist who could not haul. `SpawnCapableColonistNear` retries until the colonist has the work types the row needs.
+
+### Red and green
+
+Own-floor check (`-OwnFloorFirst`):
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-085341 | Red, on the copy (commit `1c47e0c`) | Own-floor work: 9 searches on other floors. FAIL |
+| 20261106-091952 | Green, first version of the new search | All rows PASS |
+| 20261106-101952 | Haul givers patched, storage fix not yet in | Rows 1 and 3 FAIL: the own-floor steel haul returns no job |
+| 20261106-120655 | Probe run | The stockpile cell on `Map-0` is checked against the look-up map `Map-1` |
+| 20261106-130035 | Fixture set hauling on a colonist who could not haul | All rows PASS, but the runner refused the run on an error line |
+| 20261106-130231 | Final | All rows PASS, no error lines |
+
+Job-target check (`-JobTargets`, new):
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-125712 | Red, before the tend fix | FAIL: a `ZL_HaulThingToDest` with no target |
+| 20261106-125839 | Green, after the tend fix | PASS |
+
+Core failure found by the regression set:
+
+- `20261106-123103`: the core run timed out at stage 17. The log had five `JobDriver_HaulThingToDest: targetA.Thing is null` errors for one colonist, each from a new `ZL_HaulThingToDest` job.
+- I did not capture the job type behind those errors. The cause rests on the error text, on the code, and on the job-target check, which reproduces the same error on the tend branch. In the searches this change touches, no other branch of `BuildJobListFor` builds a null target that I could find. Vanilla `CanRefuel` returns false when no fuel is reachable, before any refuel job is made, so the refuel branch cannot get a fuel-less job from these searches.
+- On the final code, the core run passed in `20261106-125914`, `20261106-130707` and `20261106-130823`.
+
+### Regression runs on the final code
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-130231 | `-OwnFloorFirst` | PASS, five rows |
+| 20261106-130112 | `-OtherColonistHauls` | PASS |
+| 20261106-130356 | `-AllColonistsHaul` | PASS |
+| 20261106-130309 | `-MultiBuild` | PASS |
+| 20261106-130458 | `-Cooling` | PASS |
+| 20261106-125839 | `-JobTargets` | PASS |
+| 20261106-125914, 20261106-130707, 20261106-130823 | Core, three runs | PASS, 33 rows each |
+| 20261106-130625, 20261106-131125, 20261106-131158 | `-SearchTiming`, three runs | PASS |
+
+### Search timing
+
+Same method as the Task 19 baseline. Microseconds per call. The baseline column is the mean of its three runs. The final columns are the three runs on the final code.
+
+| Setup | Task 19 baseline mean | 130625 | 131125 | 131158 | Final mean |
+|---|---|---|---|---|---|
+| One floor | 392.6 | 391.3 | 282.3 | 531.9 | 401.8 |
+| Two floors | 620.4 | 493.6 | 231.6 | 394.3 | 373.2 |
+| Three floors | 500.0 | 187.5 | 214.1 | 346.7 | 249.4 |
+
+Map ticks, microseconds per tick, 300 ticks per row. This change does not touch map ticks, so these rows are a control.
+
+| Run | Lower | Upper | Surface |
+|---|---|---|---|
+| 20261106-130625 | 48.2 | 62.6 | 216.3 |
+| 20261106-131125 | 47.3 | 86.2 | 212.9 |
+| 20261106-131158 | 38.9 | 61.9 | 212.4 |
+
+Reading the numbers:
+
+- The one-floor setup runs no cross-floor search, and its three runs range from 282 to 532 µs. The noise in this method is about as large as the differences above.
+- The two- and three-floor means are below the baseline. The three runs do not separate from the noise, so no speed-up is claimed.
+- The cross-floor column is not comparable with the baseline. It counts calls to `FloorPolicy.Allowed`. The search now makes one call per pass, so the count fell from 34200 to 4300 to 6050. The counter itself is unchanged.
+
+### Limits
+
+- The cross-floor tend branch (no medicine, patient on another floor) runs `ZL_GoToMap`, but no row checks it.
+- The job-target check covers the tend branch only. The refuel argument rests on the vanilla code, not on a row.
+- The job type behind the errors in `20261106-123103` was not captured.
+- The threshold reads the game's priorities. A player who turns "Use work priorities" off gets no threshold effect.
+- Warning CS0219 for `dest` in `HasHaulJobOnThing` (`JobPatches.cs`) is in HEAD. This change did not add it.
+- Core failed intermittently while this task ran. One failure after the storage fix (`20261106-123103`) was traced to the tend branch. The final code passed core three times. Three passes do not prove that the intermittent failure is gone.
+
+### Run folders
+
+- Own floor first: `.artifacts/runs/20261106-085341/` (red), `20261106-091952/` (green), `20261106-130231/` (final).
+- Job targets: `.artifacts/runs/20261106-125712/` (red), `20261106-125839/` (green).
+- Regression: `20261106-130112/`, `20261106-130356/`, `20261106-130309/`, `20261106-130458/`.
+- Core: `20261106-123103/` (failed), `20261106-125914/`, `20261106-130707/`, `20261106-130823/`.
+- Search timing: `20261106-130625/`, `20261106-131125/`, `20261106-131158/`.
