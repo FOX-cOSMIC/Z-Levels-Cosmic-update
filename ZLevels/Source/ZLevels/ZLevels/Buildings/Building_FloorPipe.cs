@@ -22,6 +22,10 @@ namespace ZLevels
 
         private static List<ThingDef> resourceChoices;
 
+        // True while a source makes its other end. The other end makes no end of its own, so one pipe is one pair of ends, not a chain up the
+        // floors (decision DM17).
+        private static bool makingOtherEnd;
+
         // The resources a pipe can carry: Steel first, then the raw resources with a stack limit above 1, by label (decision DM19).
         public static List<ThingDef> ResourceChoices
         {
@@ -65,7 +69,7 @@ namespace ZLevels
         public override void SpawnSetup(Map map, bool respawningAfterLoad)
         {
             base.SpawnSetup(map, respawningAfterLoad);
-            if (respawningAfterLoad)
+            if (respawningAfterLoad || makingOtherEnd)
             {
                 return;
             }
@@ -80,7 +84,17 @@ namespace ZLevels
                 return;
             }
             Thing made = ThingMaker.MakeThing(def);
-            if (!GenPlace.TryPlaceThing(made, Position, above, ThingPlaceMode.Direct))
+            bool placed;
+            makingOtherEnd = true;
+            try
+            {
+                placed = GenPlace.TryPlaceThing(made, Position, above, ThingPlaceMode.Direct);
+            }
+            finally
+            {
+                makingOtherEnd = false;
+            }
+            if (!placed)
             {
                 return;
             }

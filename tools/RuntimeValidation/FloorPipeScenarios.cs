@@ -33,6 +33,7 @@ namespace ZLevelsValidation
             "pipe refused on the top floor",
             "pipe refused where the cell above is blocked",
             "pipe allowed where the cell above is clear",
+            "pipe on the lowest of three floors has one other end",
         };
 
         // The pipe class, by name. A missing class throws, so the row reads FAIL with the reason.
@@ -276,6 +277,21 @@ namespace ZLevelsValidation
                     return refusal == null
                         ? "PASS: a clear cell above takes a pipe"
                         : "FAIL: the pipe was refused: " + refusal;
+                });
+                // Three floors: a pipe on the lowest one pairs with the middle one only. The top floor is made here, after the rows above, so their
+                // two-floor layout does not change. A pipe that also stands on the top floor means the other end made an end of its own.
+                RecordFloorPipeRow(rows, "pipe on the lowest of three floors has one other end", () =>
+                {
+                    Map top = tracker.CreateUpperLevel(surface, surface.Center);
+                    top.fogGrid.ClearAllFog();
+                    ClearWayUpsBlock(top, block);
+                    IntVec3 cell = WayUpCell(block, 14, 7);
+                    SpawnFloorPipe(lower, cell);
+                    bool middle = FloorPipeAt(surface, cell) != null;
+                    bool topFloor = FloorPipeAt(top, cell) != null;
+                    return middle && !topFloor
+                        ? "PASS: one other end on the middle floor at " + cell + ", none on the top floor"
+                        : "FAIL: the middle floor has a pipe " + middle + " and the top floor has a pipe " + topFloor + ", at " + cell;
                 });
             }
             catch (Exception exception)
