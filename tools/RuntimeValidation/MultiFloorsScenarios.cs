@@ -1726,6 +1726,13 @@ namespace ZLevelsValidation
                 surface.weatherDecider.WeatherDeciderTick();
                 bool surfaceRan = DeciderDuration(surface.weatherDecider) != sentinel;
                 Record("the surface still runs its weather", surfaceRan ? "PASS" : "FAIL: the surface weather decider did not run");
+                // The four steps the change skips, timed alone on the surface, which the change does not skip. The clock sits on a tick that is not a
+                // multiple of 1213, so the spawner's chance is not reached. The rows show how much of the extra floor's tick the four steps can cost.
+                Find.TickManager.DebugSetTicksGame(1000);
+                Record("tick step cost, surface", "INFO: wind " + MicrosecondsPerCall(() => surface.windManager.WindManagerTick(), 300)
+                    + " us, wild spawning " + MicrosecondsPerCall(() => surface.wildAnimalSpawner.WildAnimalSpawnerTick(), 300)
+                    + " us, weather choice " + MicrosecondsPerCall(() => surface.weatherDecider.WeatherDeciderTick(), 300)
+                    + " us, passing ships " + MicrosecondsPerCall(() => surface.passingShipManager.PassingShipManagerTick(), 300) + " us per call");
                 Record(label, spawned == 0 && lowerKept && surfaceRan ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
@@ -1762,6 +1769,18 @@ namespace ZLevelsValidation
                 map.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
                 map.roofGrid.SetRoof(cell, null);
             }
+        }
+
+        // The mean cost of one call, in microseconds, over the given number of calls.
+        private static string MicrosecondsPerCall(Action call, int calls)
+        {
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < calls; i++)
+            {
+                call();
+            }
+            watch.Stop();
+            return OneDecimal(watch.Elapsed.TotalMilliseconds * 1000.0 / calls);
         }
 
         private static int CountAnimals(Map map)
