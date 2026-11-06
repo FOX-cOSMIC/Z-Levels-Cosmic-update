@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschorespread"))
+                {
+                    finished = true;
+                    RunChoreSpreadCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsaddonload"))
                 {
                     finished = true;

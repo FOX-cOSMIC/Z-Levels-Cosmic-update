@@ -1180,6 +1180,39 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
+        // Task 15 (idea "spread out the regular chores" on docs/mod-comparison/ideas.html). Each floor runs its periodic check on its own tick, so
+        // two floors never run it on one tick. The scenario runs both floors' checks on the same ticks and counts the ticks on which a second
+        // floor ran its check.
+        private void RunChoreSpreadCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Map lower = CreateLevelBelow(tracker, surface);
+                MapComponentZLevel surfaceComp = surface.GetComponent<MapComponentZLevel>();
+                MapComponentZLevel lowerComp = lower.GetComponent<MapComponentZLevel>();
+                int twoFloorsBefore = MapComponentZLevel.ChoreTicksWithTwoFloors;
+                int runsBefore = MapComponentZLevel.ChoreRuns;
+                for (int tick = 0; tick <= 3000; tick++)
+                {
+                    Find.TickManager.DebugSetTicksGame(tick);
+                    surfaceComp.MapComponentTick();
+                    lowerComp.MapComponentTick();
+                }
+                int twoFloors = MapComponentZLevel.ChoreTicksWithTwoFloors - twoFloorsBefore;
+                int runs = MapComponentZLevel.ChoreRuns - runsBefore;
+                Record("no tick runs the chore on two floors", twoFloors == 0 ? "PASS: " + runs + " checks, no tick shared" : "FAIL: " + twoFloors + " ticks ran the check on two floors");
+                Record("chore spread", twoFloors == 0 && runs > 0 ? "PASS" : "FAIL: " + twoFloors + " shared ticks in " + runs + " checks");
+            }
+            catch (Exception exception)
+            {
+                Record("chore spread", "FAIL: " + exception);
+                Log.Error("Z-Levels chore spread validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null
