@@ -102,6 +102,14 @@ namespace ZLevelsValidation
             return map == null ? "no map" : "the floor with Z index " + tracker.GetZIndexFor(map);
         }
 
+        // A cell moved onto the map: each axis is kept between 1 and the last cell less one. The stairs can stand near an edge of the map, and an
+        // offset from them then leaves the map (run 20261106-181425: origin (12, 0, -4)). A clamp never moves a cell farther from the stairs than
+        // the offset it came from, so the open area around the lower stairs still covers the cell.
+        private static IntVec3 OnMapCell(Map map, IntVec3 cell)
+        {
+            return new IntVec3(Math.Min(Math.Max(cell.x, 1), map.Size.x - 2), 0, Math.Min(Math.Max(cell.z, 1), map.Size.z - 2));
+        }
+
         private static JobGiver_GetRest RestGiverFor(Pawn pawn)
         {
             return FindThinkNode<JobGiver_GetRest>(pawn.thinker.MainThinkNodeRoot)
@@ -257,10 +265,10 @@ namespace ZLevelsValidation
                 int lowerZ = tracker.GetZIndexFor(lower);
                 // The surface cells are placed around the stairs, as the food scenario places its surface colonists. The surface centre
                 // had no reachable cell in run 20261106-173830.
-                IntVec3 middle = stairs.Position + new IntVec3(10, 0, 0);
+                IntVec3 middle = OnMapCell(surface, stairs.Position + new IntVec3(10, 0, 0));
 
                 // A colonist on each floor, for the tab's current floor column.
-                Pawn lowerColonist = SpawnPawnAt(lower, TakeCellNear(lower, stairs.Position + new IntVec3(3, 0, 0), lowerUsed));
+                Pawn lowerColonist = SpawnPawnAt(lower, TakeCellNear(lower, OnMapCell(lower, stairs.Position + new IntVec3(3, 0, 0)), lowerUsed));
                 Pawn surfaceColonist = SpawnPawnAt(surface, TakeCellNear(surface, middle, surfaceUsed));
 
                 string tabRow = CheckFloorsTabRow(() =>
@@ -283,31 +291,31 @@ namespace ZLevelsValidation
                 Record("current floor column shows the floor", shownRow);
 
                 // The ground row runs before any bed exists, so no bed on either floor can be the answer.
-                Pawn groundColonist = SpawnPawnAt(surface, TakeCellNear(surface, middle + new IntVec3(0, 0, -6), surfaceUsed));
+                Pawn groundColonist = SpawnPawnAt(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(0, 0, -6)), surfaceUsed));
                 groundColonist.needs.rest.CurLevel = 0.05f;
                 string groundRow = CheckFloorsTabRow(() => FloorsTabGroundRow(tracker, groundColonist, lower, lowerZ));
                 Record("sleep floor set to lower with no bed there: the rest lies on the lower floor", groundRow);
 
                 // The sleep row. The colonist stands on the surface beside a surface bed, and a bed stands on the lower floor. The
                 // sleep floor is the lower floor, so the bed on the surface must not be chosen.
-                Pawn sleeper = SpawnPawnAt(surface, TakeCellNear(surface, middle + new IntVec3(-3, 0, 0), surfaceUsed));
-                SpawnFloorsTabBed(surface, TakeCellNear(surface, middle + new IntVec3(-3, 0, 2), surfaceUsed));
-                SpawnFloorsTabBed(lower, TakeCellNear(lower, stairs.Position + new IntVec3(3, 0, -2), lowerUsed));
+                Pawn sleeper = SpawnPawnAt(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(-3, 0, 0)), surfaceUsed));
+                SpawnFloorsTabBed(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(-3, 0, 2)), surfaceUsed));
+                SpawnFloorsTabBed(lower, TakeCellNear(lower, OnMapCell(lower, stairs.Position + new IntVec3(3, 0, -2)), lowerUsed));
                 sleeper.needs.rest.CurLevel = 0.05f;
                 string sleepRow = CheckFloorsTabRow(() => FloorsTabSleepRow(tracker, sleeper, lower, lowerZ));
                 Record("sleep floor set to lower: the rest job uses a bed on the lower floor", sleepRow);
 
                 // The food row. A meal on each floor, and a hungry colonist on the surface.
-                Pawn eater = SpawnPawnAt(surface, TakeCellNear(surface, middle + new IntVec3(-6, 0, -4), surfaceUsed));
+                Pawn eater = SpawnPawnAt(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(-6, 0, -4)), surfaceUsed));
                 eater.needs.food.CurLevelPercentage = 0.1f;
-                SpawnFloorsTabMeal(surface, TakeCellNear(surface, middle + new IntVec3(-6, 0, -2), surfaceUsed));
-                SpawnFloorsTabMeal(lower, TakeCellNear(lower, stairs.Position + new IntVec3(3, 0, 4), lowerUsed));
+                SpawnFloorsTabMeal(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(-6, 0, -2)), surfaceUsed));
+                SpawnFloorsTabMeal(lower, TakeCellNear(lower, OnMapCell(lower, stairs.Position + new IntVec3(3, 0, 4)), lowerUsed));
                 string foodRow = CheckFloorsTabRow(() => FloorsTabFoodRow(tracker, eater, lower, lowerZ));
                 Record("food floor set to lower: the food job takes food on the lower floor", foodRow);
 
                 // The meditation row. A meditation spot stands on the lower floor only.
-                Pawn meditator = SpawnPawnAt(surface, TakeCellNear(surface, middle + new IntVec3(6, 0, 3), surfaceUsed));
-                Building spot = SpawnFloorsTabMeditationSpot(lower, TakeCellNear(lower, stairs.Position + new IntVec3(4, 0, 3), lowerUsed));
+                Pawn meditator = SpawnPawnAt(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(6, 0, 3)), surfaceUsed));
+                Building spot = SpawnFloorsTabMeditationSpot(lower, TakeCellNear(lower, OnMapCell(lower, stairs.Position + new IntVec3(4, 0, 3)), lowerUsed));
                 string meditationRow = CheckFloorsTabRow(() => FloorsTabMeditationRow(tracker, meditator, spot, lower, lowerZ));
                 Record("meditation floor set to lower: the meditation spot is on the lower floor", meditationRow);
 
@@ -315,7 +323,7 @@ namespace ZLevelsValidation
                 List<Pawn> fans = new List<Pawn>();
                 for (int i = 0; i < FloorsTabFunSearches; i++)
                 {
-                    Pawn fan = SpawnPawnAt(surface, TakeCellNear(surface, middle + new IntVec3(-6, 0, 6), surfaceUsed));
+                    Pawn fan = SpawnPawnAt(surface, TakeCellNear(surface, OnMapCell(surface, middle + new IntVec3(-6, 0, 6)), surfaceUsed));
                     fan.needs.joy.CurLevel = 0.1f;
                     SetNeedFloorByName(tracker.floorPolicy, fan, "Fun", lowerZ);
                     fans.Add(fan);

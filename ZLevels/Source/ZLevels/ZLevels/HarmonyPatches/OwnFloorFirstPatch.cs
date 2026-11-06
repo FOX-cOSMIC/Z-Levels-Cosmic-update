@@ -98,7 +98,9 @@ namespace ZLevels
             // The reachability patch files each cell the search looks at under this map, as the iterator does when it yields a map. The own floor
             // is not yielded by the iterator here, so the map is set directly; without it the cells keep the map of the last other floor.
             ZUtils.currentLookedIntoMap = map;
-            GiverFilter = filter;
+            // The floor's work settings are part of the filter: a floor that does not do a work type refuses its givers, so the vanilla search skips them.
+            int floor = ZUtils.ZTracker.GetZIndexFor(map);
+            GiverFilter = giver => filter(giver) && ZUtils.ZTracker.floorPolicy.WorkTypeAllowed(giver.def.workType, floor);
             VanillaCallRunning = true;
             try
             {

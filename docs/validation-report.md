@@ -1350,3 +1350,69 @@ The green run logged four errors from other mods (`other-mod-errors.txt` in its 
 - The rows read the job chain. They do not follow the colonist after ticks.
 - Multiplayer: untested. The project notes leave it optional and unverified.
 - The runs were built from the working tree, which also holds another session's vault-rock file. The commit holds only Floors tab work, and it was built alone in a clean export.
+
+## Work filter per floor
+
+Lucas's idea "work filter per floor" in `docs/mod-comparison/ideas.html` is idea 6. The Floors tab has a second table. Its rows are the visible work types, and its columns are the floors, headed `<floor> does it`. A cleared box stops that floor's work searches from giving a job of that work type.
+
+The check runs inside the search. The vanilla search sets `OwnFloorFirstSearch.GiverFilter` in `RunVanillaSearch`, and `PawnCanUseWorkGiverPatch` refuses each work giver the filter rejects. Each search pass names its own floor, so each pass reads the boxes of the floor it searches. A colonist on the surface therefore gets no cooking job at a stove on a lower floor whose cooking box is cleared.
+
+`FloorPolicy` keeps the cleared boxes per floor in `workOffFloors`. A save writes them as two lists, `workOffFloorIndexes` and `workOffWorkTypes`. Each work type is saved by its definition name, because a save cannot hold a def.
+
+### What the scenario checks
+
+`-FloorWorkFilter` runs one colony with a lower floor. A fuelled stove with a cook-a-meal bill stands on the lower floor, and raw rice lies beside it. A colonist on the surface has cooking as its only work.
+
+- `cooking off on the lower floor: no cook job there`. With cooking cleared for the lower floor, the search takes no cooking work at the stove.
+- `cooking on: the cook job is taken`. With cooking set for the lower floor, the search takes the cooking work at the stove.
+- `filter survives save and reload`. The cleared box is still cleared after a save and load.
+- `floor work filter`. Passes when every row above passes.
+
+Cooking work at the stove means a bill on the stove, a haul into it, or a haul to a cell beside it. A cook job starts by bringing its ingredients to the stove, so that haul is part of the cook job.
+
+### Result
+
+Green run `20261106-182202`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| cooking off on the lower floor: no cook job there | PASS. The search found no job at all. Cooking is the colonist's only work, and the filter refuses it. |
+| cooking on: the cook job is taken | PASS. The search takes DoBill on FueledStove74707 on Map-1. |
+| filter survives save and reload | PASS |
+| floor work filter | PASS |
+
+### Red run
+
+Run `20261106-182024` with the filter forced off. For this run, a temporary `return true` came first in `FloorPolicy.WorkTypeAllowed`, so every work type was allowed. The file was then restored from a copy made before the switch. Its SHA-256 matched that copy, and its diff against `HEAD` held only the Task 30 lines.
+
+- Row 1 failed. The search takes cooking work at the stove on the lower floor, `DoBill on FueledStove102380 on Map-1`.
+- Row 2 passed, with the same job.
+- Row 3 failed. Under the switch, every work type reads as allowed after the load, so the reload check fails as well.
+- `floor work filter` failed.
+
+An earlier red run, `20261106-180922`, failed row 1 in the same way. It ran before the rice's origin was corrected.
+
+### Regression, final code
+
+- `20261106-182245`, `-FloorsTab`, with the user's mod list read-only through `-ModsConfigSource`: 9 of 9 rows PASS. Other mods logged four error lines, as they did in Task 29.
+- `20261106-182422`, core: 33 rows, PASS.
+- `20261106-182525`, `-OwnFloorFirst`: 8 rows, PASS.
+
+### Earlier runs, superseded
+
+- `20261106-181024` (green), `20261106-181159` (core) and `20261106-181348` (`-OwnFloorFirst`) passed on the same production code. The scenario origins changed after them.
+- `20261106-181425`, `-FloorsTab`, failed in its setup. The ground colonist's origin was `(12, 0, -4)`, off the map. The stairs stand at `(2, 0, 2)`, so the cell six cells south of the middle had a negative z coordinate. `OnMapCell` now keeps each origin on the map. It moves a cell no farther from the stairs than the offset it came from, so the open area around the lower stairs still covers it.
+
+### Fixes made while the rows were red
+
+- Row 1 first passed by mistake on a haul into the stove, the first step of a cook job. The check now counts that haul as cooking at the stove.
+- The search kept the destination and main job of the previous search. `FloorWorkSearch` clears both before each search.
+
+### Limits
+
+- The grid's checkboxes are not clicked or drawn, and no screenshot was taken. The rows read the search's first step, main job, and destination. They do not follow the colonist after ticks.
+- The lower level is generated. Its walkable cell count was 316 in the green run and 1791 in the red run.
+- A work giver with no work type is allowed on every floor.
+- A saved work type that no longer exists is dropped at load, without an error.
+- No run loads a save made before this change. Such a save has no work lists, so every floor does all work. This follows from the code, not from a run.
+- Multiplayer: untested. The project notes leave it optional and unverified.

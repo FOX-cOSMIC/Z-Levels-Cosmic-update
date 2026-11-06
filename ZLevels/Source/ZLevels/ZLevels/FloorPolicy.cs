@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using RimWorld;
 using Verse;
 
 namespace ZLevels
@@ -267,6 +268,84 @@ namespace ZLevels
                 savedNeedPawns = null;
                 savedNeedKinds = null;
                 savedNeedFloors = null;
+            }
+        }
+
+        // Work types that a floor does not do, keyed by the floor's Z index. A work type is allowed on a floor unless it is listed here, so a
+        // floor with no entry does all work (floor work filter, idea 6 on docs/mod-comparison/ideas.html).
+        private readonly Dictionary<int, HashSet<WorkTypeDef>> workOffFloors = new Dictionary<int, HashSet<WorkTypeDef>>();
+
+        // Sets whether the floor does the work type. Allowed removes the listing; not allowed lists it.
+        public void SetWorkAllowed(WorkTypeDef def, int floorIndex, bool allowed)
+        {
+            if (def == null)
+            {
+                return;
+            }
+            if (allowed)
+            {
+                if (workOffFloors.TryGetValue(floorIndex, out HashSet<WorkTypeDef> off))
+                {
+                    off.Remove(def);
+                    if (off.Count == 0)
+                    {
+                        workOffFloors.Remove(floorIndex);
+                    }
+                }
+                return;
+            }
+            if (!workOffFloors.TryGetValue(floorIndex, out HashSet<WorkTypeDef> listed))
+            {
+                listed = new HashSet<WorkTypeDef>();
+                workOffFloors[floorIndex] = listed;
+            }
+            listed.Add(def);
+        }
+
+        // True when the floor does the work type. A work type with no definition is allowed.
+        public bool WorkTypeAllowed(WorkTypeDef def, int floorIndex)
+        {
+            return def == null || !(workOffFloors.TryGetValue(floorIndex, out HashSet<WorkTypeDef> off) && off.Contains(def));
+        }
+
+        private List<int> savedWorkFloors;
+        private List<string> savedWorkDefNames;
+
+        // Saves the work types each floor does not do, as two parallel lists. The work types are saved by name, since a def is not a saved
+        // object. The lists are read back at PostLoadInit, when the defs are loaded.
+        public void ExposeWorkOff()
+        {
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                savedWorkFloors = new List<int>();
+                savedWorkDefNames = new List<string>();
+                foreach (KeyValuePair<int, HashSet<WorkTypeDef>> floorEntry in workOffFloors)
+                {
+                    foreach (WorkTypeDef def in floorEntry.Value)
+                    {
+                        savedWorkFloors.Add(floorEntry.Key);
+                        savedWorkDefNames.Add(def.defName);
+                    }
+                }
+            }
+            Scribe_Collections.Look(ref savedWorkFloors, "workOffFloorIndexes", LookMode.Value);
+            Scribe_Collections.Look(ref savedWorkDefNames, "workOffWorkTypes", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                workOffFloors.Clear();
+                if (savedWorkFloors != null && savedWorkDefNames != null)
+                {
+                    for (int i = 0; i < savedWorkFloors.Count && i < savedWorkDefNames.Count; i++)
+                    {
+                        WorkTypeDef def = DefDatabase<WorkTypeDef>.GetNamedSilentFail(savedWorkDefNames[i]);
+                        if (def != null)
+                        {
+                            SetWorkAllowed(def, savedWorkFloors[i], false);
+                        }
+                    }
+                }
+                savedWorkFloors = null;
+                savedWorkDefNames = null;
             }
         }
 

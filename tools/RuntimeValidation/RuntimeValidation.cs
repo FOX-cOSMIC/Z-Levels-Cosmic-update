@@ -498,6 +498,24 @@ namespace ZLevelsValidation
                     RunWorkOnFloorOrderCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorwork"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!floorWorkSaved)
+                        {
+                            floorWorkSaved = true;
+                            RunFloorWorkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (floorWorkChecked) return;
+                    floorWorkChecked = true;
+                    finished = true;
+                    RunFloorWorkAfterReload();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsfloorstab"))
                 {
                     // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
