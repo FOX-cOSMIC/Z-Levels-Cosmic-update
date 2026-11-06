@@ -1351,6 +1351,14 @@ namespace ZLevelsValidation
                 {
                     throw new InvalidOperationException("no open 5 by 5 block on the surface away from the edges");
                 }
+                // The stairs need terrain that supports light, and the validation map's terrain differs from run to run, so the block gets concrete.
+                for (int x = 0; x < 5; x++)
+                {
+                    for (int z = 0; z < 5; z++)
+                    {
+                        surface.terrainGrid.SetTerrain(block + new IntVec3(x, 0, z), TerrainDefOf.Concrete);
+                    }
+                }
                 // A plain stairs down on the open surface is allowed: the new rules must not refuse ordinary stairs.
                 string openDown = PlacementRefusal(ZLevelsDefOf.ZL_StairsDown, block + new IntVec3(2, 0, 2), surface);
                 Record("stairs down on the surface are allowed", openDown == null ? "PASS" : "FAIL: refused with \"" + openDown + "\"");
@@ -1385,6 +1393,13 @@ namespace ZLevelsValidation
                 if (!upperBlock.IsValid)
                 {
                     throw new InvalidOperationException("no open 3 by 3 block on the upper floor");
+                }
+                for (int x = 0; x < 3; x++)
+                {
+                    for (int z = 0; z < 3; z++)
+                    {
+                        upper.terrainGrid.SetTerrain(upperBlock + new IntVec3(x, 0, z), TerrainDefOf.Concrete);
+                    }
                 }
                 string aboveGround = PlacementRefusal(ZLevelsDefOf.ZL_StairsDown, upperBlock + new IntVec3(1, 0, 1), upper);
                 Record("stairs down from above ground refuses with its message", aboveGround == groundMessage ? "PASS" : "FAIL: " + DescribeRefusal(aboveGround, groundMessage));
