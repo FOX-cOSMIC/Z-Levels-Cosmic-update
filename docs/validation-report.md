@@ -1275,3 +1275,78 @@ Other early runs failed in the scenario's own setup. They are not listed here.
 
 - `.artifacts/runs/20261106-163149`: the final scenario.
 - `.artifacts/runs/20261106-163519`: the core validation after the runner change, PASS.
+
+## Floors tab
+
+Lucas's idea "floor settings tab" (`docs/mod-comparison/ideas.html`). The Floors button (`MainButtonDef` `ZL_Floors`, order 210) opens `ZLevels.FloorsTab`: one row per free colonist on the colony's floors. The columns are the colonist, the floor it stands on, and the floor that each of four needs searches on: sleep, food, fun and meditation. A click opens a menu with "Any" and each floor. `FloorPolicy` keeps the choices per colonist and need, and `ZLevelsManager` saves them with the game.
+
+### What the scenario checks
+
+`-FloorsTab` runs one colony with a lower floor. Each row reads the job that a search returns, plus the route destination the tracker stores for that colonist. The scenario does not tick the game to see where the colonist ends up.
+
+- `tab is registered`: the button opens `ZLevels.FloorsTab`.
+- `current floor column shows the floor`: a lower colonist shows Lower 1, a surface colonist shows Surface.
+- `sleep floor set to lower with no bed there`: with no bed on either floor, the rest is a ground spot on the lower floor, and the route goes there.
+- `sleep floor set to lower: the rest job uses a bed on the lower floor`: a surface bed stands beside the colonist, so the filter must choose the lower bed.
+- `food floor set to lower`: a meal lies on each floor, and the food job must take the lower one.
+- `meditation floor set to lower`: a `MeditationSpot` stands on the lower floor only, and the meditation job must be at it.
+- `fun floor set to lower`: sixteen colonists search for a fun job. No search may take a job off the lower floor, and at least one job must be found there.
+- `floor setting survives save and reload`: the sleep floor is still set after a save and load.
+- `floors tab`: passes when every row above passes.
+
+### Result
+
+Final green run `20261106-175108`, passed with other mods (the user's mod list, read-only):
+
+| Row | Result |
+|---|---|
+| tab is registered | PASS |
+| current floor column shows the floor | PASS |
+| sleep floor set to lower with no bed there | PASS: the colonist lies on the ground of the lower floor, routed there |
+| sleep floor set to lower: the rest job uses a bed on the lower floor | PASS: LayDown for a bed on Map-1 |
+| food floor set to lower | PASS: Ingest for a meal on Map-1 |
+| meditation floor set to lower | PASS: Meditate at a MeditationSpot on Map-1 |
+| fun floor set to lower: no fun search takes a job off the lower floor | PASS: 11 of 16 found a job on the lower floor, 5 found none |
+| floor setting survives save and reload | PASS |
+| floors tab | PASS |
+
+### Red runs
+
+- `20261106-174127`, need filter off, user's mod list: the ground, sleep, food, meditation and fun rows FAIL. The sleep row got the surface bed, the food row the surface meal, the meditation row a surface job, and most fun searches a surface job. The save row passes, since it does not depend on the filter.
+- `20261106-174345`, filter on, before the fixes: the sleep and food rows PASS, so the filter works for those needs. The ground row FAILs: the spot was picked on the lower floor, but the route went to the surface, because the spot was picked again after the search loop. The meditation row FAILs, since no meditation filter existed yet. The fun row FAILs: 13 of 16 searches found no job. The lower level has never been seen, so it is fogged. The fix clears the fog, as the need cool-down scenario does. After that, 5 of 16 found none.
+
+### Fixes made while the rows were red
+
+- The ground spot on a set sleep floor is routed to that floor, while the colonist still stands there. Before, the search recomputed the spot on the surface (`JobPatches.cs`, rest prefix).
+- `JobGiver_Meditate.TryGiveJob` has a prefix that searches only the chosen floor, as the rest and food searches do (`JobGiver_MeditatePatch`).
+- The food row uses a base `JobGiver_GetFood` with the Hungry minimum, as the food scenario sets it. The think tree's first food giver can be a Starving one.
+- The aggregate flag was an instance field, and the game builds a new component on load. The flag is static now, so the rows before the save are read after it.
+
+### Earlier runs, superseded
+
+- `20261106-170559`: timed out. The after-reload function did not shut the game down. Fixed.
+- `20261106-172310`: the sleep row read only the route job. The bed job sat in the queue behind it. The sleeper also stood beside the only lower bed, so the filter could not change the result.
+- `20261106-173608`: the food search found nothing, because of the Starving giver. The meditation spot origin was off the map.
+- `20261106-173830`: setup failed, because the centre of the surface had no reachable cell. The surface cells now sit around the stairs.
+- `20261106-173951`: the meditation spot def was null. Royalty is not in the default validation mod list (`ModsConfig.xml` of the run lists no `ludeon.rimworld.royalty` in `activeMods`).
+- `20261106-174700`: the fun row required a job from all sixteen searches. Vanilla's joy pick found none for eight. The row now requires that no search takes a job off the floor.
+- `20261106-174914`: every row passed, but the aggregate failed on the flag described above.
+
+### Regression, default mod list, final code
+
+- `20261106-175318` core (33 rows), `20261106-175445` `-OwnFloorFirst`, `20261106-175523` `-JobTargets`, `20261106-175555` `-StayOnFloor`, `20261106-175638` `-JobTakenOnArrival`, `20261106-175720` `-BackgroundHaul`. All PASS.
+
+The `-FloorsTab` run is the only run with Royalty loaded. It uses the user's mod list read-only, through `-ModsConfigSource`, because the default list has no Royalty. The default runs do not load Royalty.
+
+### Other mods
+
+The green run logged four errors from other mods (`other-mod-errors.txt` in its run folder): a duplicate package id (`Aoba.DeadManSwitch.Core`), a Rimatomics patch operation, and two null references from Milira's `CheckMiliraPermanentEnemyStatus`. None comes from Z-Levels, and the run's log has no Z-Levels error.
+
+### Limits
+
+- The meditation filter sits on `JobGiver_Meditate.TryGiveJob`. `JobGiver_MeditateInBed` overrides that method, so in-bed meditation is not filtered. That giver does not search: it meditates in the bed the colonist is already lying in.
+- The fun search makes one weighted pick of a joy giver, and the pick can find nothing. The floor setting stops a job off the floor. It does not make every search find a job.
+- The tab's clicks and drawing are not driven, and no screenshot was taken. Registration and the column text are read through the tab's own functions.
+- The rows read the job chain. They do not follow the colonist after ticks.
+- Multiplayer: untested. The project notes leave it optional and unverified.
+- The runs were built from the working tree, which also holds another session's vault-rock file. The commit holds only Floors tab work, and it was built alone in a clean export.

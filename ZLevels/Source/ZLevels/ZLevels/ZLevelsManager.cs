@@ -2036,6 +2036,7 @@ namespace ZLevels
             Scribe_Collections.Look<Pawn, ActiveArea>(ref this.activeAreas, "activeAreas", LookMode.Reference,
                 LookMode.Deep, ref this.ActiveAreasKeys, ref this.ActiveAreasValues);
             this.floorPolicy.ExposeLocks();
+            this.floorPolicy.ExposeNeedFloors();
             Scribe_Collections.Look<Pawn, JobTracker>(ref this.jobTracker, "jobTracker", LookMode.Reference,
                 LookMode.Deep, ref this.JobTrackerKeys, ref this.JobTrackerValues);
             Scribe_Collections.Look<Map, int>(ref this.mapIndex, "mapIndex", LookMode.Reference,

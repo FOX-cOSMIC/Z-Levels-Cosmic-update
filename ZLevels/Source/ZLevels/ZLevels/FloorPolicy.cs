@@ -5,6 +5,15 @@ using Verse;
 
 namespace ZLevels
 {
+    // The needs whose search can be set to one floor (floor settings, Task 29). Meditation is a psycaster's need.
+    public enum NeedKind
+    {
+        Sleep,
+        Food,
+        Fun,
+        Meditation
+    }
+
     // Per-colonist floor rules. A lock keeps a colonist's job search to one floor. The lock stores the floor's Z index, not the Map,
     // because a Map is not saved as an object. ZLevelsManager saves the locks with the game.
     public class FloorPolicy
@@ -163,6 +172,102 @@ namespace ZLevels
                 return;
             }
             idlePausedUntil[pawn.thingIDNumber] = nowTick + IdlePauseTicks;
+        }
+
+        // The floor each need's search uses, per colonist (floor settings, Task 29). A colonist with no entry for a need searches every floor.
+        // The floor is kept as its Z index, as the locks keep theirs.
+        private readonly Dictionary<Pawn, Dictionary<NeedKind, int>> needFloors = new Dictionary<Pawn, Dictionary<NeedKind, int>>();
+
+        public void SetNeedFloor(Pawn pawn, NeedKind kind, int floorIndex)
+        {
+            if (pawn == null)
+            {
+                return;
+            }
+            if (!needFloors.TryGetValue(pawn, out Dictionary<NeedKind, int> byKind))
+            {
+                byKind = new Dictionary<NeedKind, int>();
+                needFloors[pawn] = byKind;
+            }
+            byKind[kind] = floorIndex;
+        }
+
+        // "Any" for the need: the colonist's search for it covers every floor again.
+        public void ClearNeedFloor(Pawn pawn, NeedKind kind)
+        {
+            if (pawn != null && needFloors.TryGetValue(pawn, out Dictionary<NeedKind, int> byKind))
+            {
+                byKind.Remove(kind);
+                if (byKind.Count == 0)
+                {
+                    needFloors.Remove(pawn);
+                }
+            }
+        }
+
+        // The floor index the need is set to. Null when the need searches every floor.
+        public int? NeedFloorFor(Pawn pawn, NeedKind kind)
+        {
+            if (pawn != null && needFloors.TryGetValue(pawn, out Dictionary<NeedKind, int> byKind) && byKind.TryGetValue(kind, out int floorIndex))
+            {
+                return floorIndex;
+            }
+            return null;
+        }
+
+        // True when the need may search this map: no floor is set for it, or the map is the chosen floor.
+        public bool NeedAllowsMap(Pawn pawn, Map map, NeedKind kind)
+        {
+            int? floorIndex = NeedFloorFor(pawn, kind);
+            return floorIndex == null || ZUtils.ZTracker.GetZIndexFor(map) == floorIndex.Value;
+        }
+
+        private List<Pawn> savedNeedPawns;
+        private List<int> savedNeedKinds;
+        private List<int> savedNeedFloors;
+
+        // Saves the need floors with the game, as three parallel lists. Dead pawns are not saved. The lists are read back at PostLoadInit.
+        public void ExposeNeedFloors()
+        {
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                savedNeedPawns = new List<Pawn>();
+                savedNeedKinds = new List<int>();
+                savedNeedFloors = new List<int>();
+                foreach (KeyValuePair<Pawn, Dictionary<NeedKind, int>> pawnEntry in needFloors)
+                {
+                    if (pawnEntry.Key.Dead)
+                    {
+                        continue;
+                    }
+                    foreach (KeyValuePair<NeedKind, int> needEntry in pawnEntry.Value)
+                    {
+                        savedNeedPawns.Add(pawnEntry.Key);
+                        savedNeedKinds.Add((int)needEntry.Key);
+                        savedNeedFloors.Add(needEntry.Value);
+                    }
+                }
+            }
+            Scribe_Collections.Look(ref savedNeedPawns, "needFloorPawns", LookMode.Reference);
+            Scribe_Collections.Look(ref savedNeedKinds, "needFloorKinds", LookMode.Value);
+            Scribe_Collections.Look(ref savedNeedFloors, "needFloorFloors", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                needFloors.Clear();
+                if (savedNeedPawns != null && savedNeedKinds != null && savedNeedFloors != null)
+                {
+                    for (int i = 0; i < savedNeedPawns.Count && i < savedNeedKinds.Count && i < savedNeedFloors.Count; i++)
+                    {
+                        if (savedNeedPawns[i] != null && !savedNeedPawns[i].Dead)
+                        {
+                            SetNeedFloor(savedNeedPawns[i], (NeedKind)savedNeedKinds[i], savedNeedFloors[i]);
+                        }
+                    }
+                }
+                savedNeedPawns = null;
+                savedNeedKinds = null;
+                savedNeedFloors = null;
+            }
         }
 
         // Saves the locks with the game, as parallel lists like the other per-pawn data. Dead pawns are not saved. The lists are

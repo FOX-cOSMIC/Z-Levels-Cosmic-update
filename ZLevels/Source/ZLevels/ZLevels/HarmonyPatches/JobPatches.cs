@@ -371,7 +371,7 @@ namespace ZLevels
                             int redirectNow = Find.TickManager.TicksGame;
                             bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, pawn.needs.food.CurCategory >= HungerCategory.UrgentlyHungry);
                             using (new FloorRestore(pawn, oldMap, oldPosition))
-                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
+                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)).Where(candidate => ZUtils.ZTracker.floorPolicy.NeedAllowsMap(pawn, candidate, NeedKind.Food)))
                             {
                                 if (otherMap != oldMap && !redirectOpen) continue;
                                 ZLogger.Message("Searching food job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
@@ -560,7 +560,7 @@ namespace ZLevels
                         int redirectNow = Find.TickManager.TicksGame;
                         bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, false);
                         using (new FloorRestore(pawn, oldMap, oldPosition))
-                        foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
+                        foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)).Where(candidate => ZUtils.ZTracker.floorPolicy.NeedAllowsMap(pawn, candidate, NeedKind.Fun)))
                         {
                             if (otherMap != oldMap && !redirectOpen) continue;
                             ZLogger.Message(pawn + " - other map: " + otherMap);
@@ -767,8 +767,11 @@ namespace ZLevels
                                     return true;
                                 }
                             }
+                            // A set sleep floor restricts the ground spot as well as the beds. A ground spot found on the set floor is routed there.
+                            bool sleepFloorSet = ZUtils.ZTracker.floorPolicy.NeedFloorFor(pawn, NeedKind.Sleep) != null;
+                            bool groundRouted = false;
                             using (new FloorRestore(pawn, oldMap, oldPosition))
-                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
+                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)).Where(candidate => ZUtils.ZTracker.floorPolicy.NeedAllowsMap(pawn, candidate, NeedKind.Sleep)))
                             {
                                 ZLogger.Message("Searching rest job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                                     + " for " + ZTracker.GetMapInfo(oldMap));
@@ -784,6 +787,17 @@ namespace ZLevels
                                     jobTracker.activeJobs.RemoveAt(0);
                                     break;
                                 }
+                                if (result != null && sleepFloorSet && otherMap != oldMap)
+                                {
+                                    ZLogger.Message(pawn + " taking rest on the ground on " + ZTracker.GetMapInfo(otherMap));
+                                    // The route is built while the colonist stands on this floor, so it leads to the spot here.
+                                    ZTracker.BuildJobListFor(pawn, otherMap, result);
+                                    ZUtils.TeleportThing(pawn, oldMap, oldPosition);
+                                    __result = jobTracker.activeJobs[0];
+                                    jobTracker.activeJobs.RemoveAt(0);
+                                    groundRouted = true;
+                                    break;
+                                }
                             }
                             if (result == null)
                             {
@@ -791,7 +805,7 @@ namespace ZLevels
                                 if (select) Find.Selector.Select(pawn);
                                 return true;
                             }
-                            if (result.targetA.Thing == null)
+                            if (!groundRouted && result.targetA.Thing == null)
                             {
                                 ZLogger.Message(pawn + " taking rest on the ground");
                                 __result = JobMaker.MakeJob(JobDefOf.LayDown, FindGroundSleepSpotFor(pawn));
@@ -837,7 +851,7 @@ namespace ZLevels
                 else
                 {
                     if (pawn.ownership?.OwnedBed != null && ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMaps(pawn.Map.Tile))
-                        .Contains(pawn.ownership?.OwnedBed?.Map))
+                        .Contains(pawn.ownership?.OwnedBed?.Map) && ZUtils.ZTracker.floorPolicy.NeedAllowsMap(pawn, pawn.ownership.OwnedBed.Map, NeedKind.Sleep))
                     {
                         building_Bed = pawn.ownership.OwnedBed;
                     }
@@ -869,6 +883,68 @@ namespace ZLevels
             }
         }
 
+
+        // The psyfocus meditation search (Royalty). The vanilla search runs on the colonist's own map only, so a meditation floor set to
+        // another floor searches that floor's map instead, and the route is built to the spot there, as the rest and food searches do.
+        [HarmonyPatch(typeof(JobGiver_Meditate), "TryGiveJob")]
+        public class JobGiver_MeditatePatch
+        {
+            [HarmonyPrefix]
+            private static bool JobGiver_MeditatePrefix(ref Job __result, Pawn pawn)
+            {
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
+                if (ZUtils.ZTracker.floorPolicy.NeedFloorFor(pawn, NeedKind.Meditation) == null) return true;
+                try
+                {
+                    var ZTracker = ZUtils.ZTracker;
+                    if (ZTracker.jobTracker == null)
+                    {
+                        ZTracker.jobTracker = new Dictionary<Pawn, JobTracker>();
+                    }
+                    if (!ZTracker.jobTracker.TryGetValue(pawn, out JobTracker jobTracker))
+                    {
+                        jobTracker = new JobTracker();
+                        ZTracker.jobTracker[pawn] = jobTracker;
+                    }
+                    var oldMap = pawn.Map;
+                    var oldPosition = pawn.Position;
+                    bool select = Find.Selector.SelectedObjects.Contains(pawn);
+                    ZTracker.ResetJobTrackerFor(pawn);
+                    __result = null;
+                    using (new FloorRestore(pawn, oldMap, oldPosition))
+                    foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)).Where(candidate => ZUtils.ZTracker.floorPolicy.NeedAllowsMap(pawn, candidate, NeedKind.Meditation)))
+                    {
+                        Job job = VanillaMeditationJob(pawn);
+                        if (job != null)
+                        {
+                            ZLogger.Message(pawn + " got meditation job " + job + " - map: " + ZTracker.GetMapInfo(otherMap));
+                            ZTracker.BuildJobListFor(pawn, otherMap, job);
+                            ZUtils.TeleportThing(pawn, oldMap, oldPosition);
+                            __result = jobTracker.activeJobs[0];
+                            jobTracker.activeJobs.RemoveAt(0);
+                            break;
+                        }
+                    }
+                    if (select) Find.Selector.Select(pawn);
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Some kind of error occurred in Z-Levels JobManager (meditation search): " + ex);
+                }
+                return true;
+            }
+
+            // The steps of the vanilla TryGiveJob, for the colonist on the floor being searched.
+            private static Job VanillaMeditationJob(Pawn pawn)
+            {
+                if (!ModsConfig.RoyaltyActive || !MeditationUtility.CanMeditateNow(pawn))
+                {
+                    return null;
+                }
+                return MeditationUtility.GetMeditationJob(pawn);
+            }
+        }
 
         [HarmonyPatch(typeof(WorkGiver_InteractAnimal), "TakeFoodForAnimalInteractJob")]
         public class TakeFoodForAnimalInteractJob_Patch
