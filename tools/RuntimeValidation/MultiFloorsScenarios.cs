@@ -1152,6 +1152,34 @@ namespace ZLevelsValidation
             tracker.SpawnStairsBelow(SpawnRestPawn(surface), cell, lower);
         }
 
+        // Task 14 (idea "add-ons load only when needed" on docs/mod-comparison/ideas.html). The cooling add-on needs Dubs Rimatomics, so its
+        // assembly must not load for Z-Levels when Rimatomics is not active. This run has the runner's default mod list, which has no
+        // Rimatomics. The cooling runs (-Cooling and the others) need Rimatomics, and they check that the cooling link works.
+        private void RunAddonLoadCheck()
+        {
+            try
+            {
+                ModContentPack zlevels = LoadedModManager.RunningMods.FirstOrDefault(mod => mod.PackageId == "foxcosmic.zlevels17");
+                if (zlevels == null)
+                {
+                    throw new InvalidOperationException("the Z-Levels mod is not running");
+                }
+                if (LoadedModManager.RunningMods.Any(mod => mod.PackageId == "dubwise.rimatomics"))
+                {
+                    throw new InvalidOperationException("Dubs Rimatomics is active in this run, so the run cannot show the add-on without it");
+                }
+                bool cooling = zlevels.assemblies.loadedAssemblies.Any(assembly => assembly.GetName().Name == "ZLevelsRimatomics");
+                Record("no cooling assembly loads without Rimatomics", cooling ? "FAIL: Z-Levels loads ZLevelsRimatomics without Dubs Rimatomics" : "PASS");
+                Record("add-on load", cooling ? "FAIL: a row above failed" : "PASS");
+            }
+            catch (Exception exception)
+            {
+                Record("add-on load", "FAIL: " + exception);
+                Log.Error("Z-Levels add-on load validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null

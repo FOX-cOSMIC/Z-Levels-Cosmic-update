@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsaddonload"))
+                {
+                    finished = true;
+                    RunAddonLoadCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairroutes"))
                 {
                     finished = true;
