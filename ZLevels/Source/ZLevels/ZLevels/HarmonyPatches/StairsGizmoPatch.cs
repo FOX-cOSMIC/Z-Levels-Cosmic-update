@@ -25,7 +25,15 @@ namespace ZLevels
                 icon = TexCommand.HoldOpen,
                 action = () => ZUtils.ZTracker.DoCameraJumpToThing(other),
             };
-            return gizmos.Concat(new Gizmo[] { view });
+            // The transfer button (idea "stair transfer", decision D5). It opens the window that sends checked colonists and loose items to the other end.
+            var transfer = new Command_Action
+            {
+                defaultLabel = "Transfer across the stairs",
+                defaultDesc = "Opens a list of the colonists and loose items on this floor. The checked ones are sent to the other floor.",
+                icon = TexCommand.Install,
+                action = () => StairTransferWindow.Open(stairs),
+            };
+            return gizmos.Concat(new Gizmo[] { view, transfer });
         }
     }
 }

@@ -1846,3 +1846,61 @@ Run one at a time on the default validation mod list, after the nine rows were i
 - Only the lower-to-surface pair was run. Upper-floor pairs use the same code, but were not run.
 - Multiplayer: untested.
 
+## Stair transfer (2026-11-06)
+
+Lucas's decision D5, answered 2026-11-06, is to send a chosen list now. The idea "stair transfer" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 38. The rule DM20 is in that plan.
+
+### What was built
+
+- Every stairs piece has a "Transfer across the stairs" button. It sits beside the view button, in the gizmo list that `StairsGizmoPatch.AddViewButton` builds. `Building_Stairs` is the base class of both stairs pieces, so the upper and the lower piece both get it.
+- The button opens `StairTransferWindow` (`ZLevels/Source/ZLevels/ZLevels/UI/StairTransferWindow.cs`). It lists the free colonists and the loose items on the stairs' floor, with a checkbox for each, and a "Send checked" button.
+- Send walks the checked colonists to the landing cell beside the other end. It uses `CallColonistsTargeter.CallTo`, so a colonist on the other floor takes the stairs by the same route a float-menu order uses. Each checked item goes to `Designator_HaulToFloor.MarkItemsForFloor`. An item the other floor does not need is not marked, and Send counts it.
+- `LandingCell` is the first standable cell next to the other end that holds no building. If none is free, it is the other end's own cell.
+- `Designator_HaulToFloor.IsLooseItem` is now internal, so the window uses the same rule as the designator.
+- The floors guide's Stairs paragraph names the new button.
+
+### What the scenario checks
+
+`-StairTransfer` (file `tools/RuntimeValidation/StairTransferScenarios.cs`). The scenario is frame-driven. On the lower floor it places one colonist to send, one to keep, a steel stack, and two wood stacks: one to send and one to keep. The surface has a stockpile that takes steel only, so the surface needs steel and does not need wood. This is the set-up of `-HaulToFloor`.
+
+- `transfer button is on the stairs`. The gizmo list of the lower stairs has "Transfer across the stairs".
+- `window lists the colonists and items on the floor`. `ColonistsOn` lists both colonists, and `ItemsOn` lists all three items.
+- `send walks the checked colonist to the other floor`. Within 6000 ticks the colonist stands on the landing cell above.
+- `send marks the checked item for the other floor`. The steel carries the mark for the surface, and one item is marked.
+- `an item the other floor does not need is not marked`. The checked wood is counted as not needed, is not marked, and stays on the lower floor. The plan does not list this row. It tests DM20 directly.
+- `unchecked colonist and item stay where they are`. After the transfer, the unchecked colonist and the unchecked wood are still on the lower floor, and the wood is unmarked.
+- `stair transfer`. Passes when the six rows pass.
+
+### Red and green runs
+
+- Red, run `20261106-225314`. Every row fails. The button row reads "the stairs piece has no 'Transfer across the stairs' button", and the other rows read "the mod has no ZLevels.StairTransferWindow class". The build had no compile errors.
+- An earlier red attempt did not compile. The scenario read `ZUtils`, which is internal to the mod, and the build reported four CS0122 errors. The scenario now reads the tracker from `Current.Game`, as the other scenarios do. No run went on the failed build.
+- Green, run `20261106-225433`. The six rows and the aggregate pass. The counts row reads "sent 1 colonist, marked 1 item, and 1 item was not needed on the floor above", and the landing cell is (3, 0, 18).
+
+### Regression
+
+Run one at a time on the default validation mod list, on the final code. The logs are in the ledger folder, named `task38-reg-<name>.log`.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-225540 | core | PASS |
+| 20261106-225653 | `-CallColonists` | PASS |
+| 20261106-225731 | `-HaulToFloor` | PASS |
+| 20261106-225819 | `-BackgroundHaul` | PASS |
+| 20261106-225858 | `-StairsDamage` | PASS |
+| 20261106-225936 | `-StairsEqualize` | PASS |
+| 20261106-230014 | `-FloorsGuide` | PASS |
+
+### Limits
+
+- The window is not opened on screen. The scenario calls the methods the window calls: `ColonistsOn`, `ItemsOn`, `Send` and `LandingCell`. The checkboxes, the layout and the Send button were not clicked.
+- The button is read from the gizmo list. It was not clicked.
+- The window's lists are taken when it opens. A colonist or an item that changes while the window is open is not refreshed.
+- A downed or dead colonist is left out of the list. No row covers that case.
+- The landing cell's fallback, the other end's own cell, is not tested.
+- `CallTo` moves the colonist's floor lock to the floor it is sent to. No row checks the lock.
+- The transfer is run from the lower stairs only. The surface's button uses the same code, but was not run.
+- Items that do not fit on the other floor, and a destination that is full, are not tested.
+- The guide's new sentence is checked only by the keyword check in `-FloorsGuide`.
+- Multiplayer: untested.
+

@@ -106,7 +106,7 @@ namespace ZLevels
         }
 
         // A loose item the player can haul: an item that is spawned and is not in storage yet.
-        private static bool IsLooseItem(Thing thing)
+        internal static bool IsLooseItem(Thing thing)
         {
             return thing.Spawned && thing.def.EverHaulable && thing.def.category == ThingCategory.Item && !thing.IsInAnyStorage();
         }

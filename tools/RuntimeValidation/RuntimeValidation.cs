@@ -436,6 +436,13 @@ namespace ZLevelsValidation
                     RunFloorPipeCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairtransfer"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunStairTransferTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())

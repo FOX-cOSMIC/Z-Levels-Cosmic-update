@@ -14,7 +14,7 @@ namespace ZLevels
             "and a colony can use all of them.\n\n" +
             "Stairs\n" +
             "Stairs join two floors. Stairs down lead to the floor below, and stairs up lead to the floor above. A colonist walks to the stairs, uses " +
-            "them, and comes out at the other end. Select a stairs piece and use View the connected floor to look at the other end.\n\n" +
+            "them, and comes out at the other end. Select a stairs piece and use View the connected floor to look at the other end. Transfer across the stairs sends the checked colonists and loose items to the other end.\n\n" +
             "Keys\n" +
             "By default, N moves the view one floor up, and M moves it one floor down. The camera and the selected designator stay where they are " +
             "when you switch.\n\n" +
