@@ -1819,6 +1819,255 @@ namespace ZLevelsValidation
         // work on the own floor. The rows: a priority-3 job on the own floor is taken with no search on another floor; a priority-1 mining job on the
         // lower floor beats a priority-3 hauling job on the surface; a priority-3 job is taken when nothing is on the lower floor; and the threshold
         // setting defaults to 2. The settings class is internal, so the scenario reads it by name.
+        // Task 23 (idea "check the job on arrival"). A cross-floor job waits in the colonist's job list while the colonist walks to the stairs. Its target
+        // is checked again on arrival. If the target is gone, the job ends with no error and no pause, and the colonist searches again. The walk takes
+        // game time, so the check runs over several frames.
+        private int arrivalStage;
+        private int arrivalDueTick;
+        private int arrivalErrors;
+        private bool arrivalPaused;
+        private bool arrivalWentDown;
+        private Job arrivalLastJob;
+        private bool arrivalDone;
+        private Pawn arrivalColonist;
+        private Map arrivalSurface;
+        private IntVec3 arrivalStart;
+        private Job arrivalFirstStep;
+        private Thing arrivalSteel;
+        private Thing arrivalSecondSteel;
+
+        private void ArrivalLogCallback(string condition, string stackTrace, UnityEngine.LogType type)
+        {
+            if (type == UnityEngine.LogType.Error || type == UnityEngine.LogType.Exception)
+            {
+                arrivalErrors++;
+            }
+        }
+
+        private void RunJobTakenOnArrivalTick()
+        {
+            if (arrivalDone)
+            {
+                return;
+            }
+            try
+            {
+                if (arrivalStage == 0)
+                {
+                    SetUpArrivalScene();
+                    arrivalStage = 1;
+                    arrivalDueTick = Find.TickManager.TicksGame + 1200;
+                    return;
+                }
+                if (Find.TickManager.CurTimeSpeed == TimeSpeed.Paused)
+                {
+                    arrivalPaused = true;
+                }
+                int now = Find.TickManager.TicksGame;
+                if (arrivalColonist.CurJob != arrivalLastJob)
+                {
+                    arrivalLastJob = arrivalColonist.CurJob;
+                    Record("job trace", "INFO: " + DescribeJob(arrivalLastJob) + " at " + arrivalColonist.Position + " on " + arrivalColonist.Map);
+                }
+                if (arrivalColonist.Map != arrivalSurface)
+                {
+                    // The colonist took the stairs: the outcome is settled.
+                    arrivalWentDown = true;
+                    FinishArrivalCheck();
+                    return;
+                }
+                if (arrivalPaused || now > arrivalDueTick)
+                {
+                    FinishArrivalCheck();
+                    return;
+                }
+                if (arrivalStage == 1)
+                {
+                    // The steel is taken away, not destroyed: it leaves the map and nothing carries it. The colonist has left its start cell, so it is still on the walk.
+                    if (!OnStaleWalk())
+                    {
+                        FinishArrivalCheck();
+                        return;
+                    }
+                    if (arrivalColonist.Position != arrivalStart)
+                    {
+                        arrivalSteel.DeSpawn();
+                        arrivalSecondSteel = SpawnArrivalSecondSteel();
+                        arrivalStage = 2;
+                        arrivalDueTick = now + 3000;
+                    }
+                    return;
+                }
+                if (HauledSecondSteel())
+                {
+                    FinishArrivalCheck();
+                }
+            }
+            catch (Exception exception)
+            {
+                arrivalDone = true;
+                UnityEngine.Application.logMessageReceived -= ArrivalLogCallback;
+                Record("job taken on arrival", "FAIL: " + exception);
+                Log.Error("Z-Levels job taken on arrival validation failed: " + exception);
+                finished = true;
+                Root.Shutdown();
+            }
+        }
+
+        // The colonist is still on the walk that started the check: its job targets the steel that was taken away. Job objects are pooled and can
+        // come back as a new job, so the checks read what a job targets, not which object it is.
+        private bool OnStaleWalk()
+        {
+            Job job = arrivalColonist.CurJob;
+            return job != null && job.targetA.Thing == arrivalSteel;
+        }
+
+        // The colonist has taken the haul of the second steel on the surface.
+        private bool HauledSecondSteel()
+        {
+            Job job = arrivalColonist.CurJob;
+            return job != null && job.targetA.Thing == arrivalSecondSteel && arrivalColonist.Map == arrivalSurface;
+        }
+
+        private void FinishArrivalCheck()
+        {
+            arrivalDone = true;
+            UnityEngine.Application.logMessageReceived -= ArrivalLogCallback;
+            Job job = arrivalColonist.CurJob;
+            bool leftWalk = !OnStaleWalk();
+            bool onSurface = arrivalColonist.Map == arrivalSurface;
+            bool hauled = HauledSecondSteel();
+            Record("target taken during the walk: colonist searches again", !arrivalWentDown && leftWalk && onSurface
+                ? "PASS: the colonist dropped the walk and searched on the surface, now " + DescribeJob(job)
+                : arrivalWentDown
+                    ? "FAIL: the colonist took the stairs down for a steel that was already gone"
+                    : "FAIL: the colonist has " + DescribeJob(job) + " on " + (onSurface ? "the surface" : "another floor")
+                        + (OnStaleWalk() ? ", still on the walk" : ""));
+            Record("no error and no pause", arrivalErrors == 0 && !arrivalPaused ? "PASS" : "FAIL: " + arrivalErrors + " errors logged, paused " + arrivalPaused);
+            Record("a new job is taken", hauled ? "PASS: " + DescribeJob(job) : "FAIL: no haul of the second steel; the colonist has " + DescribeJob(job));
+            if (!hauled)
+            {
+                bool listed = arrivalSurface.listerHaulables.ThingsPotentiallyNeedingHauling().Contains(arrivalSecondSteel);
+                bool hasStore = StoreUtility.TryFindBestBetterStoreCellFor(arrivalSecondSteel, arrivalColonist, arrivalSurface, StoragePriority.Unstored, arrivalColonist.Faction, out IntVec3 storeCell);
+                string control;
+                try
+                {
+                    control = DescribeJob(SearchWorkJob(arrivalColonist));
+                }
+                catch (Exception exception)
+                {
+                    control = "the search threw " + exception.GetType().Name + ": " + exception.Message;
+                }
+                object lookMap = typeof(ZLogger).Assembly.GetType("ZLevels.ZUtils", throwOnError: true)
+                    .GetField("currentLookedIntoMap", BindingFlags.Public | BindingFlags.Static).GetValue(null);
+                Record("second steel diagnostic", "INFO: listed as haulable " + listed + "; store cell " + (hasStore ? storeCell.ToString() : "none")
+                    + "; steel at " + arrivalSecondSteel.Position + " spawned " + arrivalSecondSteel.Spawned + "; control search " + control
+                    + "; look-up map " + (lookMap == null ? "none" : lookMap.ToString()));
+            }
+            bool allOk = !arrivalWentDown && leftWalk && onSurface && hauled && arrivalErrors == 0 && !arrivalPaused;
+            Record("job taken on arrival", allOk ? "PASS" : "FAIL: a row above failed");
+            finished = true;
+            Root.Shutdown();
+        }
+
+        // A surface colonist eight to twelve cells from the surface stairs down, with steel on the lower floor beside the stairs up and an empty
+        // stockpile on the surface. The first step is the search's own result. The second steel is placed on the surface only once the walk has
+        // begun, so the first search still finds the lower steel.
+        private void SetUpArrivalScene()
+        {
+            Map surface = Find.CurrentMap;
+            ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+            UnityEngine.Application.logMessageReceived += ArrivalLogCallback;
+            RequireFloors(tracker, surface, 1);
+            Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+            RequireFloors(tracker, surface, 2);
+            Building_StairsDown downStairs = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
+            arrivalSurface = surface;
+
+            CarveAround(lower, stairs.Position, 6f);
+            IntVec3 steelCell = FindReachableCellNear(lower, stairs.Position + new IntVec3(2, 0, 0), new List<IntVec3>());
+            if (!steelCell.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell on the lower floor for the steel");
+            }
+            arrivalSteel = ThingMaker.MakeThing(ThingDefOf.Steel);
+            arrivalSteel.stackCount = 30;
+            GenSpawn.Spawn(arrivalSteel, steelCell, lower);
+
+            IntVec3 stockNear = FindOpenBlock(surface, 1, 1);
+            if (!stockNear.IsValid)
+            {
+                throw new InvalidOperationException("no open cell on the surface for the stockpile");
+            }
+            Zone_Stockpile stockpile = MakeSupplyZone(surface, stockNear);
+
+            IntVec3 walkNear = IntVec3.Invalid;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(downStairs.Position, 12f, false))
+            {
+                if (cell.DistanceTo(downStairs.Position) < 8f || !cell.InBounds(surface) || !cell.Standable(surface) || cell.GetEdifice(surface) != null
+                    || cell.GetFirstItem(surface) != null || surface.zoneManager.ZoneAt(cell) != null)
+                {
+                    continue;
+                }
+                if (!surface.reachability.CanReach(cell, downStairs.Position, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
+                {
+                    continue;
+                }
+                walkNear = cell;
+                break;
+            }
+            if (!walkNear.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell eight to twelve cells from the surface stairs");
+            }
+            arrivalColonist = SpawnCapableColonistNear(surface, walkNear, new List<IntVec3>(), WorkTypeDefOf.Hauling);
+            arrivalStart = arrivalColonist.Position;
+            SetWork(arrivalColonist, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+            // The other colonists keep their work but do not haul: one of them would store the second steel before the check runs.
+            foreach (Pawn other in surface.mapPawns.FreeColonistsSpawned.Where(p => p != arrivalColonist).ToList())
+            {
+                other.workSettings.SetPriority(WorkTypeDefOf.Hauling, 0);
+            }
+
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Normal;
+            arrivalFirstStep = SearchWorkJob(arrivalColonist);
+            if (arrivalFirstStep == null)
+            {
+                throw new InvalidOperationException("the colonist's search found no job");
+            }
+            Job mainJob = MainWorkJob(tracker, arrivalColonist, arrivalFirstStep);
+            if (mainJob.targetA.Thing != arrivalSteel)
+            {
+                throw new InvalidOperationException("the search took " + DescribeJob(mainJob) + " instead of the steel on the lower floor");
+            }
+            arrivalColonist.jobs.StartJob(arrivalFirstStep);
+            Record("arrival scene", "INFO: the colonist walks from " + arrivalStart + " toward the surface stairs at " + downStairs.Position + " with "
+                + DescribeJob(arrivalFirstStep) + "; the haul is " + DescribeJob(mainJob) + "; stockpile " + stockpile.label);
+        }
+
+        // A free surface cell near the colonist's start, off the stockpile, for the second steel. Returns the steel.
+        private Thing SpawnArrivalSecondSteel()
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(arrivalStart, 6f, false))
+            {
+                if (!cell.InBounds(arrivalSurface) || !cell.Standable(arrivalSurface) || cell.GetEdifice(arrivalSurface) != null
+                    || cell.GetFirstItem(arrivalSurface) != null || arrivalSurface.zoneManager.ZoneAt(cell) != null)
+                {
+                    continue;
+                }
+                if (!arrivalSurface.reachability.CanReach(arrivalStart, cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
+                {
+                    continue;
+                }
+                Thing second = ThingMaker.MakeThing(ThingDefOf.Steel);
+                second.stackCount = 10;
+                GenSpawn.Spawn(second, cell, arrivalSurface);
+                Record("second steel", "INFO: " + second + " placed " + second.stackCount + " steel at " + cell + " on the surface; spawned " + second.Spawned);
+                return second;
+            }
+            throw new InvalidOperationException("no free surface cell near " + arrivalStart + " for the second steel");
+        }
+
         // Items the lower floor needs are marked in the background (idea "items checked in the background"). A colonist on the lower floor is offered
         // the surface items that are marked for its floor. Before the change every surface item is offered, so rows 2 and 3 fail first.
         private void RunBackgroundHaulCheck()

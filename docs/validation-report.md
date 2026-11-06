@@ -1038,3 +1038,54 @@ Reading the numbers:
 - Regression: `20261106-130112/`, `20261106-130356/`, `20261106-130309/`, `20261106-130458/`.
 - Core: `20261106-123103/` (failed), `20261106-125914/`, `20261106-130707/`, `20261106-130823/`.
 - Search timing: `20261106-130625/`, `20261106-131125/`, `20261106-131158/`.
+
+## Job taken on arrival
+
+Task 23 of the multi-floor ideas plan, idea "check the job on arrival" on `docs/mod-comparison/ideas.html`. Code change in `ZLevels/Source/ZLevels/ZLevels/Jobs/Toils_ZLevels.cs` (`GetArrivalCheck`, `MainJobTargetIsGone`). Scenario `-JobTakenOnArrival`, required row `job taken on arrival`.
+
+### What changed
+
+- `Toils_ZLevels.GoToMap` checks the colonist's main job when the colonist reaches the stairs. The check sits between `goToStairs` and `useStairs`.
+- A target is gone when it is destroyed, or when it is neither spawned nor held by the colonist. A held target is still in use. A main job with no thing as its target is never gone.
+- A gone target resets the colonist's job tracker, then ends the walk with `JobCondition.Incompletable`. The colonist searches again from the stairs.
+- The runner's pass gate reads `ERROR` case-sensitively now. The row label "no error and no pause" had tripped the case-insensitive gate, which refused a run with all rows passing (`20261106-134820`).
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-134820 | First draft, steel destroyed | Rows passed. The walk ended at once, so the draft did not test the stairs. The gate refused the run on the row label |
+| 20261106-135139 | Draft, steel taken away, before the fix | Row "target taken during the walk" FAIL: the colonist went down and idled on the lower floor |
+| 20261106-140850 | Final scenario, committed code | FAIL: the colonist takes the stairs down for a steel that is already gone, and no haul of the second steel follows |
+| 20261106-140805 | Final scenario, fixed code | All four rows PASS: the colonist ends the stale walk at the surface stairs, then hauls the second steel on its own floor |
+
+The brief expected the red to show an error or a pause. It did not. The red that failed is the colonist walking down for a steel that is gone. The "no error and no pause" row passes on both versions.
+
+### Test setup
+
+- The steel is taken away with `DeSpawn`, not destroyed. A destroyed target ends the walking job at once, before the stairs.
+- The second steel is placed on the surface after the walk starts, so the first search still picks the lower steel.
+- The other start colonists have Hauling set to no-work during setup. One of them stored the second steel before the check ran in `20261106-135529` and `20261106-135808`.
+- The check compares what a job targets. Job objects are pooled, and a comparison of job objects missed the new haul in `20261106-140546`.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-141005 | -ReservationRefused (the Task 4 pattern) | PASS |
+| 20261106-141038 | -OtherColonistHauls | PASS |
+| 20261106-141140 | -AllColonistsHaul | PASS |
+| 20261106-141247 | -StairRoutes | PASS |
+| 20261106-141324 | -BackgroundHaul | PASS |
+| 20261106-141401 | -JobTargets | PASS |
+| 20261106-141433 | -OwnFloorFirst | PASS |
+| 20261106-141510 | -MultiBuild | PASS |
+| 20261106-141607 | -Cooling | PASS |
+| 20261106-141734 | core (no switch) | PASS |
+
+### Limits
+
+- Only the cross-floor walk through `GoToMap` is checked. `FindRouteWithStairs`, used by `JobDriver_GoToLocation`, is unchanged. No work chain in `ZLevelsManager` builds that job.
+- The planned "error or pause" red did not occur. The observed red is documented above.
+- In the failing state, a diagnostic found the look-up map still on the lower floor after the colonist walked down, and no store cell found for the surface steel. This was not investigated. The fixed path does not reach that state.
+- Task 24, which would remove the reach and reservation patches, is not started. The Task 19 numbers time the whole search per floor count, so they do not show those patches cost time.

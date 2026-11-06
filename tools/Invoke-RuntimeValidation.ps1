@@ -46,6 +46,7 @@ param(
     [switch]$OwnFloorFirst,
     [switch]$JobTargets,
     [switch]$BackgroundHaul,
+    [switch]$JobTakenOnArrival,
     [switch]$ZLevelsDebug,
     # A ModsConfig.xml whose mods run together with Z-Levels. It is only read. The isolated run gets a copy of its mod list.
     [string]$ModsConfigSource,
@@ -376,6 +377,7 @@ $scenarioSwitches = [ordered]@{
     OwnFloorFirst = $OwnFloorFirst
     JobTargets = $JobTargets
     BackgroundHaul = $BackgroundHaul
+    JobTakenOnArrival = $JobTakenOnArrival
 }
 # The other switches. Each one is read only by the runs listed for it in $switchReaders. 'Core' is the run with no scenario switch.
 $modifierSwitches = [ordered]@{
@@ -603,6 +605,7 @@ if ($LighterFloors) { $arguments += '-zlevelslighterfloors' }
 if ($OwnFloorFirst) { $arguments += '-zlevelsownfloorfirst' }
 if ($JobTargets) { $arguments += '-zlevelsjobtargets' }
 if ($BackgroundHaul) { $arguments += '-zlevelsbackgroundhaul' }
+if ($JobTakenOnArrival) { $arguments += '-zlevelsjobtakenonarrival' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
 $process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
@@ -646,7 +649,7 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 # The partner tint rows of a -Visual cooling run are written from its two partner screenshots after the cross-check, so the cross-check does not count them.
 if ($Visual -and $Cooling -and -not $CoolingNoColumns) { Add-OutlineTintRows -ResultsPath $resultsPath -ShotFolder (Join-Path $runDirectory 'Screenshots') }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } elseif ($RestSearchNull) { 'rest search null checks' } elseif ($TraderReturn) { 'trader return' } elseif ($ReservationRefused) { 'reservation refused' } elseif ($FloorHotkeys) { 'floor hotkeys' } elseif ($StayOnFloor) { 'stay on floor' } elseif ($WorkOnFloorOrder) { 'work on floor order' } elseif ($NeedCooldown) { 'need cool-down' } elseif ($IdleSearchPause) { 'idle search pause' } elseif ($StaleClaims) { 'stale claims' } elseif ($FloorGuard) { 'floor guard' } elseif ($StorageIndex) { 'storage index' } elseif ($StairRoutes) { 'stair routes' } elseif ($AddonLoad) { 'add-on load' } elseif ($ChoreSpread) { 'chore spread' } elseif ($OneFloorColony) { 'a one-floor colony runs no cross-floor search' } elseif ($StairsView) { 'pressing it moves the camera to the other end' } elseif ($StairPlacement) { 'stairs down from above ground refuses with its message' } elseif ($SearchTiming) { 'search timing recorded' } elseif ($LighterFloors) { 'lighter floors' } elseif ($BackgroundHaul) { 'background haul' } elseif ($JobTargets) { 'job targets' } elseif ($OwnFloorFirst) { 'own floor first' } else { 'core validation' }
+$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } elseif ($RestSearchNull) { 'rest search null checks' } elseif ($TraderReturn) { 'trader return' } elseif ($ReservationRefused) { 'reservation refused' } elseif ($FloorHotkeys) { 'floor hotkeys' } elseif ($StayOnFloor) { 'stay on floor' } elseif ($WorkOnFloorOrder) { 'work on floor order' } elseif ($NeedCooldown) { 'need cool-down' } elseif ($IdleSearchPause) { 'idle search pause' } elseif ($StaleClaims) { 'stale claims' } elseif ($FloorGuard) { 'floor guard' } elseif ($StorageIndex) { 'storage index' } elseif ($StairRoutes) { 'stair routes' } elseif ($AddonLoad) { 'add-on load' } elseif ($ChoreSpread) { 'chore spread' } elseif ($OneFloorColony) { 'a one-floor colony runs no cross-floor search' } elseif ($StairsView) { 'pressing it moves the camera to the other end' } elseif ($StairPlacement) { 'stairs down from above ground refuses with its message' } elseif ($SearchTiming) { 'search timing recorded' } elseif ($LighterFloors) { 'lighter floors' } elseif ($JobTakenOnArrival) { 'job taken on arrival' } elseif ($BackgroundHaul) { 'background haul' } elseif ($JobTargets) { 'job targets' } elseif ($OwnFloorFirst) { 'own floor first' } else { 'core validation' }
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
@@ -679,7 +682,7 @@ if ($gateProblems.Count -gt 0) {
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 # The pass gate's line test is the 1369ed4 test. The whole-word ERROR rule belongs to Get-ErrorScan only.
-$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
+$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -cmatch ' ERROR ' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
     # Only error entries count, read by the same scan as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
