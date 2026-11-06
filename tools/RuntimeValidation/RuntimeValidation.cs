@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelssearchtiming"))
+                {
+                    finished = true;
+                    RunSearchTimingCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairplacement"))
                 {
                     finished = true;

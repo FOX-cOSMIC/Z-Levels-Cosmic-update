@@ -1458,6 +1458,210 @@ namespace ZLevelsValidation
             return FloorPolicy.CrossFloorSearches - before;
         }
 
+        // Task 19 (the baseline that Phase B is measured against). A colonist's work search, timed on a one-floor, a two-floor and a three-floor
+        // colony, and the map tick on each extra floor. Ten colonists with every work type on make 50 searches each. The colony has nothing for
+        // them, so a search that finds no job is the usual result. The clock moves past the idle pause before every call. The pause (600 ticks
+        // after a search that found nothing) makes the vanilla search answer in its place, and the timing would measure that. A map tick is
+        // MapPreTick and MapPostTick, the per-map calls of TickManager.DoSingleTick. Things tick through the global tick lists, not per map, so
+        // their cost is not in the map tick numbers. The map ticks run last, because the animals and plants they spawn would change the searches.
+        private void RunSearchTimingCheck()
+        {
+            const string label = "search timing recorded";
+            const int colonistCount = 10;
+            const int callsEach = 50;
+            const int mapTicks = 300;
+            // The colonists and the floors come from one fixed random state, so every run builds the same ones. The surface does not: the runner
+            // starts a new random game, and its surface is recorded in the rows above each floor.
+            Rand.PushState(20261106);
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                IntVec3 block = FindCentralOpenBlock(surface, 7, 7);
+                if (!block.IsValid)
+                {
+                    throw new InvalidOperationException("no open 7 by 7 block on the surface away from the edges");
+                }
+                IntVec3 near = block + new IntVec3(3, 0, 3);
+                List<IntVec3> avoid = new List<IntVec3>();
+                List<Pawn> colonists = new List<Pawn>();
+                for (int i = 0; i < colonistCount; i++)
+                {
+                    colonists.Add(SpawnColonistNear(surface, near, avoid));
+                }
+                int expected = colonistCount * callsEach;
+
+                WorkSearchTiming oneFloor = TimeWorkSearches(tracker, colonists, callsEach);
+                Record("surface before the lower floor", "INFO: " + SurfaceState(surface));
+                Map lower = CreateLevelBelow(tracker, surface);
+                lower.fogGrid.ClearAllFog();
+                Record("surface after the lower floor", "INFO: " + SurfaceState(surface));
+                RequireFloors(tracker, surface, 2);
+                WorkSearchTiming twoFloors = TimeWorkSearches(tracker, colonists, callsEach);
+                Record("surface before the upper floor", "INFO: " + SurfaceState(surface));
+                Map upper = tracker.CreateUpperLevel(surface, surface.Center);
+                upper.fogGrid.ClearAllFog();
+                Record("surface after the upper floor", "INFO: " + SurfaceState(surface));
+                RequireFloors(tracker, surface, 3);
+                WorkSearchTiming threeFloors = TimeWorkSearches(tracker, colonists, callsEach);
+
+                // The map ticks come after every search, so the animals and plants they spawn cannot change a search.
+                double lowerMs = TimeMapTicks(lower, mapTicks);
+                double upperMs = TimeMapTicks(upper, mapTicks);
+                double surfaceMs = TimeMapTicks(surface, mapTicks);
+
+                int enabledWork = colonists.Sum(colonist => DefDatabase<WorkTypeDef>.AllDefsListForReading.Count(work => colonist.workSettings.WorkIsActive(work)));
+                Record("search timing colonists", "INFO: " + colonistCount + " idle colonists, " + callsEach + " calls each, " + expected + " calls per setup, "
+                    + enabledWork + " enabled work types across them");
+                Record("search timing, one floor", "INFO: " + TimingText(oneFloor));
+                Record("search timing, two floors", "INFO: " + TimingText(twoFloors));
+                Record("search timing, three floors", "INFO: " + TimingText(threeFloors));
+                Record("map tick, lower floor", "INFO: " + TickText(lowerMs, mapTicks));
+                Record("map tick, upper floor", "INFO: " + TickText(upperMs, mapTicks));
+                Record("map tick, surface (reference)", "INFO: " + TickText(surfaceMs, mapTicks));
+
+                // One floor: the vanilla search runs, so ZLevels counts nothing. Two and three floors: every call runs the ZLevels search and reaches
+                // the other floors. A short count means the timing measured the pause or a cached job, not the search.
+                bool oneOk = oneFloor.Searches == 0 && oneFloor.CrossFloor == 0;
+                bool twoOk = twoFloors.Searches == expected && twoFloors.CrossFloor > 0;
+                bool threeOk = threeFloors.Searches == expected && threeFloors.CrossFloor > 0;
+                Record(label, oneOk && twoOk && threeOk
+                    ? "PASS"
+                    : "FAIL: one floor ran " + oneFloor.Searches + " searches and " + oneFloor.CrossFloor + " cross-floor, two floors " + twoFloors.Searches + " of " + expected + " searches and " + twoFloors.CrossFloor + " cross-floor, three floors " + threeFloors.Searches + " of " + expected + " searches and " + threeFloors.CrossFloor + " cross-floor");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels search timing validation failed: " + exception);
+            }
+            finally
+            {
+                Rand.PopState();
+            }
+            Root.Shutdown();
+        }
+
+        // Stops the scenario when the colony does not have the floors that a setup needs, so no timing is taken on the wrong layout.
+        private static void RequireFloors(ZLevelsManager tracker, Map surface, int floors)
+        {
+            int count = tracker.GetAllMaps(surface.Tile).Count;
+            if (count != floors)
+            {
+                throw new InvalidOperationException("the colony has " + count + " floors, not " + floors);
+            }
+        }
+
+        private struct WorkSearchTiming
+        {
+            public int Calls;
+            public int Jobs;
+            public int Searches;
+            public int CrossFloor;
+            public double Milliseconds;
+            public double FirstRoundMs;
+            public double MedianRoundMs;
+            public double SlowestRoundMs;
+            public int Gen0;
+            public int Gen1;
+            public int Gen2;
+        }
+
+        // The colonists' work searches, timed. Each colonist searches once untimed, then callsEach times in turn. The clock moves before every
+        // call, and only the calls are timed.
+        private static WorkSearchTiming TimeWorkSearches(ZLevelsManager tracker, List<Pawn> colonists, int callsEach)
+        {
+            foreach (Pawn colonist in colonists)
+            {
+                AdvanceClockPastIdlePause();
+                SearchWorkJob(colonist);
+            }
+            int searchesBefore = colonists.Sum(colonist => tracker.floorPolicy.SearchCount(colonist));
+            int crossBefore = FloorPolicy.CrossFloorSearches;
+            int gen0Before = GC.CollectionCount(0);
+            int gen1Before = GC.CollectionCount(1);
+            int gen2Before = GC.CollectionCount(2);
+            WorkSearchTiming timing = new WorkSearchTiming();
+            List<double> rounds = new List<double>();
+            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+            for (int call = 0; call < callsEach; call++)
+            {
+                // A round is one call for each colonist. The rounds show whether the first round or one slow round makes the total.
+                System.Diagnostics.Stopwatch roundWatch = System.Diagnostics.Stopwatch.StartNew();
+                foreach (Pawn colonist in colonists)
+                {
+                    AdvanceClockPastIdlePause();
+                    watch.Start();
+                    Job job = SearchWorkJob(colonist);
+                    watch.Stop();
+                    timing.Calls++;
+                    if (job != null) timing.Jobs++;
+                }
+                roundWatch.Stop();
+                rounds.Add(roundWatch.Elapsed.TotalMilliseconds);
+            }
+            timing.Milliseconds = watch.Elapsed.TotalMilliseconds;
+            timing.FirstRoundMs = rounds[0];
+            rounds.Sort();
+            timing.MedianRoundMs = rounds[rounds.Count / 2];
+            timing.SlowestRoundMs = rounds[rounds.Count - 1];
+            timing.Gen0 = GC.CollectionCount(0) - gen0Before;
+            timing.Gen1 = GC.CollectionCount(1) - gen1Before;
+            timing.Gen2 = GC.CollectionCount(2) - gen2Before;
+            timing.Searches = colonists.Sum(colonist => tracker.floorPolicy.SearchCount(colonist)) - searchesBefore;
+            timing.CrossFloor = FloorPolicy.CrossFloorSearches - crossBefore;
+            return timing;
+        }
+
+        // Moves the clock one step past the idle pause, so the next search is not held back by it.
+        private static void AdvanceClockPastIdlePause()
+        {
+            TickManager ticks = Find.TickManager;
+            ticks.DebugSetTicksGame(ticks.TicksGame + FloorPolicy.IdlePauseTicks + 1);
+        }
+
+        // MapPreTick and MapPostTick, the two per-map calls of TickManager.DoSingleTick, for the given number of ticks. Returns milliseconds.
+        private static double TimeMapTicks(Map map, int ticks)
+        {
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int tick = 0; tick < ticks; tick++)
+            {
+                map.MapPreTick();
+                map.MapPostTick();
+            }
+            watch.Stop();
+            return watch.Elapsed.TotalMilliseconds;
+        }
+
+        private static string TimingText(WorkSearchTiming timing)
+        {
+            return timing.Calls + " calls in " + OneDecimal(timing.Milliseconds) + " ms, " + OneDecimal(timing.Milliseconds * 1000.0 / timing.Calls)
+                + " us per call; " + timing.Searches + " searches ran; " + timing.Jobs + " calls found a job; " + timing.CrossFloor + " cross-floor searches; rounds of one call per colonist: first "
+                + OneDecimal(timing.FirstRoundMs) + " ms, median " + OneDecimal(timing.MedianRoundMs) + " ms, slowest " + OneDecimal(timing.SlowestRoundMs) + " ms; garbage collections gen0 "
+                + timing.Gen0 + ", gen1 " + timing.Gen1 + ", gen2 " + timing.Gen2;
+        }
+
+        private static string TickText(double milliseconds, int ticks)
+        {
+            return ticks + " ticks in " + OneDecimal(milliseconds) + " ms, " + OneDecimal(milliseconds * 1000.0 / ticks) + " us per tick";
+        }
+
+        // The parts of a floor that a search reads: its walkable cells, its roofed cells and its things. Read outside the timing.
+        private static string SurfaceState(Map map)
+        {
+            int roofed = 0;
+            foreach (IntVec3 cell in map.AllCells)
+            {
+                if (map.roofGrid.RoofAt(cell) != null) roofed++;
+            }
+            return "walkable " + CountWalkable(map) + ", roofed " + roofed + ", things " + map.listerThings.AllThings.Count();
+        }
+
+        private static string OneDecimal(double value)
+        {
+            return value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null
