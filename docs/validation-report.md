@@ -1089,3 +1089,35 @@ The brief expected the red to show an error or a pause. It did not. The red that
 - The planned "error or pause" red did not occur. The observed red is documented above.
 - In the failing state, a diagnostic found the look-up map still on the lower floor after the colonist walked down, and no store cell found for the surface steel. This was not investigated. The fixed path does not reach that state.
 - Task 24, which would remove the reach and reservation patches, is not started. The Task 19 numbers time the whole search per floor count, so they do not show those patches cost time.
+
+## Raids land on the ground
+
+Task 25 of the multi-floor ideas plan, idea 3 on `docs/mod-comparison/ideas.html`. Code: `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/RaidGroundPatch.cs`. Scenario `-RaidGround`, required row `raid ground`.
+
+### What changed
+
+- A prefix on the enemy raid's `TryExecuteWorker` aims a raid at a lower map at the surface of the same tile. The faction, points, strategy and arrival mode are kept.
+- A raid on the surface, or on a pocket map, is unchanged. If the surface lookup fails, the prefix logs an error and leaves the target alone.
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-142216 | Scenario, no patch | Row 1 FAIL: no raider on the surface, `fired False` |
+| 20261106-142335 | Scenario with the spawn diagnostic, no patch | Row 1 FAIL: `fired False`. The faction (The Spears) resolved, and the spawn center was none. Row 2 PASS: 6 raiders |
+| 20261106-142431 | With the patch | All rows PASS: 5 raiders on the surface, none on the lower map. The surface raid: 5 raiders on the surface |
+
+Before the change, a raid aimed at the lower map never fired. Its arrival is an edge walk-in, which needs an open entry cell, and the underground floor has none. The row fails because no raider reaches the surface.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-142526 | core (no switch) | PASS |
+| 20261106-142654 | -JobTakenOnArrival | PASS |
+| 20261106-142736 | -OtherColonistHauls | PASS |
+
+### Limits
+
+- The scenario uses the edge walk-in, which spawns raiders at once. Drop-pod arrivals (EdgeDrop, CenterDrop) are not exercised.
+- Outside debug mode the reroute writes no log line. The row counts are the proof.

@@ -1819,6 +1819,79 @@ namespace ZLevelsValidation
         // work on the own floor. The rows: a priority-3 job on the own floor is taken with no search on another floor; a priority-1 mining job on the
         // lower floor beats a priority-3 hauling job on the surface; a priority-3 job is taken when nothing is on the lower floor; and the threshold
         // setting defaults to 2. The settings class is internal, so the scenario reads it by name.
+        // Task 25 (idea 3, raids land on the ground). A raid aimed at a lower map arrives on the surface of the same tile, where the colonists stand. A
+        // raid aimed at the surface is unchanged. Each raid fires through the incident worker, and the scenario counts the hostile pawns that appear
+        // on each map.
+        private void RunRaidGroundCheck()
+        {
+            const string label = "raid ground";
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                RequireFloors(tracker, surface, 2);
+                CarveAround(lower, stairs.Position, 6f);
+                // The game fires a raid only at a map that has a colonist on it, so the lower floor gets one.
+                SpawnRestPawn(lower);
+                Record("raid setup", "INFO: the surface " + surface + " is level " + tracker.GetZIndexFor(surface) + "; the lower map " + lower
+                    + " is level " + tracker.GetZIndexFor(lower) + "; the surface map of the lower tile is " + tracker.GetMapByIndex(lower.Tile, 0));
+
+                IncidentWorker raid = IncidentDefOf.RaidEnemy.Worker;
+
+                List<Pawn> hostileBeforeLower = HostilePawns(surface, lower);
+                IncidentParms lowerParms = RaidParms(lower);
+                bool firedLower = raid.TryExecute(lowerParms);
+                List<Pawn> newLower = HostilePawns(surface, lower).Where(p => !hostileBeforeLower.Contains(p)).ToList();
+                int lowerOnSurface = newLower.Count(p => p.Map == surface);
+                int lowerOnLower = newLower.Count(p => p.Map == lower);
+                bool lowerOk = firedLower && lowerOnSurface > 0 && lowerOnLower == 0;
+                Record("raid aimed at a lower map arrives on the surface", lowerOk
+                    ? "PASS: " + lowerOnSurface + " raiders on the surface, none on the lower map"
+                    : "FAIL: fired " + firedLower + ", " + lowerOnSurface + " raiders on the surface, " + lowerOnLower + " on the lower map; faction "
+                        + (lowerParms.faction == null ? "none" : lowerParms.faction.Name) + ", spawn center "
+                        + (lowerParms.spawnCenter.IsValid ? lowerParms.spawnCenter.ToString() : "none"));
+
+                List<Pawn> hostileBeforeSurface = HostilePawns(surface, lower);
+                bool firedSurface = raid.TryExecute(RaidParms(surface));
+                List<Pawn> newSurface = HostilePawns(surface, lower).Where(p => !hostileBeforeSurface.Contains(p)).ToList();
+                int surfaceOnSurface = newSurface.Count(p => p.Map == surface);
+                int surfaceOnLower = newSurface.Count(p => p.Map == lower);
+                bool surfaceOk = firedSurface && surfaceOnSurface > 0 && surfaceOnLower == 0;
+                Record("raid on the surface is unchanged", surfaceOk
+                    ? "PASS: " + surfaceOnSurface + " raiders on the surface"
+                    : "FAIL: fired " + firedSurface + ", " + surfaceOnSurface + " raiders on the surface, " + surfaceOnLower + " on the lower map");
+
+                Record(label, lowerOk && surfaceOk ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels raid ground validation failed: " + exception);
+            }
+            finished = true;
+            Root.Shutdown();
+        }
+
+        private static List<Pawn> HostilePawns(Map surface, Map lower)
+        {
+            return surface.mapPawns.AllPawnsSpawned.Concat(lower.mapPawns.AllPawnsSpawned)
+                .Where(p => p.Faction != null && p.Faction.HostileTo(Faction.OfPlayer)).ToList();
+        }
+
+        private static IncidentParms RaidParms(IIncidentTarget target)
+        {
+            return new IncidentParms
+            {
+                target = target,
+                points = 300f,
+                silent = true,
+                raidArrivalMode = PawnsArrivalModeDefOf.EdgeWalkIn,
+                raidStrategy = RaidStrategyDefOf.ImmediateAttack
+            };
+        }
+
         // Task 23 (idea "check the job on arrival"). A cross-floor job waits in the colonist's job list while the colonist walks to the stairs. Its target
         // is checked again on arrival. If the target is gone, the job ends with no error and no pause, and the colonist searches again. The walk takes
         // game time, so the check runs over several frames.
