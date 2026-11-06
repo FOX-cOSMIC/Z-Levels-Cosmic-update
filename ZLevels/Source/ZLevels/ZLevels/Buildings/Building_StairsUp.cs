@@ -124,11 +124,8 @@ namespace ZLevels
                 Map mapUpper = ZTracker.GetUpperLevel(this.Map.Tile, this.Map);
                 if (mapUpper != null && mapUpper != this.Map)
                 {
-                    if (Position.GetThingList(mapUpper).Count(x => x.def == ZLevelsDefOf.ZL_StairsDown) != 0) return;
-                    mapUpper.terrainGrid.SetTerrain(this.Position, ZLevelsDefOf.ZL_OutsideTerrainTwo);
-                    var stairsToSpawn = ThingMaker.MakeThing(ZLevelsDefOf.ZL_StairsDown, this.Stuff);
-                    GenPlace.TryPlaceThing(stairsToSpawn, this.Position, mapUpper, ThingPlaceMode.Direct);
-                    stairsToSpawn.SetFaction(this.Faction);
+                    // The partner is the down piece of this kind, on the floor above, on the same cells (WayUpKinds.SpawnPartner).
+                    WayUpKinds.SpawnPartner(this, mapUpper, setOutsideTerrain: true);
                 }
                 else if (mapUpper == this.Map)
                 {

@@ -464,6 +464,34 @@ namespace ZLevelsValidation
                 Job surfaceJob = SearchWorkJob(surfaceColonist);
                 bool freeSeesSurface = tracker.GetAllMapsInClosestOrder(lower).Contains(surface);
                 Record("stay on floor diagnostic", "INFO: the locked colonist's search gives " + DescribeJob(lockedJob) + "; the unlocked colonist's search gives " + DescribeJob(freeJob) + "; a colonist on the surface gets " + DescribeJob(surfaceJob) + "; the unlocked colonist's search covers the surface " + freeSeesSurface + "; stairs up on the lower level " + lower.listerThings.AllThings.OfType<Building_StairsUp>().Count() + " (registered " + tracker.GetStairsUpFor(lower).Count() + "); steel at " + steel.Position + " on " + steel.Map + "; zone cells " + zone.Cells.Count() + "; surface colonist hauling priority " + surfaceColonist.workSettings.GetPriority(WorkTypeDefOf.Hauling) + " disabled " + surfaceColonist.WorkTypeIsDisabled(WorkTypeDefOf.Hauling) + "; steel forbidden " + steel.IsForbidden(surfaceColonist) + "; zone accepts steel " + zone.settings.AllowedToAccept(steel) + "; auto haul allowed " + HaulAIUtility.PawnCanAutomaticallyHaul(surfaceColonist, steel, true) + "; surface reach to steel " + surface.reachability.CanReach(surfaceColonist.Position, steel.Position, PathEndMode.ClosestTouch, TraverseParms.For(TraverseMode.PassDoors)) + "; unlocked colonist at " + free.Position + " on " + free.Map);
+                // Diagnostic only, and no row above depends on it. It shows where the stairs, the steel and the zone stand, whether the steel is
+                // reserved, and what a second search gives after a fresh tracker and a clock move past the idle pause.
+                string surfaceStairsAt = string.Join(" ", surface.listerThings.AllThings.OfType<Building_StairsDown>().Select(stair => stair.Position.ToString()));
+                string lowerStairsAt = string.Join(" ", lower.listerThings.AllThings.OfType<Building_StairsUp>().Select(stair => stair.Position.ToString()));
+                string zoneAt = string.Join(" ", zone.Cells.Take(4).Select(cell => cell.ToString()));
+                bool steelReserved = surface.reservationManager.IsReservedByAnyoneOf(steel, Faction.OfPlayer);
+                bool steelBReserved = surface.reservationManager.IsReservedByAnyoneOf(steelB, Faction.OfPlayer);
+                tracker.ResetJobTrackerFor(free);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + FloorPolicy.IdlePauseTicks + 1);
+                Job retryFree = SearchWorkJob(free);
+                Record("stay on floor geometry", "INFO: surface stairs down at " + (surfaceStairsAt.Length == 0 ? "none" : surfaceStairsAt)
+                    + "; lower stairs up at " + (lowerStairsAt.Length == 0 ? "none" : lowerStairsAt)
+                    + "; steel at " + steel.Position + " (reserved " + steelReserved + ") and " + steelB.Position + " (reserved " + steelBReserved + ")"
+                    + "; zone cells start at " + zoneAt + "; unlocked colonist at " + free.Position + " on " + free.Map
+                    + "; surface colonist at " + surfaceColonist.Position + "; a second search for the unlocked colonist after a fresh tracker gives " + DescribeJob(retryFree));
+                // Diagnostic only. It says whether the steel is already stored, whether the surface has a store cell for it, and how many claims in the
+                // colonists' job trackers name either stack, since a claim or a full store stops a haul search.
+                bool steelStored = steel.IsInAnyStorage();
+                bool steelBStored = steelB.IsInAnyStorage();
+                bool storeFound = StoreUtility.TryFindBestBetterStoreCellFor(steel, surfaceColonist, surface, StoragePriority.Unstored, Faction.OfPlayer, out IntVec3 storeCell);
+                int claimsOnSteel = 0;
+                foreach (JobTracker jobTracker in tracker.jobTracker.Values)
+                {
+                    if (jobTracker.reservedThings == null) continue;
+                    claimsOnSteel += jobTracker.reservedThings.Count(claim => claim.HasThing && (claim.Thing == steel || claim.Thing == steelB));
+                }
+                Record("stay on floor storage", "INFO: steel in storage " + steelStored + " and " + steelBStored + "; a store cell for the first stack from the surface "
+                    + (storeFound ? storeCell.ToString() : "none") + "; claims by colonists' job trackers on either stack " + claimsOnSteel);
                 stayBeforeSaveOk = lockedSkips && freeTakes && gizmoOffered;
                 Record("floor locks before the save", "INFO: " + tracker.floorPolicy.Count + " held; the locked colonist held " + tracker.floorPolicy.HasLock(locked));
                 stayLockedPawnId = locked.thingIDNumber;

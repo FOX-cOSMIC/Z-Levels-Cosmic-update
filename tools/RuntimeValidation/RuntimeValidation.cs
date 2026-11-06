@@ -421,6 +421,13 @@ namespace ZLevelsValidation
                     RunFloorsGuideCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelswayups"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunWayUpsTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())

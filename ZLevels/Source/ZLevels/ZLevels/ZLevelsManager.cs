@@ -1408,13 +1408,8 @@ namespace ZLevels
                     .ThingsListAt(cellToTeleport)?.Where(x => x is Building_StairsUp)?.FirstOrDefault();
                 if (stairs != null && stairs.Stuff != null)
                 {
-                    var thingToMake = ZLevelsDefOf.ZL_StairsDown;
-                    if (cellToTeleport.GetThingList(mapToTeleport).Where(x => x.def == thingToMake).Count() == 0)
-                    {
-                        var newStairs = ThingMaker.MakeThing(thingToMake, stairs.Stuff);
-                        newStairs.SetFaction(stairs.Faction);
-                        GenPlace.TryPlaceThing(newStairs, cellToTeleport, mapToTeleport, ThingPlaceMode.Direct);
-                    }
+                    // The partner is the down piece of the way's kind, on the same cells above (WayUpKinds.SpawnPartner).
+                    WayUpKinds.SpawnPartner(stairs as Building_Stairs, mapToTeleport, setOutsideTerrain: false);
                 }
             }
         }
@@ -1432,13 +1427,8 @@ namespace ZLevels
                 {
                     if (stairs.Stuff != null)
                     {
-                        var thingToMake = ZLevelsDefOf.ZL_StairsUp;
-                        if (cell.GetThingList(map).Where(x => x.def == thingToMake).Count() == 0)
-                        {
-                            var newStairs = ThingMaker.MakeThing(thingToMake, stairs.Stuff);
-                            newStairs.SetFaction(stairs.Faction);
-                            GenPlace.TryPlaceThing(newStairs, cell, map, ThingPlaceMode.Direct);
-                        }
+                        // The partner is the up piece of the way's kind, on the same cells below (WayUpKinds.SpawnPartner).
+                        WayUpKinds.SpawnPartner(stairs as Building_Stairs, map, setOutsideTerrain: false);
                     }
                     else if (stairs.def.defName == ZLevelsDefOf.ZL_NaturalHole.defName)
                     {

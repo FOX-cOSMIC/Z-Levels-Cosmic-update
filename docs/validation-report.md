@@ -1681,3 +1681,99 @@ Run `20261106-195902`, before the window existed. The first row failed with `the
 - The guide text is English only, as the other new labels of the port are.
 - Multiplayer: untested.
 
+## More ways up (2026-11-06)
+
+Lucas's decision D3, answered 2026-11-06: ladders and stair sizes. The idea "more ways up" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 36.
+
+### What was built
+
+Small ladders take one cell. Large ladders and large stairs take a 2 by 2 block. Each kind has an up piece on the lower floor and a down piece on the floor above, on the same cells. The defs are in `ZLevels/Common/Defs/Buildings/WayUps.xml`, and the kind table is `ZLevels/Source/ZLevels/ZLevels/Buildings/WayUpKinds.cs`. Costs and strength are decision DM15 in the plan. The existing stairs keep their behaviour.
+
+The large kinds are not rotatable, so both floors get the same footprint. A large way may be placed only when its four cells lie in one room of at least 25 cells, and its four cells on the other floor are standable and empty. Small ways keep their old checks.
+
+### What the scenario checks
+
+`-WayUps` (file `tools/RuntimeValidation/WayUpsScenarios.cs`). Both floors share one block of cells, because a partner is found by its cell.
+
+- `small ladder places a pair of ways`. A small ladder up on the lower floor creates its down piece on the floor above, at the same cell.
+- `large ladder covers four cells on both floors`. A large ladder up creates a partner on all four cells above.
+- `large stairs place a pair`. The same check for large stairs.
+- `colonist climbs a large ladder`. The small ladder and the large stairs are removed first, so the large ladder is the only way between the floors. A colonist is called to the surface cell and must stand there within 6000 ticks.
+- `large way allowed with four open cells on the other floor`. The placement check allows a large way whose four cells above are open.
+- `blocked cell on the other floor refuses a large way`. A wall on one of the four cells above makes the check refuse the way, with the message "A large way needs four open cells on the other floor."
+- `way ups`. Passes when the six rows above pass.
+
+### Red run
+
+Run `20261106-212937`, before any def existed. Every row failed with `the mod has no <def> def`, and the aggregate failed. The build had no errors. Its two warnings (CS0168 in `RoofAndFloorPatches.cs` and `ZPathfinder.cs`) were already there.
+
+### Green run
+
+Run `20261106-213318`, on the default validation mod list. The log ends with `Runtime validation passed. Evidence: ...20261106-213318`.
+
+| Row | Result |
+|---|---|
+| small ladder places a pair of ways | PASS, 1 by 1 cells hold the pair |
+| large ladder covers four cells on both floors | PASS, 2 by 2 cells hold the pair |
+| large stairs place a pair | PASS, 2 by 2 cells hold the pair |
+| large way allowed with four open cells on the other floor | PASS |
+| blocked cell on the other floor refuses a large way | PASS, refused with the other-floor message |
+| colonist climbs a large ladder | PASS, on the surface after 253 ticks |
+| way ups | PASS |
+
+### Regression
+
+Final batch, after the teleport terrain fix below, run one at a time on the default validation mod list. The logs are in the ledger folder, named `task36-v2-<name>.log`.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-221515 | `-WayUps` | PASS, six rows and the aggregate |
+| 20261106-221600 | core | PASS |
+| 20261106-221713 | `-StayOnFloor` | PASS, with the two INFO rows added to it |
+| 20261106-221801 | `-StairsDamage` | PASS |
+| 20261106-221844 | `-OneFloorColony` | PASS |
+| 20261106-221917 | `-Cooling` | PASS |
+| 20261106-222046 | `-CoolingTwoNets` | PASS |
+| 20261106-222129 | `-StairsEqualize` | PASS |
+| 20261106-222207 | `-CallColonists` | PASS |
+| 20261106-222250 | `-HaulToFloor` | PASS |
+| 20261106-222333 | `-BackgroundHaul` | PASS |
+| 20261106-222411 | `-WorkOnFloorOrder` | PASS |
+| 20261106-222449 | `-BenchLink` | PASS |
+
+First batch, before the teleport terrain fix. The logs are named `task36-reg-<name>.log`. Every run passed except `-StayOnFloor`, which is covered in the next part.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-213436 | core | PASS |
+| 20261106-213559 | `-StayOnFloor` | FAIL on `unlocked colonist takes the same haul` |
+| 20261106-213648 | `-StairsDamage` | PASS |
+| 20261106-213731 | `-OneFloorColony` | PASS |
+| 20261106-213804 | `-Cooling` | PASS |
+| 20261106-213937 | `-CoolingTwoNets` | PASS |
+| 20261106-214015 | `-StairsEqualize` | PASS |
+| 20261106-214053 | `-CallColonists` | PASS |
+| 20261106-214137 | `-HaulToFloor` | PASS |
+| 20261106-214220 | `-BackgroundHaul` | PASS |
+| 20261106-214258 | `-WorkOnFloorOrder` | PASS |
+| 20261106-214336 | `-BenchLink` | PASS |
+
+### `-StayOnFloor` is intermittent
+
+The row `unlocked colonist takes the same haul` ("takes no job") failed in run `20261106-213559` and in its first rerun, `20261106-214555`. The two reruns after them, `214639` and `214727`, passed. Later runs passed too: three with extra diagnostic rows, eight more, sixteen more with a storage row, and the final batch. That is 2 failures in 31 runs on the Task 36 code. The same row failed once in Task 33, in run `193404`, before any Task 36 change.
+
+The cause is not known. The failing runs were made before the diagnostic rows existed, so they show no storage row. The rows now record the stairs, the steel, the zone, the colonists, whether the steel is stored, a store cell for it, and the claims on either stack. A failing run with these rows would show whether a claim or a missing store cell blocks the first search. The pass criteria of the row did not change.
+
+### Teleport terrain fix
+
+While reading the teleport paths, I found that the shared partner helper set the outside terrain tile on the cell where the other stairs end. The old `SpawnStairsBelow` and `SpawnStairsUpper` never did. The helper now takes a flag. The stairs' own spawn passes `true`, as before, and both teleport paths pass `false`. The final batch ran after this change.
+
+### Limits
+
+- Save and reload of the large kinds is not tested.
+- Damage and destruction of a large way are not tested. The stairs damage run covers the small stairs only.
+- Upper-floor pairs use the same code, but only the lower-to-surface pair was run.
+- The climb row checks that a colonist arrives. It does not measure how many colonists climb at once.
+- The ladders and the large stairs share the stairs' textures, so a large way looks like a bigger ladder. This was not checked on screen.
+- Multiplayer: untested.
+
