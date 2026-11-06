@@ -801,3 +801,89 @@ Another session's uncommitted vault work sits in `tools/RuntimeValidation/Runtim
 3. Check `git diff --cached --stat` lists only this task's lines and files, then run `git commit -F <message file>` with no path arguments.
 
 After the commit the working copy still holds the other session's changes, so git status keeps the file as modified. That is expected. Committed text is LF, which `git show HEAD:<file> | tr -cd '\r' | wc -c` confirms.
+
+## Search timing baseline
+
+Recorded 2026-11-06 for Task 19 of the multi-floor ideas plan. Phase B changes are measured against these numbers, so the method is part of the record.
+
+### What the scenario times
+
+Run it with `tools/Invoke-RuntimeValidation.ps1 -SearchTiming`. Its required row is `search timing recorded`.
+
+- Ten colonists each run the work search 50 times, which makes 500 calls per setup. Each call is `TryIssueJobPackage` on the colonist's normal `JobGiver_Work`, reached through `SearchWorkJob`.
+- Three setups run in order in one game. One floor is the surface alone. Two floors add the lower floor. Three floors add the upper floor as well.
+- Each setup first makes one untimed search per colonist. Then the clock moves 601 ticks before every timed call, one tick past `FloorPolicy.IdlePauseTicks`. Without that step, the idle pause makes the vanilla search answer, and the timing measures that search instead.
+- The 500 timed calls form 50 rounds of ten calls. The rows give the first round, the median round, the slowest round, and the garbage collections inside the timed window.
+- A map tick is `Map.MapPreTick` followed by `Map.MapPostTick`. Those are the two per-map calls that `TickManager.DoSingleTick` makes. Version 1.7.4998 has no `Map.MapTick` method. Things on a map tick through the global tick lists, so their cost is outside these numbers.
+- The map ticks run after all three search setups. The ticks spawn animals and plants, and a spawn would change a later search.
+
+### Repeats
+
+Three runs used the same code: `20261106-082234`, `20261106-082409` and `20261106-082518`. Each run starts a new random game, and each setup is timed in that game.
+
+The colonists come from a fixed random state, and the lower floor is generated in that state too. The lower floor still depends on the random surface, so its walkable cells vary. The enabled work types total 120 in `20261106-082234` and 118 in the other two runs.
+
+Every timed call found no job in every run. The search cost per setup:
+
+| Run | Setup | Mean us per call | Median round in ms | Slowest round in ms | Cross-floor searches | Garbage collections gen0/gen1/gen2 |
+|---|---|---|---|---|---|---|
+| 20261106-082234 | One floor | 359.5 | 3.3 | 5.1 | 0 | 0/0/0 |
+| 20261106-082234 | Two floors | 587.7 | 5.5 | 13.1 | 34200 | 2/2/1 |
+| 20261106-082234 | Three floors | 564.5 | 5.4 | 8.2 | 34200 | 0/0/0 |
+| 20261106-082409 | One floor | 412.7 | 3.7 | 6.0 | 0 | 0/0/0 |
+| 20261106-082409 | Two floors | 747.4 | 7.6 | 32.7 | 34500 | 1/1/0 |
+| 20261106-082409 | Three floors | 443.3 | 3.6 | 25.4 | 34500 | 1/1/0 |
+| 20261106-082518 | One floor | 405.6 | 3.5 | 16.3 | 0 | 1/1/0 |
+| 20261106-082518 | Two floors | 526.0 | 4.5 | 24.9 | 34500 | 1/1/0 |
+| 20261106-082518 | Three floors | 492.2 | 3.8 | 32.2 | 34500 | 2/2/1 |
+
+Each map tick row covers 300 ticks:
+
+| Run | Lower floor, us per tick | Upper floor, us per tick | Surface, reference, us per tick |
+|---|---|---|---|
+| 20261106-082234 | 51.2 | 75.4 | 291.1 |
+| 20261106-082409 | 50.0 | 76.8 | 264.7 |
+| 20261106-082518 | 54.8 | 106.0 | 51.3 |
+
+The surface before the floors were built, in each repeat:
+
+| Run | Walkable cells | Roofed cells | Things | Lower floor walkable cells | Enabled work types |
+|---|---|---|---|---|---|
+| 20261106-082234 | 55149 | 5736 | 34215 | 690 | 120 |
+| 20261106-082409 | 59659 | 1972 | 43754 | 255 | 118 |
+| 20261106-082518 | 59427 | 2253 | 16092 | 20 | 118 |
+
+The upper floor changed none of these surface counts in any run. The lower floor removed at most one thing from the surface.
+
+### Reading the numbers
+
+One floor was the cheapest setup in all three repeats. Two floors cost 30 to 81 percent more per call than one floor. Three floors cost 7 to 57 percent more.
+
+Three floors ran faster than two floors in five of the six runs, by 4 to 58 percent. In `20261106-082036` the two were level, and three floors was 1 percent slower.
+
+The cause of the gap is not known. Three things were checked, and none of them explains it. The upper floor changed no surface counts. Garbage collection did not favor the faster setup: in `20261106-082518` the three-floor window had more collections than the two-floor window, and it ran faster. The round medians in `20261106-082409` are 7.6 ms for two floors and 3.6 ms for three floors, so the gap is not one slow round. One candidate is not tested: the two-floor setup is timed before the upper floor exists. A follow-up would time the two-floor setup again after the upper floor exists, or give each setup its own run.
+
+### Limits
+
+- The surface is random in every run, because the runner starts a new random game. Its counts differ from run to run, as the table shows. Costs that depend on the surface vary with it, including the surface reference tick.
+- The lower floor depends on the random surface, so its walkable cells ran from 20 to 690 in the repeats.
+- The seed fixes the colonists' random draws, but the enabled work types still differ by two between the first repeat and the other two.
+- Every timed call found no job. These numbers measure idle searches. A search that finds work is not measured.
+- Runs `20261106-081614`, `20261106-081820` and `20261106-082036` are exploratory. Their colonists and lower floors were not seeded, so they differ from the repeats and from one another. They also record different rows. Run `20261106-081614` has no round, collection or surface rows. Run `20261106-081820` has no surface rows. Run `20261106-082036` has all of them.
+- The runner builds the working tree, which held uncommitted vault work from another session. The timed build therefore differs from commit `dfd2686` by that work.
+- Each run has one `Player.log` error line. It is the duplicate package warning for `Aoba.DeadManSwitch.Core` in the installed mod list. It is not a Z-Levels error.
+
+### Exploratory runs
+
+These runs are not repeats of the final method.
+
+- `20261106-081614`: one floor 378.3 us per call, two floors 685.0, three floors 314.7. Cross-floor searches 34600 in both multi-floor setups. Lower floor 6563 walkable cells.
+- `20261106-081820`: one floor 566.6 us per call, two floors 487.7, three floors 207.1. Cross-floor searches 34600 in both multi-floor setups. Lower floor 97 walkable cells.
+- `20261106-082036`: one floor 308.5 us per call, two floors 521.5, three floors 528.5. Cross-floor searches 28950 in both multi-floor setups. Lower floor 5671 walkable cells.
+
+### Run folders
+
+- Repeats: `.artifacts/runs/20261106-082234/`, `.artifacts/runs/20261106-082409/` and `.artifacts/runs/20261106-082518/`.
+- Exploratory: `.artifacts/runs/20261106-081614/`, `.artifacts/runs/20261106-081820/` and `.artifacts/runs/20261106-082036/`.
+
+Each folder holds `validation-results.txt`, which has the rows, and `Player.log`.
