@@ -1416,3 +1416,55 @@ An earlier red run, `20261106-180922`, failed row 1 in the same way. It ran befo
 - A saved work type that no longer exists is dropped at load, without an error.
 - No run loads a save made before this change. Such a save has no work lists, so every floor does all work. This follows from the code, not from a run.
 - Multiplayer: untested. The project notes leave it optional and unverified.
+
+## Haul to a floor
+
+Lucas's idea "haul to a floor" in `docs/mod-comparison/ideas.html`. The haul-to-floor designator, `Designator_HaulToFloor`, sits in a new Architect category named `floors`. The player clicks or drags over loose items, then picks a floor from a menu. Each item that the chosen floor needs is marked for it with `ItemFloorMarks.Mark`. A colonist on that floor then hauls the item into storage there, through the offer that the background scan already makes (Task 22).
+
+The designator asks the same question as the background scan: does the floor need this item? `ItemFloorMarks.FloorNeeds` and the scan both read `DestinationOf`, so they agree. A floor that needs none of the selected items takes no mark. The menu reports how many items each choice took.
+
+### What the scenario checks
+
+`-HaulToFloor` runs one colony with a lower floor. The lower stockpile takes steel only. Two items lie on the surface. The first is a steel stack that the scenario marks through `Designator_HaulToFloor.MarkItemsForFloor`. The second is a wood log that nothing marks. A colonist on the lower floor hauls.
+
+- `a click on a cell with no loose item does nothing and does not throw`. A single click on an empty cell opens no menu and throws nothing. The game sends a click to `DesignateSingleCell`, not to the drag method.
+- `marked item ends on the chosen floor`. The marked steel is in storage on the lower floor within 6000 ticks.
+- `an unmarked item stays where it was`. The wood log is still on the surface, at its start cell.
+- `haul to a floor`. Passes when every row above passes.
+
+The scenario marks through `MarkItemsForFloor`, not through a drag. The validation harness has no mouse, so the drag and the menu are not driven.
+
+### Result
+
+Final green run `20261106-190430`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| a click on a cell with no loose item does nothing and does not throw | PASS |
+| marked item ends on the chosen floor | PASS. The marked steel is in storage on the lower floor. |
+| an unmarked item stays where it was | PASS |
+| haul to a floor | PASS |
+
+### Red runs
+
+- `20261106-183559`, before the designator existed: the first row failed with `the mod has no ZLevels.Designator_HaulToFloor class`. The build had no errors.
+- `20261106-190320`, with the marking in place and no click override: the click row failed with `The method or operation is not implemented.` The other rows passed.
+
+### Regression, final code
+
+- `20261106-190520`, `-BackgroundHaul`: 6 rows, PASS. `ItemFloorMarks` changed, and this run covers the refactored scan.
+- `20261106-190557`, core: 33 rows, PASS.
+
+### Fixes made while the rows were red
+
+- The click path was missing. The base `Designator.DesignateSingleCell` throws, and the game calls it for a single click (`DesignatorManager.cs`, line 101). The designator now overrides it. The decompile showed the call, and the click row confirmed it.
+- The first lower stockpile carve was centred three cells from the stairs, with radius four. `ClearCell` removed the lower stairs up. The surface stairs down then lost its partner, so `ZLevelsManager.ReCheckStairs` dropped it. The colonist could not route down, and the game paused in `Toils_ZLevels.GetSetStairs` with "cant find stairs down". The carve is now centred on the stairs, and the stockpile sits five cells away. A guard fails the setup if the lower stairs go missing.
+- The first version of row 2 used a second steel stack. The background scan marks every item the lower floor needs, so that steel was hauled down as well. The row now uses a wood log, which the lower stockpile does not take.
+
+### Limits
+
+- The drag, the menu, and the category button are not driven, and no screenshot was taken. The menu was not opened in any run.
+- Items in storage are not offered. The player takes a stored item out of storage first.
+- A floor that needs none of the selected items takes no mark. The next scan would drop the mark in any case.
+- The validation watchdog ends a run after four minutes of real time. A run that stalls shows `Timed out at stage`, which is the watchdog and not a scenario row.
+- Multiplayer: untested.

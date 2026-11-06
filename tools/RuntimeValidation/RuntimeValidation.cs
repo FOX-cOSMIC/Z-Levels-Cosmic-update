@@ -372,6 +372,13 @@ namespace ZLevelsValidation
                     RunEventsOtherFloorTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelshaulfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunHaulToFloorTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())

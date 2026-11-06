@@ -82,31 +82,44 @@ namespace ZLevels
             List<Destination> destinations = new List<Destination>();
             foreach (Map other in ZUtils.ZTracker.GetAllMaps(source.Tile))
             {
-                if (other == source)
+                if (other != source)
                 {
-                    continue;
+                    destinations.Add(DestinationOf(other));
                 }
-                Destination destination = new Destination { FloorIndex = ZUtils.ZTracker.GetZIndexFor(other) };
-                foreach (IConstructible site in other.listerThings.AllThings.OfType<IConstructible>())
-                {
-                    foreach (ThingDefCountClass need in site.TotalMaterialCost())
-                    {
-                        if (site.ThingCountNeeded(need.thingDef) > 0)
-                        {
-                            destination.NeededDefs.Add(need.thingDef);
-                        }
-                    }
-                }
-                foreach (SlotGroup group in other.haulDestinationManager.AllGroupsListInPriorityOrder)
-                {
-                    if (group.CellsList.Any(cell => cell.GetFirstItem(other) == null))
-                    {
-                        destination.GroupsWithRoom.Add(group);
-                    }
-                }
-                destinations.Add(destination);
             }
             return destinations;
+        }
+
+        // What one floor needs. The background scan and a manual mark read the same answer.
+        private static Destination DestinationOf(Map other)
+        {
+            Destination destination = new Destination { FloorIndex = ZUtils.ZTracker.GetZIndexFor(other) };
+            foreach (IConstructible site in other.listerThings.AllThings.OfType<IConstructible>())
+            {
+                foreach (ThingDefCountClass need in site.TotalMaterialCost())
+                {
+                    if (site.ThingCountNeeded(need.thingDef) > 0)
+                    {
+                        destination.NeededDefs.Add(need.thingDef);
+                    }
+                }
+            }
+            foreach (SlotGroup group in other.haulDestinationManager.AllGroupsListInPriorityOrder)
+            {
+                if (group.CellsList.Any(cell => cell.GetFirstItem(other) == null))
+                {
+                    destination.GroupsWithRoom.Add(group);
+                }
+            }
+            return destination;
+        }
+
+        // True when the floor needs the item: one of its blueprints or frames still lacks the item's material, or one of its stockpiles accepts the
+        // item and has an empty cell. The designator marks an item only for a floor that needs it.
+        public static bool FloorNeeds(Map floor, Thing item)
+        {
+            Destination destination = DestinationOf(floor);
+            return destination.NeededDefs.Contains(item.def) || destination.GroupsWithRoom.Any(group => group.parent.Accepts(item));
         }
 
         // The first destination that needs the item, or null when no other floor needs it. A floor index is not used for this answer, because the
