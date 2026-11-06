@@ -1468,3 +1468,49 @@ Final green run `20261106-190430`, on the default validation mod list:
 - A floor that needs none of the selected items takes no mark. The next scan would drop the mark in any case.
 - The validation watchdog ends a run after four minutes of real time. A run that stalls shows `Timed out at stage`, which is the watchdog and not a scenario row.
 - Multiplayer: untested.
+
+## Workbench floor link
+
+Lucas's idea "workbench floor link" in `docs/mod-comparison/ideas.html`. A player's work table shows a "Work on floor" button. The button is added in `WorkTableFloorGizmoPatch`, a postfix on `ThingWithComps.GetGizmos`. The button opens a menu of floors, and the chosen floor is stored in `FloorPolicy` (`SetBenchFloor` and `BenchFloor`). The store is saved with the game.
+
+The bill ingredient search, `StartOrResumeBillJob`, tries the floors in its usual order and stops at the first floor with ingredients. A linked table tries its floor first. `LinkedFloorFirst` moves that floor to the front of the list, and the other floors keep their order. A table with no link keeps the whole order.
+
+The gizmo patch targets `ThingWithComps.GetGizmos`, because the game declares that method there and not on `Building_WorkTable`. A patch on a derived type that does not declare the method would stop the mod loading, as `StairsGizmoPatch.cs` records.
+
+### What the scenario checks
+
+`-BenchLink` runs one colony with a lower floor. A fuelled stove on the surface has one cook-a-meal bill. Raw rice lies beside the stove on the surface, and more rice lies on the lower floor. Each search uses its own colonist, with cooking as the only work.
+
+- `an unlinked bench is unchanged`. With no link, the search fetches the surface rice, as before.
+- `bench linked to the lower floor fetches lower ingredients first`. With the stove linked to the lower floor, the search fetches the lower rice.
+- `the link survives save and reload`. The stove, found by its id after a save and load, is still linked to the lower floor.
+- `bench link`. Passes when every row above passes.
+
+### Result
+
+Final green run `20261106-191432`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| an unlinked bench is unchanged | PASS. The surface rice is fetched. |
+| bench linked to the lower floor fetches lower ingredients first | PASS. The lower rice is fetched. |
+| the link survives save and reload | PASS |
+| bench link | PASS |
+
+### Red run
+
+Run `20261106-191145`, before the link existed. The unlinked row passed. The linked row failed with `FloorPolicy has no SetBenchFloor`, and the aggregate failed. The scenario reaches `SetBenchFloor` by name, so a missing method fails a row and not the build.
+
+### Regression, final code
+
+- `20261106-191530`, core: 33 rows, PASS.
+- `20261106-191648`, `-FloorWorkFilter`: 4 rows, PASS. Its stove has no link, so its search order is unchanged.
+- `20261106-191735`, `-OwnFloorFirst`: 8 rows, PASS.
+
+### Limits
+
+- The gizmo's button and its floor menu are not driven, and no screenshot was taken. The link is set through `SetBenchFloor`, the call that the menu makes.
+- The save row covers one stove and one link. A link on a table that has been destroyed is left out of the save.
+- The button uses the game's install icon, `TexCommand.Install`, because the mod ships no command icons.
+- A linked floor with no ingredients falls back to the other floors, in their usual order.
+- Multiplayer: untested.

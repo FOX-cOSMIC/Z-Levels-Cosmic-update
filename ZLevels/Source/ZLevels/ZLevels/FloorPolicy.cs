@@ -308,6 +308,72 @@ namespace ZLevels
             return def == null || !(workOffFloors.TryGetValue(floorIndex, out HashSet<WorkTypeDef> off) && off.Contains(def));
         }
 
+        // The floor each work table is linked to. The ingredient search of the table's bills tries that floor first (idea "workbench floor link" on
+        // docs/mod-comparison/ideas.html). A table with no link keeps the search order.
+        private readonly Dictionary<Thing, int> benchFloors = new Dictionary<Thing, int>();
+
+        // Links a work table to a floor, or removes the link when floorIndex is null.
+        public void SetBenchFloor(Thing bench, int? floorIndex)
+        {
+            if (bench == null)
+            {
+                return;
+            }
+            if (floorIndex == null)
+            {
+                benchFloors.Remove(bench);
+                return;
+            }
+            benchFloors[bench] = floorIndex.Value;
+        }
+
+        // The floor a work table is linked to, or null when it has no link.
+        public int? BenchFloor(Thing bench)
+        {
+            return bench != null && benchFloors.TryGetValue(bench, out int floorIndex) ? floorIndex : (int?)null;
+        }
+
+        private List<Thing> savedBenches;
+        private List<int> savedBenchFloors;
+
+        // Saves the links as two parallel lists. A table is saved by reference, and a destroyed table is left out. The links are set again at
+        // PostLoadInit, when the tables exist.
+        public void ExposeBenchFloors()
+        {
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                savedBenches = new List<Thing>();
+                savedBenchFloors = new List<int>();
+                foreach (KeyValuePair<Thing, int> entry in benchFloors)
+                {
+                    if (entry.Key.Destroyed)
+                    {
+                        continue;
+                    }
+                    savedBenches.Add(entry.Key);
+                    savedBenchFloors.Add(entry.Value);
+                }
+            }
+            Scribe_Collections.Look(ref savedBenches, "benchFloorTables", LookMode.Reference);
+            Scribe_Collections.Look(ref savedBenchFloors, "benchFloorIndexes", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                benchFloors.Clear();
+                if (savedBenches != null && savedBenchFloors != null)
+                {
+                    for (int i = 0; i < savedBenches.Count && i < savedBenchFloors.Count; i++)
+                    {
+                        if (savedBenches[i] != null && !savedBenches[i].Destroyed)
+                        {
+                            SetBenchFloor(savedBenches[i], savedBenchFloors[i]);
+                        }
+                    }
+                }
+                savedBenches = null;
+                savedBenchFloors = null;
+            }
+        }
+
         private List<int> savedWorkFloors;
         private List<string> savedWorkDefNames;
 

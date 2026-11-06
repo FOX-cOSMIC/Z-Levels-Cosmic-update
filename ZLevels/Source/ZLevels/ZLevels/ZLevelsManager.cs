@@ -2038,6 +2038,7 @@ namespace ZLevels
             this.floorPolicy.ExposeLocks();
             this.floorPolicy.ExposeNeedFloors();
             this.floorPolicy.ExposeWorkOff();
+            this.floorPolicy.ExposeBenchFloors();
             Scribe_Collections.Look<Pawn, JobTracker>(ref this.jobTracker, "jobTracker", LookMode.Reference,
                 LookMode.Deep, ref this.JobTrackerKeys, ref this.JobTrackerValues);
             Scribe_Collections.Look<Map, int>(ref this.mapIndex, "mapIndex", LookMode.Reference,

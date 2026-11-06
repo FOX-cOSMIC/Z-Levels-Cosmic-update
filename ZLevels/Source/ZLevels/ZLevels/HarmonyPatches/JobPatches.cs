@@ -1335,6 +1335,26 @@ namespace ZLevels
                 }
                 return true;
             }
+            // A table linked to a floor tries that floor first (idea "workbench floor link"). The other floors keep their order, and a table with no link
+            // keeps the whole order. The floors are read into a list first, so the order does not change while the search moves the table between floors.
+            private static IEnumerable<Map> LinkedFloorFirst(IEnumerable<Map> maps, Thing bench)
+            {
+                List<Map> list = maps.ToList();
+                int? linked = ZUtils.ZTracker.floorPolicy.BenchFloor(bench);
+                if (linked == null)
+                {
+                    return list;
+                }
+                int index = list.FindIndex(map => ZUtils.ZTracker.GetZIndexFor(map) == linked.Value);
+                if (index > 0)
+                {
+                    Map first = list[index];
+                    list.RemoveAt(index);
+                    list.Insert(0, first);
+                }
+                return list;
+            }
+
             private static Job StartOrResumeBillJob(WorkGiver_DoBill scanner, Pawn pawn, IBillGiver giver, JobTracker jobTracker)
             {
                 List<ThingCount> chosenIngThings = scanner.chosenIngThings;
@@ -1388,7 +1408,7 @@ namespace ZLevels
                     ZLogger.Message(giver + " - billGiver.Map: " + ZTracker.GetMapInfo(giver.Map));
                     ZLogger.Message(giver + " - billGiver.Position: " + workBench.Position);
                     using (new FloorRestore(workBench, origBillGiverMap, origBillGiverPosition, pawn, origPawnMap, origPawnPosition))
-                    foreach (var map in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)))
+                    foreach (var map in LinkedFloorFirst(ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)), workBench))
                     {
                         try
                         {

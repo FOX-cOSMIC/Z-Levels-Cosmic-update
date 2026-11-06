@@ -379,6 +379,25 @@ namespace ZLevelsValidation
                     RunHaulToFloorTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbenchlink"))
+                {
+                    if (!reloaded)
+                    {
+                        if (!benchLinkSaved)
+                        {
+                            benchLinkSaved = true;
+                            RunBenchLinkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (benchLinkChecked)
+                    {
+                        return;
+                    }
+                    benchLinkChecked = true;
+                    RunBenchLinkAfterReload();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())
