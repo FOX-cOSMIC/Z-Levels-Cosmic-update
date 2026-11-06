@@ -428,6 +428,14 @@ namespace ZLevelsValidation
                     RunWayUpsTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorpipe"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorPipeCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())

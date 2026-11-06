@@ -1777,3 +1777,72 @@ While reading the teleport paths, I found that the shared partner helper set the
 - The ladders and the large stairs share the stairs' textures, so a large way looks like a bigger ladder. This was not checked on screen.
 - Multiplayer: untested.
 
+## Floor pipes between floors (2026-11-06)
+
+Lucas's decision D4, answered 2026-11-06, is one chosen resource per pipe, at a fixed rate. The idea "pipes between floors" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 37. The rules DM17 to DM19 are in that plan.
+
+### What was built
+
+A floor pipe is one object across two floors. Its lower end is placed on a floor that has a floor above, and its other end stands on the same cell up there. The def is in `ZLevels/Common/Defs/Buildings/FloorPipe.xml` (steel 10, 120 hit points, 300 work). The class is `ZLevels/Source/ZLevels/ZLevels/Buildings/Building_FloorPipe.cs`.
+
+- The end that sends takes stored items of the chosen resource and moves 60 a game day to the other end. The rate is `itemsPerDay` in the def, read through `FloorPipeExtension.cs`. The flow runs in steps of 250 ticks, the game's rare-tick interval.
+- Only items in storage move. Forbidden and reserved items are skipped. The items land next to the receiving end (`FloorPipeMover.cs`). If the receiving floor has no room for an item, the item goes back where it was, and the part of the move it would have made is not carried over.
+- The resource is steel first, then the raw resources with a stack limit above 1, by label. A gizmo sets it on both ends. A second gizmo flips which end sends.
+- Removing one end removes the other.
+- The placement check (`PlaceWorker_FloorPipe.cs`) refuses a pipe on the top floor, and refuses a pipe where the cell above is blocked.
+
+### What the scenario checks
+
+`-FloorPipe` (file `tools/RuntimeValidation/FloorPipeScenarios.cs`). The scenario is synchronous. A game day is 240 calls to the pipe's `Step` method, each for 250 ticks, as the rare tick makes them.
+
+- `floor pipe places its other end above`. A pipe on the lower floor has a pipe on the cell above.
+- `steel moves up at 60 a day`. 60 steel stored on the lower floor leave the zone, and 60 land above.
+- `only the chosen resource moves`. Under a steel pipe, 60 wood stays stored below.
+- `flip direction sends the other way`. After a flip, 30 steel stored above land below.
+- `removing one end removes the other`. Removing the lower end removes the upper one.
+- `resource gizmo sets both ends`. Setting WoodLog on one end gives the other end WoodLog too.
+- `pipe refused on the top floor`. The placement check returns its top-floor message.
+- `pipe refused where the cell above is blocked`. A wall above makes the check return its blocked message.
+- `pipe allowed where the cell above is clear`.
+- `floor pipe`. Passes when the nine rows pass.
+
+The three placement rows were added after the first green run, because no row had reached the placement check. Their red is the mutant run below, not a missing-def run.
+
+### Red and green runs
+
+- Red, run `20261106-223004`. Every row fails. The first reason reads "the mod has no ZL_FloorPipe def". The aggregate fails. The build had no errors.
+- Green, six rows, run `20261106-223558`. The log ends with `Runtime validation passed. Evidence: ...20261106-223558`.
+- Green, nine rows, run `20261106-223851`. The log ends the same way.
+- Mutant, run `20261106-223803`. The first statement of `AllowsPlacing` was made `return true;`. `pipe refused on the top floor` fails ("the top floor placement is allowed"). `pipe refused where the cell above is blocked` fails ("the lower floor placement is allowed"). `pipe allowed where the cell above is clear` and the six pipe rows pass, because they never reach the check. The aggregate fails. The file was then restored from a scratch copy and matches it byte for byte.
+
+The build of `tools/RuntimeValidation/RuntimeValidation.csproj` before the first green run reported 0 errors and 12 warnings. None of the warnings is in a floor pipe file.
+
+### Regression
+
+Run one at a time on the default validation mod list, after the nine rows were in place. The logs are in the ledger folder, named `task37-reg-<name>.log`.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-223946 | core | PASS |
+| 20261106-224109 | `-StairsDamage` | PASS |
+| 20261106-224147 | `-StairsEqualize` | PASS |
+| 20261106-224230 | `-OneFloorColony` | PASS |
+| 20261106-224304 | `-Cooling` | PASS |
+| 20261106-224432 | `-StayOnFloor` | PASS |
+| 20261106-224516 | `-WayUps` | PASS |
+
+`-StayOnFloor` passed in this batch. Its intermittent failure from Task 36 did not recur here.
+
+### Limits
+
+- Saving and loading a pipe, with its chosen resource and its direction, is not tested.
+- The rows stop when the items land. The haul logic that stores them on the receiving floor is not run here.
+- Forbidden and reserved items are skipped in the code, but no row covers them.
+- A full receiving floor is not tested. The return-to-origin path has no row.
+- Damage and deconstruction of a pipe are not tested. The removal row uses `DestroyMode.Vanish` only.
+- The pipe's texture is `Things/Building/Furniture/Column`, the same texture the power column uses. Runs are headless, so no texture was drawn, and the pipe's look on screen was not checked.
+- The gizmos were not clicked. The rows call the methods the gizmos call.
+- The scenario calls `Step` itself, 240 times a day. It does not wait for the game's rare tick, so the real tick's timing is not proven by a row.
+- Only the lower-to-surface pair was run. Upper-floor pairs use the same code, but were not run.
+- Multiplayer: untested.
+
