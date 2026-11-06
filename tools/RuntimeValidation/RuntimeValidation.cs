@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelslighterfloors"))
+                {
+                    finished = true;
+                    RunLighterFloorsCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssearchtiming"))
                 {
                     finished = true;

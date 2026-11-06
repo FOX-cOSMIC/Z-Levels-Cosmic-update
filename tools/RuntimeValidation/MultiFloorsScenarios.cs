@@ -1662,6 +1662,139 @@ namespace ZLevelsValidation
             return value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        // Task 20 (idea "lighter update on extra floors" on docs/mod-comparison/ideas.html). A floor above or below the surface skips four steps of
+        // the map tick: wind, wild animal spawning, weather choice and passing ships. This scenario checks the spawn step and the weather step on
+        // the lower floor, and that the surface still runs its weather. A spawn needs an edge the spawner can reach, so the lower floor's outer ring
+        // is opened. The spawn chance is made to pass by drawing the random state from a seed in which it passes.
+        private void RunLighterFloorsCheck()
+        {
+            const string label = "lighter floors";
+            const int sentinel = -12345;
+            Rand.PushState(20261107);
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                Map lower = CreateLevelBelow(tracker, surface);
+                lower.fogGrid.ClearAllFog();
+                RequireFloors(tracker, surface, 2);
+                OpenLowerEdge(lower);
+                if (!lower.reachability.CanReachMapEdge(lower.Center, TraverseParms.For(TraverseMode.NoPassClosedDoors).WithFenceblocked(forceFenceblocked: true)))
+                {
+                    throw new InvalidOperationException("the start spot on the lower floor cannot reach the edge");
+                }
+
+                // An entry cell must be reachable from a colonist or a colony building on the same floor, so the scenario places one colonist there.
+                SpawnPawnAt(lower, lower.Center);
+                if (!RCellFinder.TryFindRandomPawnEntryCell(out IntVec3 entry, lower, CellFinder.EdgeRoadChance_Animal, allowFogged: true))
+                {
+                    throw new InvalidOperationException("the spawner finds no entry cell on the lower floor");
+                }
+                int kinds = lower.BiomeAt(entry).AllWildAnimals.Count(kind => lower.mapTemperature.SeasonAcceptableFor(kind.race));
+                Record("lighter floors entry", "INFO: entry cell " + entry + ", wild animal kinds acceptable there " + kinds);
+                if (kinds == 0)
+                {
+                    throw new InvalidOperationException("no wild animal kind is acceptable on the lower floor at " + entry);
+                }
+
+                WildAnimalSpawner spawner = lower.wildAnimalSpawner;
+                float density = (float)typeof(WildAnimalSpawner).GetProperty("DesiredAnimalDensity", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(spawner);
+                float chance = 0.026955556f * density;
+                int seed = FindSeedPassing(chance);
+                int animalsBefore = CountAnimals(lower);
+                // The spawner acts only on ticks that are a multiple of 1213. The 2000 ticks from 1213 hold two of them, at 1213 and 2426.
+                foreach (int tick in new[] { 1213, 2426 })
+                {
+                    Find.TickManager.DebugSetTicksGame(tick);
+                    Rand.PushState(seed);
+                    spawner.WildAnimalSpawnerTick();
+                    Rand.PopState();
+                }
+                int spawned = CountAnimals(lower) - animalsBefore;
+                Record("lighter floors inputs", "INFO: spawn density " + density + ", chance " + chance + ", seed " + seed + ", ecosystem full " + spawner.AnimalEcosystemFull);
+                Record("no wild spawn on the lower floor in 2000 ticks", spawned == 0 ? "PASS" : "FAIL: " + spawned + " wild animals spawned on the lower floor");
+
+                // The weather decider changes the weather when the weather age passes its duration. A sentinel duration that the decider replaces
+                // shows that it ran. The weather itself must also stay the same.
+                WeatherDef lowerWeather = lower.weatherManager.curWeather;
+                SetDecider(lower.weatherDecider, sentinel);
+                lower.weatherDecider.WeatherDeciderTick();
+                bool lowerKept = DeciderDuration(lower.weatherDecider) == sentinel && lower.weatherManager.curWeather == lowerWeather;
+                Record("lower floor weather does not change", lowerKept ? "PASS" : "FAIL: the lower floor's weather decider ran, its duration is " + DeciderDuration(lower.weatherDecider) + " and its weather changed " + (lower.weatherManager.curWeather != lowerWeather));
+                SetDecider(surface.weatherDecider, sentinel);
+                surface.weatherDecider.WeatherDeciderTick();
+                bool surfaceRan = DeciderDuration(surface.weatherDecider) != sentinel;
+                Record("the surface still runs its weather", surfaceRan ? "PASS" : "FAIL: the surface weather decider did not run");
+                Record(label, spawned == 0 && lowerKept && surfaceRan ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels lighter floors validation failed: " + exception);
+            }
+            finally
+            {
+                Rand.PopState();
+            }
+            Root.Shutdown();
+        }
+
+        // Opens the outer ring of cells on a lower floor, and a straight corridor from the start spot to the ring, so the spawner can reach an edge.
+        private static void OpenLowerEdge(Map map)
+        {
+            int maxX = map.Size.x - 1;
+            int maxZ = map.Size.z - 1;
+            foreach (IntVec3 cell in map.AllCells.ToList())
+            {
+                if (cell.x == 0 || cell.z == 0 || cell.x == maxX || cell.z == maxZ)
+                {
+                    ClearCell(map, cell);
+                    map.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+                    map.roofGrid.SetRoof(cell, null);
+                }
+            }
+            IntVec3 start = map.Center;
+            for (int x = 0; x <= start.x; x++)
+            {
+                IntVec3 cell = new IntVec3(x, 0, start.z);
+                ClearCell(map, cell);
+                map.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+                map.roofGrid.SetRoof(cell, null);
+            }
+        }
+
+        private static int CountAnimals(Map map)
+        {
+            return map.mapPawns.AllPawns.Count(pawn => pawn.RaceProps.Animal);
+        }
+
+        // The first seed from 0 in which the spawn chance passes on its first draw. The draw is the first one the spawner makes.
+        private static int FindSeedPassing(float chance)
+        {
+            for (int seed = 0; seed < 100000; seed++)
+            {
+                Rand.PushState(seed);
+                bool passes = Rand.Chance(chance);
+                Rand.PopState();
+                if (passes)
+                {
+                    return seed;
+                }
+            }
+            throw new InvalidOperationException("no seed below 100000 passes the spawn chance " + chance);
+        }
+
+        private static void SetDecider(WeatherDecider decider, int duration)
+        {
+            typeof(WeatherDecider).GetField("curWeatherDuration", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(decider, duration);
+        }
+
+        private static int DeciderDuration(WeatherDecider decider)
+        {
+            return (int)typeof(WeatherDecider).GetField("curWeatherDuration", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(decider);
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null
