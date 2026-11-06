@@ -56,6 +56,8 @@ Answered 2026-11-05: D2, "all of them". D1 is read as "rebuild in place" (the co
 
 **Decisions for Lucas** (blocking, asked with the question tool when Phase D is done; Phase E waits):
 
+**Answered 2026-11-06:** D3 ladders and stair sizes (option a), D4 one chosen resource at a fixed rate (option a), D5 send a chosen list now (option a). Each is the recommended option. Record: `docs/roadmap.md`, and the Phase E plan `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`.
+
 - D3 (Task 36). Which ways up are built: ladders and stairs of other sizes, powered elevators, or a freight elevator that also carries items? Options: (a) ladders and stair sizes, no power (Recommended); (b) plus a powered elevator that carries colonists; (c) plus a freight elevator. Default if no answer: (a). Phase E waits.
 - D4 (Task 37). Which resource does a pipe between floors carry, and at what rate? Options: (a) one resource the player picks per connector, at a fixed rate (Recommended); (b) power only, which `PowerTransfer` already covers in part; (c) fluids and items. Default if no answer: none is built; the roadmap line stays open. Phase E waits.
 - D5 (Task 38). What does the stair transfer tab do? Options: (a) send a chosen list of colonists and items now (Recommended); (b) also keep a set amount on the next floor, such as 200 steel. Default if no answer: (a). Phase E waits.
