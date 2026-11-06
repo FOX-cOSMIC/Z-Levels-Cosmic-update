@@ -364,14 +364,19 @@ namespace ZLevels
                                 }
                             }
 
+                            // Needs cool-down (DM5): a redirect to another floor waits 2000 ticks after the last one, unless the colonist is very hungry.
+                            int redirectNow = Find.TickManager.TicksGame;
+                            bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, pawn.needs.food.CurCategory >= HungerCategory.UrgentlyHungry);
                             foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                             {
+                                if (otherMap != oldMap && !redirectOpen) continue;
                                 ZLogger.Message("Searching food job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                                     + " for " + ZTracker.GetMapInfo(oldMap));
                                 result = JobGiver_GetFoodPatch.TryGiveJob(pawn, __instance.forceScanWholeMap,
                                     ___maxLevelPercentage, ___minCategory);
                                 if (result != null)
                                 {
+                                    if (otherMap != oldMap) ZTracker.floorPolicy.NoteRedirect(pawn, redirectNow);
                                     ZLogger.Message(pawn + " got food job " + result + " - map: "
                                         + ZTracker.GetMapInfo(pawn.Map) + " - " + pawn.Position);
                                     ZUtils.TeleportThing(pawn, oldMap, oldPosition);
@@ -547,8 +552,12 @@ namespace ZLevels
                             __result = TryGiveJob(pawn, CanDoDuringMedicalRest, InBed, ___joyGiverChances, __instance);
                             return false;
                         }
+                        // Needs cool-down (DM5): fun is a redirect too, and it shares the clock with food.
+                        int redirectNow = Find.TickManager.TicksGame;
+                        bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, false);
                         foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                         {
+                            if (otherMap != oldMap && !redirectOpen) continue;
                             ZLogger.Message(pawn + " - other map: " + otherMap);
                             ZLogger.Message("Searching joy job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                                 + " for " + ZTracker.GetMapInfo(oldMap));
@@ -568,6 +577,7 @@ namespace ZLevels
                         {
                             //var job = jobList.RandomElement();
                             ZLogger.Message(pawn + " found joy " + job);
+                            if (jobList[job] != oldMap) ZTracker.floorPolicy.NoteRedirect(pawn, redirectNow);
                             ZTracker.BuildJobListFor(pawn, jobList[job], job);
                             __result = jobTracker.activeJobs[0];
                             jobTracker.activeJobs.RemoveAt(0);

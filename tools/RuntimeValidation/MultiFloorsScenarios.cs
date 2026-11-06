@@ -647,6 +647,177 @@ namespace ZLevelsValidation
             return stairs;
         }
 
+        // Task 8 (idea "Needs get a cool-down" on docs/mod-comparison/ideas.html). A colonist is redirected for food or fun at most
+        // once per 2000 ticks, and a very hungry colonist is never held back. A search counts as a redirect when its job, or a job
+        // the search leaves in the colonist's chain, works on the lower map. The scenario sets the game clock with DebugSetTicksGame.
+        private void RunNeedCooldownCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                CarveAround(lower, stairs.Position, 5f);
+                // The joy search skips fogged things (JoyGiver_Ingest.CanIngestForJoy), and the lower level has never been seen.
+                lower.fogGrid.ClearAllFog();
+                DestroySurfaceFood(surface);
+                int start = Find.TickManager.TicksGame;
+                List<IntVec3> avoidSurface = new List<IntVec3>();
+                List<IntVec3> avoidLower = new List<IntVec3>();
+
+                Pawn eater = SpawnColonistNear(surface, stairs.Position, avoidSurface);
+                // A food job giver with the Hungry minimum. The think tree's first food giver can be a duty's Starving one.
+                JobGiver_GetFood foodGiver = new JobGiver_GetFood();
+                typeof(JobGiver_GetFood).GetField("minCategory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .SetValue(foodGiver, HungerCategory.Hungry);
+                bool firstFood = TryFoodSearch(eater, foodGiver, tracker, lower, stairs, avoidLower, start + 100, 0.2f);
+                Record("first food redirect is allowed", firstFood ? "PASS" : "FAIL: the first food search did not reach the lower map");
+                bool secondFood = TryFoodSearch(eater, foodGiver, tracker, lower, stairs, avoidLower, start +200, 0.2f);
+                Record("second food redirect within 2000 ticks is refused", !secondFood ? "PASS" : "FAIL: the second food search reached the lower map 100 ticks after the first");
+                bool urgentFood = TryFoodSearch(eater, foodGiver, tracker, lower, stairs, avoidLower, start +300, 0.1f);
+                Record("very hungry colonist is redirected at once", urgentFood ? "PASS" : "FAIL: the very hungry search did not reach the lower map");
+                bool laterFood = TryFoodSearch(eater, foodGiver, tracker, lower, stairs, avoidLower, start +2400, 0.2f);
+                Record("redirect after 2000 ticks is allowed", laterFood ? "PASS" : "FAIL: the food search 2100 ticks after the urgent redirect did not reach the lower map");
+
+                Pawn fun = SpawnColonistNear(surface, stairs.Position, avoidSurface);
+                // The base joy job giver. A think tree can hold JobGiver_GetJoyInBed, which overrides TryGiveJob and so skips the patch.
+                JobGiver_GetJoy joyGiver = new JobGiver_GetJoy();
+                joyGiver.ResolveReferences();
+                SpawnChocolateNear(lower, stairs.Position, avoidLower);
+                bool firstJoy = TryJoyUntilLower(fun, joyGiver, tracker, lower, start + 3000);
+                Record("first joy redirect is allowed", firstJoy ? "PASS" : "FAIL: no joy search in 60 tries reached the lower map");
+                bool secondJoy = TryJoyOnce(fun, joyGiver, tracker, lower, start + 3100);
+                Record("second joy redirect within 2000 ticks is refused", !secondJoy ? "PASS" : "FAIL: the second joy search reached the lower map 100 ticks after the first");
+                SpawnChocolateNear(lower, stairs.Position, avoidLower);
+                bool laterJoy = TryJoyUntilLower(fun, joyGiver, tracker, lower, start + 5100);
+                Record("joy redirect after 2000 ticks is allowed", laterJoy ? "PASS" : "FAIL: no joy search 2100 ticks after the first redirect reached the lower map in 60 tries");
+
+                bool all = firstFood && !secondFood && urgentFood && laterFood && firstJoy && !secondJoy && laterJoy;
+                Record("need cool-down", all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("need cool-down", "FAIL: " + exception);
+                Log.Error("Z-Levels need cool-down validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // One food search at a food level and a game tick, with a fresh stack of meals on the lower level. A search that reaches the
+        // lower map is a redirect.
+        private static bool TryFoodSearch(Pawn pawn, JobGiver_GetFood giver, ZLevelsManager tracker, Map lower, Building_StairsUp stairs,
+            List<IntVec3> avoid, int tick, float foodLevel)
+        {
+            SpawnMealsNear(lower, stairs.Position, avoid);
+            Find.TickManager.DebugSetTicksGame(tick);
+            pawn.needs.food.CurLevelPercentage = foodLevel;
+            if (tracker.jobTracker != null) tracker.jobTracker.Remove(pawn);
+            Job job = InvokeTryGiveJob(giver, pawn);
+            return ReachesMap(pawn, tracker, job, lower);
+        }
+
+        // Fun picks among the joy jobs of every allowed map, so one search can pick a surface job. The scenario searches again, up to 60
+        // times, and stops at the first search that reaches the lower map.
+        private static bool TryJoyUntilLower(Pawn pawn, JobGiver_GetJoy giver, ZLevelsManager tracker, Map lower, int tick)
+        {
+            for (int attempt = 0; attempt < 60; attempt++)
+            {
+                if (TryJoyOnce(pawn, giver, tracker, lower, tick)) return true;
+            }
+            return false;
+        }
+
+        // One joy search at a game tick. The joy level is 0.5, because a joy job giver returns nothing at 0.99 or more, and a fresh
+        // colonist starts there.
+        private static bool TryJoyOnce(Pawn pawn, JobGiver_GetJoy giver, ZLevelsManager tracker, Map lower, int tick)
+        {
+            Find.TickManager.DebugSetTicksGame(tick);
+            pawn.needs.joy.CurLevelPercentage = 0.5f;
+            if (tracker.jobTracker != null) tracker.jobTracker.Remove(pawn);
+            Job job = InvokeTryGiveJob(giver, pawn);
+            return ReachesMap(pawn, tracker, job, lower);
+        }
+
+        // True when the search's job, or a job the search left in the colonist's chain, works on the given map.
+        private static bool ReachesMap(Pawn pawn, ZLevelsManager tracker, Job returned, Map map)
+        {
+            if (returned != null && returned.targetA.Thing != null && returned.targetA.Thing.Map == map) return true;
+            if (tracker.jobTracker == null || !tracker.jobTracker.TryGetValue(pawn, out JobTracker chain) || chain.activeJobs == null)
+            {
+                return false;
+            }
+            return chain.activeJobs.Any(job => job.targetA.Thing != null && job.targetA.Thing.Map == map);
+        }
+
+        // The job giver's own TryGiveJob(Pawn). It is protected, so the scenario calls it by reflection; the Harmony prefix still runs.
+        private static Job InvokeTryGiveJob(object giver, Pawn pawn)
+        {
+            System.Reflection.MethodInfo method = giver.GetType().GetMethod("TryGiveJob",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                null, new[] { typeof(Pawn) }, null);
+            if (method == null)
+            {
+                throw new InvalidOperationException("no TryGiveJob(Pawn) on " + giver.GetType().Name);
+            }
+            return (Job)method.Invoke(giver, new object[] { pawn });
+        }
+
+        // Opens the rock within a radius of the lower stairs, so the scenario's food and table have room that a colonist can reach.
+        private static void CarveAround(Map map, IntVec3 center, float radius)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(center, radius, true))
+            {
+                if (!cell.InBounds(map) || cell == center) continue;
+                ClearCell(map, cell);
+                map.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+            }
+        }
+
+        private static void DestroySurfaceFood(Map map)
+        {
+            foreach (Thing thing in map.listerThings.AllThings.Where(t => t.def.category == ThingCategory.Item && t.def.IsIngestible).ToList())
+            {
+                thing.Destroy();
+            }
+        }
+
+        private static Pawn SpawnColonistNear(Map map, IntVec3 near, List<IntVec3> avoid)
+        {
+            IntVec3 cell = FindReachableCellNear(map, near + new IntVec3(1, 0, 0), avoid);
+            if (!cell.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell near the stairs for a colonist");
+            }
+            avoid.Add(cell);
+            return SpawnPawnAt(map, cell);
+        }
+
+        private static void SpawnMealsNear(Map map, IntVec3 near, List<IntVec3> avoid)
+        {
+            IntVec3 cell = FindReachableCellNear(map, near + new IntVec3(2, 0, 0), avoid);
+            if (!cell.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell on the lower level for a meal stack");
+            }
+            avoid.Add(cell);
+            Thing meals = ThingMaker.MakeThing(ThingDefOf.MealSimple);
+            meals.stackCount = 10;
+            GenSpawn.Spawn(meals, cell, map);
+        }
+
+        private static void SpawnChocolateNear(Map map, IntVec3 near, List<IntVec3> avoid)
+        {
+            IntVec3 cell = FindReachableCellNear(map, near + new IntVec3(-2, 0, 0), avoid);
+            if (!cell.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell on the lower level for chocolate");
+            }
+            avoid.Add(cell);
+            Thing chocolate = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("Chocolate"));
+            chocolate.stackCount = 10;
+            GenSpawn.Spawn(chocolate, cell, map);
+        }
+
         private static Pawn FindPawnById(int id)
         {
             foreach (Map map in Find.Maps)

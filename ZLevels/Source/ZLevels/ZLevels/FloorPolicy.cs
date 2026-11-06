@@ -74,6 +74,35 @@ namespace ZLevels
             return maps.Where(map => AllowsMap(pawn, map, nowTick));
         }
 
+        // Needs cool-down (DM5). A colonist is redirected for food or fun at most once per RedirectCooldownTicks, and food and fun share
+        // that clock. A very hungry colonist is never held back. The times are kept in memory only, so a load starts with no cool-down.
+        public const int RedirectCooldownTicks = 2000;
+        private readonly Dictionary<Pawn, int> lastRedirectTick = new Dictionary<Pawn, int>();
+
+        public bool RedirectAllowed(Pawn pawn, int nowTick, bool urgent)
+        {
+            if (urgent || pawn == null || !lastRedirectTick.TryGetValue(pawn, out int lastTick))
+            {
+                return true;
+            }
+            return nowTick - lastTick >= RedirectCooldownTicks;
+        }
+
+        public void NoteRedirect(Pawn pawn, int nowTick)
+        {
+            if (pawn == null)
+            {
+                return;
+            }
+            // A time older than the cool-down allows every redirect anyway, so it is dropped here. Dead pawns do not stay in the table.
+            List<Pawn> expired = lastRedirectTick.Where(entry => nowTick - entry.Value >= RedirectCooldownTicks).Select(entry => entry.Key).ToList();
+            foreach (Pawn oldPawn in expired)
+            {
+                lastRedirectTick.Remove(oldPawn);
+            }
+            lastRedirectTick[pawn] = nowTick;
+        }
+
         // Saves the locks with the game, as parallel lists like the other per-pawn data. Dead pawns are not saved. The lists are
         // read back at PostLoadInit, when the pawn references are resolved.
         public void ExposeLocks()

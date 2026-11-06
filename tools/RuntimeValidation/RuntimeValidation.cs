@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsneedcooldown"))
+                {
+                    finished = true;
+                    RunNeedCooldownCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsworkonfloororder"))
                 {
                     finished = true;
