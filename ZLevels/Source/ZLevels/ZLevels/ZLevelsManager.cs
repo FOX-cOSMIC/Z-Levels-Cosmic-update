@@ -30,6 +30,14 @@ namespace ZLevels
         public override void GameComponentTick()
         {
             base.GameComponentTick();
+            // The background scan of every floor, once per ItemFloorMarks.ScanIntervalTicks (idea "items checked in the background").
+            if (Find.TickManager.TicksGame % ItemFloorMarks.ScanIntervalTicks == 0)
+            {
+                foreach (Map map in Find.Maps.ToList())
+                {
+                    ItemFloorMarks.RefreshFloor(map);
+                }
+            }
             if (recheckStairs)
             {
                 foreach (var tile in this.ZLevelsTracker.Keys)

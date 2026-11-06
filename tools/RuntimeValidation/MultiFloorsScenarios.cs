@@ -1819,6 +1819,181 @@ namespace ZLevelsValidation
         // work on the own floor. The rows: a priority-3 job on the own floor is taken with no search on another floor; a priority-1 mining job on the
         // lower floor beats a priority-3 hauling job on the surface; a priority-3 job is taken when nothing is on the lower floor; and the threshold
         // setting defaults to 2. The settings class is internal, so the scenario reads it by name.
+        // Items the lower floor needs are marked in the background (idea "items checked in the background"). A colonist on the lower floor is offered
+        // the surface items that are marked for its floor. Before the change every surface item is offered, so rows 2 and 3 fail first.
+        private void RunBackgroundHaulCheck()
+        {
+            const string label = "background haul";
+            Rand.PushState(20261110);
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                lower.fogGrid.ClearAllFog();
+                RequireFloors(tracker, surface, 2);
+                // Plants and items may stand in the block, so the block is found by its ground alone and then cleared.
+                IntVec3 block = FindStandableBlock(surface, 9, 9);
+                if (!block.IsValid)
+                {
+                    throw new InvalidOperationException("no standable 9 by 9 block on the surface away from the edges");
+                }
+                for (int i = 0; i < 9; i++)
+                {
+                    for (int j = 0; j < 9; j++)
+                    {
+                        ClearCell(surface, block + new IntVec3(i, 0, j));
+                    }
+                }
+                List<IntVec3> avoid = new List<IntVec3>();
+
+                // The lower floor needs steel: a steel wall blueprint there. The steel and a wood log lie on the surface.
+                ThingDef wallDef = Def("Wall");
+                // The lower floor is rock until it is carved, and a wall needs open ground away from the map edge. The stairs can stand near the edge.
+                IntVec3 wallCell = IntVec3.Invalid;
+                foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 14f, false))
+                {
+                    if (!InsideEdgeMargin(lower, cell))
+                    {
+                        continue;
+                    }
+                    CarveAround(lower, cell, 3f);
+                    if (GenConstruct.CanPlaceBlueprintAt(wallDef, cell, Rot4.North, lower).Accepted)
+                    {
+                        wallCell = cell;
+                        break;
+                    }
+                }
+                if (!wallCell.IsValid)
+                {
+                    throw new InvalidOperationException("no cell on the lower floor within 14 of the stairs takes a wall blueprint");
+                }
+                avoid.Add(wallCell);
+                Blueprint_Build wall = GenConstruct.PlaceBlueprintForBuild(wallDef, wallCell, lower, Rot4.North, Faction.OfPlayer, ThingDefOf.Steel);
+                IntVec3 steelCell = block + new IntVec3(7, 0, 7);
+                ClearCell(surface, steelCell);
+                Thing steel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                steel.stackCount = 10;
+                GenSpawn.Spawn(steel, steelCell, surface);
+                IntVec3 logCell = block + new IntVec3(8, 0, 2);
+                ClearCell(surface, logCell);
+                Thing log = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                log.stackCount = 10;
+                GenSpawn.Spawn(log, logCell, surface);
+                Pawn lowerColonist = SpawnCapableColonistNear(lower, stairs.Position, avoid, WorkTypeDefOf.Hauling);
+                SetWork(lowerColonist, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+
+                // Row 1. The steel is needed below, so it is marked within 2000 ticks and the lower colonist is offered it.
+                int offeredAfter = TickUntil(tracker, 2000, () => OfferedHauls(lowerColonist).Contains(steel));
+                bool row1 = offeredAfter >= 0;
+                int lowerIndex = tracker.GetZIndexFor(lower);
+                Record("surface item needed on the lower floor is marked within 2000 ticks", row1 ? "PASS: offered after " + offeredAfter + " ticks"
+                    : "FAIL: not offered within 2000 ticks; the blueprint still needs " + wall.ThingCountNeeded(ThingDefOf.Steel) + " steel, the lower floor is index " + lowerIndex
+                    + ", the steel is marked for it " + ItemFloorMarks.IsMarkedFor(steel, lowerIndex) + ", the steel is a surface haul " + surface.listerHaulables.ThingsPotentiallyNeedingHauling().Contains(steel)
+                    + ", the tick is " + Find.TickManager.TicksGame);
+
+                // Rows 2 and 3. Nothing below needs the steel any more, and the lower stockpile is full. The steel and the log are then unmarked.
+                wall.Destroy();
+                CarveAround(lower, stairs.Position + new IntVec3(3, 0, 0), 4f);
+                Zone_Stockpile lowerStock = MakeSupplyZone(lower, stairs.Position + new IntVec3(3, 0, 0));
+                if (lowerStock.Cells.Count == 0)
+                {
+                    throw new InvalidOperationException("no stockpile cells on the lower floor");
+                }
+                // A wood log on each cell fills the stockpile for steel. A building would remove the cell from the zone, so the zone would be gone.
+                foreach (IntVec3 cell in lowerStock.Cells.ToList())
+                {
+                    ClearCell(lower, cell);
+                    Thing filler = ThingMaker.MakeThing(ThingDefOf.WoodLog);
+                    filler.stackCount = 10;
+                    GenSpawn.Spawn(filler, cell, lower);
+                }
+                TickUntil(tracker, 2000, () => false);
+                bool steelOffered = OfferedHauls(lowerColonist).Contains(steel);
+                Record("a full destination stops new marks", steelOffered ? "FAIL: the steel is still offered to the lower floor" : "PASS");
+                bool logOffered = OfferedHauls(lowerColonist).Contains(log);
+                Record("a lower-floor colonist does not offer an unmarked surface item", logOffered ? "FAIL: the surface log is offered" : "PASS");
+
+                // Row 4. The steel is hauled into the lower stockpile, which frees one cell for it. Stored items are not offered, marked or not.
+                IntVec3 storedCell = lowerStock.Cells[0];
+                ClearCell(lower, storedCell);
+                steel.DeSpawn();
+                GenSpawn.Spawn(steel, storedCell, lower);
+                TickUntil(tracker, 2000, () => false);
+                bool hauledOffered = OfferedHauls(lowerColonist).Contains(steel);
+                Record("a marked item is unmarked after it is hauled", hauledOffered ? "FAIL: the hauled steel is still offered" : "PASS");
+
+                bool all = row1 && !steelOffered && !logOffered && !hauledOffered;
+                Record(label, all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels background haul validation failed: " + exception);
+            }
+            finally
+            {
+                Rand.PopState();
+            }
+            Root.Shutdown();
+        }
+
+        // A cell at least eight cells from every map edge, where blueprints and the placement check are not refused for the edge.
+        private static bool InsideEdgeMargin(Map map, IntVec3 cell)
+        {
+            return cell.x >= 8 && cell.z >= 8 && cell.x < map.Size.x - 8 && cell.z < map.Size.z - 8;
+        }
+
+        // A block of standable ground with no buildings, away from the map edges. Things on the ground are allowed; the caller clears them.
+        private static IntVec3 FindStandableBlock(Map map, int width, int height)
+        {
+            for (int x = 10; x < map.Size.x - width - 10; x++)
+            {
+                for (int z = 10; z < map.Size.z - height - 10; z++)
+                {
+                    bool open = true;
+                    for (int i = 0; i < width && open; i++)
+                    {
+                        for (int j = 0; j < height && open; j++)
+                        {
+                            IntVec3 cell = new IntVec3(x + i, 0, z + j);
+                            open = cell.Standable(map) && cell.GetEdifice(map) == null;
+                        }
+                    }
+                    if (open)
+                    {
+                        return new IntVec3(x, 0, z);
+                    }
+                }
+            }
+            return IntVec3.Invalid;
+        }
+
+        // The surface items that the lower colonist's haul search offers. The offer is the patched PotentialWorkThingsGlobal of the haul giver.
+        private static List<Thing> OfferedHauls(Pawn pawn)
+        {
+            WorkGiver_Haul giver = (WorkGiver_Haul)DefDatabase<WorkGiverDef>.GetNamed("HaulGeneral").Worker;
+            return giver.PotentialWorkThingsGlobal(pawn).ToList();
+        }
+
+        // Advances the game clock one tick at a time and runs the Z-Levels tick each time, so a periodic refresh runs on its own tick. Returns the
+        // tick count at which the condition first holds, or -1 when it never holds within maxTicks.
+        private static int TickUntil(ZLevelsManager tracker, int maxTicks, Func<bool> condition)
+        {
+            int start = Find.TickManager.TicksGame;
+            for (int step = 0; step <= maxTicks; step++)
+            {
+                Find.TickManager.DebugSetTicksGame(start + step);
+                tracker.GameComponentTick();
+                if (condition())
+                {
+                    return step;
+                }
+            }
+            return -1;
+        }
+
         // A tend job without medicine went into the Z-Levels job list as a haul with no target. The colonist's driver then failed when it started
         // the job, and the colonist tried again. The row fails before the fix and passes after it. (A refuel job cannot lack fuel here: vanilla
         // CanRefuel returns false when no fuel is reachable, before any job is made.)

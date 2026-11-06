@@ -952,11 +952,13 @@ namespace ZLevels
             {
                 if (!ZUtils.HasExtraFloors(pawn)) return;
                 var list = __result.ToList();
+                // The other floors offer only the items that the background scan marked for this colonist's floor (ItemFloorMarks).
+                int floor = ZUtils.ZTracker.GetZIndexFor(pawn.Map);
                 foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.ZTracker.GetAllMaps(pawn.Tile)))
                 {
                     if (map != pawn.Map)
                     {
-                        list.AddRange(map.listerHaulables.ThingsPotentiallyNeedingHauling());
+                        list.AddRange(map.listerHaulables.ThingsPotentiallyNeedingHauling().Where(item => ItemFloorMarks.IsMarkedFor(item, floor)));
                     }
                 }
                 __result = list;

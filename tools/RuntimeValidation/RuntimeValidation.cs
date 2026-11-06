@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbackgroundhaul"))
+                {
+                    finished = true;
+                    RunBackgroundHaulCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsjobtargets"))
                 {
                     finished = true;
