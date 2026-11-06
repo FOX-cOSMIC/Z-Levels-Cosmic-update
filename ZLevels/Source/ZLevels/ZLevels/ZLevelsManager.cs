@@ -556,6 +556,71 @@ namespace ZLevels
                 }
             };
         }
+        // Claims end with their job and with their map (idea "someone is already going"). A target that a queued job of the same
+        // colonist still needs keeps its claim.
+        public void ReleaseClaims(Pawn pawn, Job job)
+        {
+            if (pawn == null || job == null || this.jobTracker == null || !this.jobTracker.TryGetValue(pawn, out JobTracker tracker))
+            {
+                return;
+            }
+            foreach (LocalTargetInfo target in ClaimTargets(job))
+            {
+                if (!target.IsValid || StillNeeded(pawn, tracker, target))
+                {
+                    continue;
+                }
+                tracker.reservedThings?.RemoveAll(claim => claim.HasThing && target.HasThing && claim.thingInt == target.thingInt);
+                tracker.reservedCells?.RemoveAll(claim => !claim.HasThing && !target.HasThing && claim.cellInt == target.cellInt);
+            }
+        }
+
+        // A removed map takes its claims with it: the claims on things of that map, and on cells the colonist looked at on that map.
+        public void ReleaseClaimsOnMap(Map map)
+        {
+            if (map == null || this.jobTracker == null)
+            {
+                return;
+            }
+            foreach (JobTracker tracker in this.jobTracker.Values)
+            {
+                tracker.reservedThings?.RemoveAll(claim => claim.HasThing && claim.thingInt.Map == map);
+                if (tracker.reservedCells != null && tracker.lookedAtLocalCellMap != null)
+                {
+                    tracker.reservedCells.RemoveAll(claim => tracker.lookedAtLocalCellMap.TryGetValue(claim.cellInt, out Map cellMap) && cellMap == map);
+                }
+            }
+        }
+
+        private static IEnumerable<LocalTargetInfo> ClaimTargets(Job job)
+        {
+            yield return job.targetA;
+            yield return job.targetB;
+            yield return job.targetC;
+            if (job.targetQueueA != null)
+            {
+                foreach (LocalTargetInfo target in job.targetQueueA) yield return target;
+            }
+            if (job.targetQueueB != null)
+            {
+                foreach (LocalTargetInfo target in job.targetQueueB) yield return target;
+            }
+        }
+
+        private static bool StillNeeded(Pawn pawn, JobTracker tracker, LocalTargetInfo target)
+        {
+            if (tracker.activeJobs != null && tracker.activeJobs.Any(job => ClaimTargets(job).Any(other => SameTarget(other, target))))
+            {
+                return true;
+            }
+            return pawn.jobs != null && pawn.jobs.jobQueue.Any(queued => ClaimTargets(queued.job).Any(other => SameTarget(other, target)));
+        }
+
+        private static bool SameTarget(LocalTargetInfo a, LocalTargetInfo b)
+        {
+            return a.HasThing && b.HasThing ? a.thingInt == b.thingInt : !a.HasThing && !b.HasThing && a.cellInt == b.cellInt;
+        }
+
         public void BuildJobListFor(Pawn pawn, Map dest, Job jobToDo)
         {
             var pawnJobTracker = this.jobTracker[pawn];

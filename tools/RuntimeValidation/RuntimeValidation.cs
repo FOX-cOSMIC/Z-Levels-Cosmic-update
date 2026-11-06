@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstaleclaims"))
+                {
+                    finished = true;
+                    RunStaleClaimsCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsidlesearchpause"))
                 {
                     finished = true;

@@ -444,6 +444,9 @@ namespace ZLevelsValidation
 
                 int lowerZ = tracker.GetZIndexFor(lower);
                 tracker.floorPolicy.SetLock(locked, lowerZ, int.MaxValue);
+                // The setup's own work searches can leave the free colonist in its idle pause (DM6). The clock moves past the pause, so
+                // the searches below test the lock, not the pause. The lock has no expiry, so the move does not end it.
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + FloorPolicy.IdlePauseTicks + 1);
                 // Each colonist starts its search with a fresh job tracker, as the unforced haul scenario does.
                 tracker.ResetJobTrackerFor(locked);
                 tracker.ResetJobTrackerFor(free);
@@ -851,6 +854,94 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels idle search pause validation failed: " + exception);
             }
             Root.Shutdown();
+        }
+
+        // Task 10 (idea "someone is already going" on docs/mod-comparison/ideas.html). A colonist's reserved targets are claims that block
+        // other colonists. A claim ends with its job, and it ends with its map. The scenario reads the claims the way the reservation check does.
+        private void RunStaleClaimsCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                IntVec3 steelCell = FindOpenBlock(surface, 1, 1);
+                if (!steelCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell on the surface for the steel");
+                }
+                Thing steel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                steel.stackCount = 20;
+                GenSpawn.Spawn(steel, steelCell, surface);
+                IntVec3 dest = FindReachableCellNear(surface, steelCell + new IntVec3(3, 0, 0), new List<IntVec3> { steelCell });
+                if (!dest.IsValid)
+                {
+                    throw new InvalidOperationException("no reachable cell on the surface for the haul");
+                }
+                // The claim blocks a colonist on another map, so the first colonist works on the lower level, and the second one stays on the surface.
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                IntVec3 firstCell = FindReachableCellNear(lower, stairs.Position + new IntVec3(2, 0, 0), new List<IntVec3>());
+                if (!firstCell.IsValid)
+                {
+                    throw new InvalidOperationException("no reachable cell on the lower level for the first colonist");
+                }
+                Pawn first = SpawnPawnAt(lower, firstCell);
+                Pawn second = SpawnRestPawn(surface);
+                Job haul = JobMaker.MakeJob(JobDefOf.HaulToCell, steel, dest);
+                // The job is set as the colonist's current job without a driver. StartJob would replace it with the think tree's next job, and
+                // that reset clears the claims, so the scenario sets the field directly.
+                tracker.ReserveTargets(first, haul);
+                first.jobs.curJob = haul;
+                bool blockedBefore = !second.CanReserve(steel);
+                Record("a second colonist is blocked while the claim is live", blockedBefore ? "PASS" : "FAIL: the second colonist could reserve the steel while the first holds the claim");
+
+                first.jobs.EndCurrentJob(JobCondition.Incompletable, false);
+                bool claimGone = !HasClaim(tracker, first, steel);
+                Record("claim is released when its job ends", claimGone ? "PASS" : "FAIL: the claim is still held after the job ended");
+                bool takeable = second.CanReserve(steel);
+                Record("a second colonist takes the job after the release", takeable ? "PASS" : "FAIL: the second colonist is still blocked after the release");
+
+                IntVec3 lowerCell = FindReachableCellNear(lower, stairs.Position + new IntVec3(2, 0, 0), new List<IntVec3> { firstCell });
+                if (!lowerCell.IsValid)
+                {
+                    throw new InvalidOperationException("no reachable cell on the lower level for the steel");
+                }
+                Thing lowerSteel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                lowerSteel.stackCount = 20;
+                GenSpawn.Spawn(lowerSteel, lowerCell, lower);
+                IntVec3 lowerDest = FindReachableCellNear(lower, lowerCell + new IntVec3(1, 0, 0), new List<IntVec3> { lowerCell });
+                if (!lowerDest.IsValid)
+                {
+                    throw new InvalidOperationException("no reachable cell on the lower level for the haul");
+                }
+                IntVec3 claimerCell = FindReachableCellNear(lower, stairs.Position + new IntVec3(-2, 0, 0), new List<IntVec3> { firstCell, lowerCell });
+                if (!claimerCell.IsValid)
+                {
+                    throw new InvalidOperationException("no reachable cell on the lower level for the claimer");
+                }
+                Pawn claimer = SpawnPawnAt(lower, claimerCell);
+                tracker.ReserveTargets(claimer, JobMaker.MakeJob(JobDefOf.HaulToCell, lowerSteel, lowerDest));
+                bool claimBefore = HasClaim(tracker, claimer, lowerSteel);
+                Record("the claim exists before its map is removed", claimBefore ? "PASS" : "FAIL: no claim was made for the steel on the lower level");
+
+                Current.Game.DeinitAndRemoveMap(lower, false);
+                bool claimAfter = HasClaim(tracker, claimer, lowerSteel);
+                Record("claim is released when its map is removed", !claimAfter ? "PASS" : "FAIL: the claim is still held after the map was removed");
+
+                bool all = blockedBefore && claimGone && takeable && claimBefore && !claimAfter;
+                Record("stale claims", all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("stale claims", "FAIL: " + exception);
+                Log.Error("Z-Levels stale claims validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
+        {
+            return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null
+                && claims.reservedThings.Any(target => target.Thing == thing);
         }
 
         private static Pawn FindPawnById(int id)

@@ -1114,6 +1114,8 @@ namespace ZLevels
                 if (___pawn.RaceProps.Humanlike)
                 {
                     var ZTracker = ZUtils.ZTracker;
+                    // The ended job's claims end with it (idea "someone is already going"). Targets that a queued job still needs stay claimed.
+                    if (__instance.curJob != null) ZTracker.ReleaseClaims(___pawn, __instance.curJob);
                     if (ZTracker.jobTracker != null && ZTracker.jobTracker.ContainsKey(___pawn) && !ZTracker.jobTracker[___pawn].startingQueuedJob && ZTracker.jobTracker[___pawn].activeJobs?.Count > 0)
                     {
                         TryDropCarriedThingPatch.blockTryDrop = true;
