@@ -1121,3 +1121,39 @@ Before the change, a raid aimed at the lower map never fired. Its arrival is an 
 
 - The scenario uses the edge walk-in, which spawns raiders at once. Drop-pod arrivals (EdgeDrop, CenterDrop) are not exercised.
 - Outside debug mode the reroute writes no log line. The row counts are the proof.
+
+## Leave by stairs
+
+Task 26 of the multi-floor ideas plan, idea 4 (DM9 on `docs/mod-comparison/ideas.html`): a pawn on a lower or upper floor walks to the stairs toward the surface, changes floor, and leaves by the surface exit. Code: `ZLevels/Source/ZLevels/ZLevels/Jobs/LeaveByStairs.cs`. Scenario `-LeaveFromLower`, required row `leave from lower`.
+
+### What changed
+
+- A prefix on `JobGiver_ExitMap.TryGiveJob` (the method every exit job goes through, including the exit duty) routes a pawn on a lower or upper floor to the stairs toward the surface. The route is a `ZL_GoToMap` job whose target is the surface of the same tile.
+- A pawn on the surface, on a pocket map, or on a floor with no stairs toward the surface keeps the vanilla exit. A downed pawn that cannot crawl keeps it too.
+- The scenario gives the visitor the game's own exit lord, `LordJob_ExitMapBest`. The think tree reaches an exit duty only through its lord, so a bare duty is never used.
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-145250 | Lord-based scenario, route patch removed | FAIL. The visitor walks on the lower floor to its west edge at (0, 0, 12) and leaves the lower map there. It never reaches the stairs or the surface. |
+| 20261106-145118 | Lord-based scenario, with the patch | PASS. The visitor walks to the stairs at (2, 0, 182), changes to the surface map, walks to the exit and leaves at (0, 0, 182). All three rows pass. |
+
+Earlier runs gave the visitor a bare exit duty with no lord: 20261106-143153 (red), 143526 and 143835 (green attempts), and the trace run 144223. The think tree never used that duty in those runs, so they test a state the game does not produce. They are not evidence for the change.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-145543 | core (no switch) | PASS |
+| 20261106-145659 | -JobTakenOnArrival | PASS |
+| 20261106-145737 | -RaidGround | PASS |
+| 20261106-145814 | -OtherColonistHauls | PASS |
+| 20261106-145917 | -StairRoutes | PASS |
+| 20261106-145954 | -ReservationRefused | PASS |
+
+### Limits
+
+- The scenario covers the exit lord with defend-self off. The defend-self, escort, random-exit and drop-pod leaves are not exercised. Thieves, kidnappers and caravans are not tested on their own.
+- The red outcome depends on the generated layout. In run 145250 the level had 738 walkable cells and the vanilla exit reached its west edge. A layout with no reachable edge leaves the visitor standing on the lower floor instead, which the scenario also fails.
+- The lord stays on the lower map while the pawn walks on the surface. The scenario does not check the lord after the pawn leaves.

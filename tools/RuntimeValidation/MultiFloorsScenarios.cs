@@ -6,6 +6,7 @@ using RimWorld;
 using RimWorld.Planet;
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 using ZLevels;
 
 namespace ZLevelsValidation
@@ -1890,6 +1891,113 @@ namespace ZLevelsValidation
                 raidArrivalMode = PawnsArrivalModeDefOf.EdgeWalkIn,
                 raidStrategy = RaidStrategyDefOf.ImmediateAttack
             };
+        }
+
+        // Task 26 (idea 4, DM9: leaving means walking to the ground first). A visitor on the lower floor is given the exit duty. Its leave job must walk to
+        // the stairs toward the surface, change floor, and leave by the surface exit. The walk takes game time, so the check runs over several frames.
+        private int leaveStage;
+        private int leaveDueTick;
+        private bool leaveDone;
+        private bool leaveReachedSurface;
+        private Pawn leavePawn;
+        private Map leaveSurface;
+        private Map leaveLower;
+        private Lord leaveLord;
+        private string leaveLastTrace = "";
+
+        private void RunLeaveFromLowerTick()
+        {
+            if (leaveDone)
+            {
+                return;
+            }
+            try
+            {
+                if (leaveStage == 0)
+                {
+                    SetUpLeaveScene();
+                    leaveStage = 1;
+                    leaveDueTick = Find.TickManager.TicksGame + 6000;
+                    return;
+                }
+                string trace = DescribeJob(leavePawn.CurJob) + " on " + leavePawn.Map;
+                if (trace != leaveLastTrace)
+                {
+                    leaveLastTrace = trace;
+                    Record("job trace", "INFO: " + trace + " at " + leavePawn.Position);
+                }
+                if (leavePawn.Map == leaveSurface)
+                {
+                    leaveReachedSurface = true;
+                }
+                if (!leavePawn.Spawned && leaveReachedSurface)
+                {
+                    FinishLeaveCheck();
+                    return;
+                }
+                if (Find.TickManager.TicksGame > leaveDueTick)
+                {
+                    FinishLeaveCheck();
+                }
+            }
+            catch (Exception exception)
+            {
+                leaveDone = true;
+                Record("visitor on the lower floor reaches the surface and leaves", "FAIL: " + exception);
+                Log.Error("Z-Levels leave from lower validation failed: " + exception);
+                finished = true;
+                Root.Shutdown();
+            }
+        }
+
+        private void FinishLeaveCheck()
+        {
+            leaveDone = true;
+            bool left = !leavePawn.Spawned && leaveReachedSurface;
+            bool standingBelow = leavePawn.Spawned && leavePawn.Map == leaveLower;
+            Record("visitor on the lower floor reaches the surface and leaves", left
+                ? "PASS: the visitor reached the surface and left"
+                : "FAIL: reached the surface " + leaveReachedSurface + ", spawned " + leavePawn.Spawned + " on "
+                    + (leavePawn.Map == null ? "no map" : leavePawn.Map.ToString()) + ", job " + DescribeJob(leavePawn.CurJob)
+                    + ", duty " + (leavePawn.mindState.duty == null ? "none" : leavePawn.mindState.duty.def.defName));
+            Record("no pawn is left standing at a dead end", standingBelow
+                ? "FAIL: the visitor stands on the lower floor with " + DescribeJob(leavePawn.CurJob)
+                : "PASS");
+            bool allOk = left && !standingBelow;
+            Record("leave from lower", allOk ? "PASS" : "FAIL: a row above failed");
+            finished = true;
+            Root.Shutdown();
+        }
+
+        // A visitor on the lower floor beside the stairs up. The visitor's exit duty comes from a lord that leaves the map, as the game's visit and leave
+        // lords do: the think tree reaches a duty only through its lord (ThinkNode_ConditionalHasLordDuty). The surface is the same tile's surface map.
+        private void SetUpLeaveScene()
+        {
+            Map surface = Find.CurrentMap;
+            ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+            RequireFloors(tracker, surface, 1);
+            Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+            RequireFloors(tracker, surface, 2);
+            CarveAround(lower, stairs.Position, 6f);
+            leaveSurface = surface;
+            leaveLower = lower;
+            IntVec3 cell = FindReachableCellNear(lower, stairs.Position + new IntVec3(3, 0, 0), new List<IntVec3>());
+            if (!cell.IsValid)
+            {
+                throw new InvalidOperationException("no reachable cell on the lower floor for the visitor");
+            }
+            Faction visitorFaction = Find.FactionManager.RandomNonHostileFaction(allowNonHumanlike: false);
+            if (visitorFaction == null)
+            {
+                throw new InvalidOperationException("no non-hostile humanlike faction for a visitor");
+            }
+            leavePawn = PawnGenerator.GeneratePawn(visitorFaction.def.basicMemberKind ?? PawnKindDefOf.Colonist, visitorFaction);
+            GenSpawn.Spawn(leavePawn, cell, lower);
+            leaveLord = LordMaker.MakeNewLord(visitorFaction, new LordJob_ExitMapBest(LocomotionUrgency.Walk, canDig: true), lower, new List<Pawn> { leavePawn });
+            Find.TickManager.CurTimeSpeed = TimeSpeed.Normal;
+            Record("leave scene", "INFO: the visitor from " + visitorFaction.Name + " stands at " + cell + " on the lower floor in a lord whose toil is "
+                + leaveLord.CurLordToil.GetType().Name + "; its duty is " + (leavePawn.mindState.duty == null ? "none" : leavePawn.mindState.duty.def.defName)
+                + "; the stairs up are at " + stairs.Position);
         }
 
         // Task 23 (idea "check the job on arrival"). A cross-floor job waits in the colonist's job list while the colonist walks to the stairs. Its target

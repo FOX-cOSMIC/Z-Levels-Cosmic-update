@@ -342,6 +342,14 @@ namespace ZLevelsValidation
                     RunRaidGroundCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsleavefromlower"))
+                {
+                    // The walk takes game time, so the check runs over several frames. It waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    RunLeaveFromLowerTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsjobtakenonarrival"))
                 {
                     // The walk takes game time, so the check runs over several frames. It waits until the player has control, as the reservation check does.
