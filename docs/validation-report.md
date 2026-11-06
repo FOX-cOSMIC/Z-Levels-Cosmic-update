@@ -1157,3 +1157,62 @@ Earlier runs gave the visitor a bare exit duty with no lord: 20261106-143153 (re
 - The scenario covers the exit lord with defend-self off. The defend-self, escort, random-exit and drop-pod leaves are not exercised. Thieves, kidnappers and caravans are not tested on their own.
 - The red outcome depends on the generated layout. In run 145250 the level had 738 walkable cells and the vanilla exit reached its west edge. A layout with no reachable edge leaves the visitor standing on the lower floor instead, which the scenario also fails.
 - The lord stays on the lower map while the pawn walks on the surface. The scenario does not check the lord after the pawn leaves.
+
+## Game events to check
+
+Task 27 of the multi-floor ideas plan. Each event was tested first, as the brief asks, and code changed only where a row failed. Two events failed, and both fixes are in code that the failing rows exercise. Each scenario is a separate runner switch.
+
+### What changed
+
+- `ZLevels/Common/Defs/Jobs/Jobs.xml`: `ZL_GoToMap` sets `dropThingBeforeJob` to false and `carryThingAfterJob` to true, as vanilla `Goto` does. The game's job tracker drops a carried thing before any job whose `dropThingBeforeJob` is true, and that is the default. A pawn that starts a floor change while it carries something lost it.
+- `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/ReachAndReservationPatches.cs`: the two branches of the `Reachability.CanReach` prefix that move the pawn to the target's floor run the reach check from the arrival cell there. They used the pawn's position on the surface.
+
+Events whose rows passed were not changed.
+
+### Red and green
+
+| Item | Scenario | Red | Green |
+|---|---|---|---|
+| a. Parties and weddings on another floor | `-EventsOtherFloor` | none: the first run passed (151227) | 151227 PASS; 155500 PASS in the regression |
+| b. Lover thoughts across floors | `-MoodOtherFloor` | none: the first run passed (151000) | 151000 PASS; 155423 PASS in the regression |
+| c. Falling objects and the roof | `-SkyfallerRoof` | 150535 FAIL, from my check's blast radius | 150648 PASS, no game change |
+| d. Thief carrying a colonist down | `-ThiefCarry` | 153500 FAIL: the colonist is dropped at the start of the route job | 153552 PASS after the `ZL_GoToMap` flags |
+| e. Children, animals and mechs | `-ChildAnimalMech` | 154059 FAIL: from the surface coordinates the lower floor reports the animal unreachable (False); from the stairs cell it reports reachable (True) | 154153 PASS after the arrival-cell fix |
+
+Run 20261106-150535 failed because the scenario used a radius of two cells. The chunk covers 2 by 2 cells, and vanilla `Skyfaller.HitRoof` breaks the roof over the footprint plus one cell. The check now uses that rectangle.
+
+Earlier runs of d (151506, 151906, 152227, 152622, 153030) put the thief where the pathfinder cannot reach the stairs, so the route job ended with `ErroredPather`. Those runs are not evidence for the change, and the setup was corrected in the run that followed.
+
+Runs 153721 and 153854 of e expected a surface colonist to be unable to reach a lower animal. The mod allows that through the stairs on purpose, so the expectation was wrong. The rows were rewritten to test the stairs route and a sealed rock pocket with no route. The pocket row passed in each run that had it, from 153854 onward.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-154249 | Core (no switch) | PASS |
+| 20261106-154402 | -StairRoutes | PASS |
+| 20261106-154439 | -JobTakenOnArrival | PASS |
+| 20261106-154516 | -LeaveFromLower | PASS |
+| 20261106-154559 | -RaidGround | PASS |
+| 20261106-154636 | -OtherColonistHauls | PASS |
+| 20261106-154739 | -AllColonistsHaul | PASS |
+| 20261106-154836 | -BackgroundHaul | PASS |
+| 20261106-154913 | -JobTargets | PASS |
+| 20261106-154951 | -OwnFloorFirst | PASS |
+| 20261106-155028 | -MultiBuild | PASS |
+| 20261106-155140 | -ReservationRefused | PASS |
+| 20261106-155213 | -Cooling | PASS |
+| 20261106-155345 | -SkyfallerRoof | PASS |
+| 20261106-155423 | -MoodOtherFloor | PASS |
+| 20261106-155500 | -EventsOtherFloor | PASS |
+| 20261106-155618 | -ThiefCarry | PASS |
+| 20261106-155700 | -ChildAnimalMech | PASS |
+
+### Limits
+
+- a: a party and a wedding on the lower floor. Rituals need Ideology data, which this install does not have. The title ceremony runs from a quest, and no quest was set up.
+- b: one thought, `WantToSleepWithSpouseOrLover`, read for a lover on the lower floor. Of the alert classes that read maps, 75 use `Find.Maps` and so cover every floor. `Alert_AnimaLinkingReady` reads only the current map. It is an Anomaly alert, and no run exercised it.
+- c: `ShipChunkIncoming` on the surface. Drop pods and explosive skyfallers are not run, and neither is a landing on the lower floor.
+- d: a thief with the exit lord. The kidnapping job is not run.
+- e: a wild Muffalo, with the reach and reservation checks that roping, charging and child jobs depend on. Mech charging, the child routines and the roping jobs themselves are not run. Their Biotech setup is not built.
+- The reach fix changes which targets on another floor a pawn can reach. The 18 regression runs show no failure. They do not measure how much more cross-floor work the colony finds.

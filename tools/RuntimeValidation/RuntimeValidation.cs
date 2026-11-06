@@ -350,6 +350,43 @@ namespace ZLevelsValidation
                     RunLeaveFromLowerTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsskyfallerroof"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunSkyfallerRoofTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsmoodotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunMoodOtherFloorCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelseventsotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunEventsOtherFloorTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunThiefCarryTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschildanimalmech"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunChildAnimalMechCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsjobtakenonarrival"))
                 {
                     // The walk takes game time, so the check runs over several frames. It waits until the player has control, as the reservation check does.
