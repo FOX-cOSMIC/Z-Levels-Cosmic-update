@@ -1577,3 +1577,64 @@ The order is reached by name, so a missing class fails rows and not the build.
 - The button uses `TexCommand.GatherSpotActive`, because the mod ships no command icons.
 - Multiplayer: untested.
 
+## Heat and gas through stairs
+
+Lucas's idea "heat and gas through stairs" in `docs/mod-comparison/ideas.html`. The rooms that a pair of stairs joins on two floors now trade heat, and the gas on the stairs cell passes between the floors. The equalizer is `StairEqualizer` in `StairEqualizer.cs`. The game calls `StairEqualizer.StepAll` every 60 ticks, and each pair is stepped once, from its end on the upper floor.
+
+### How it works
+
+- Heat. The gap between the two rooms closes by 10 degrees a day at medium speed, scaled by the speed setting. Each room takes half of the closing, so the gap shrinks by exactly that amount and never overshoots. A room that takes its temperature from the weather is left alone.
+- Gas. On each gas type, the stairs cells on the two floors move a share of their difference. At medium speed the share is a tenth per 60 tick step. Only the gas that the receiving cell takes leaves the sending cell, so the total stays the same.
+- Speed. The setting has three values: slow, medium (the default) and fast. The multipliers are 0.5, 1 and 4. A 10 degree gap closes in two days at slow, one day at medium and a quarter of a day at fast, as DM12 of the multifloors plan sets out. The slider is in the mod's settings window, and its value is saved with the game.
+- Removed stairs. A pair whose other end is gone moves nothing.
+
+### What the scenario checks
+
+`-StairsEqualize` runs one colony with a lower floor. Each floor has a walled room with a roof around the stairs. The surface room is 30 degrees, the lower room is 20, and smoke lies on the surface stairs cell. Every row is measured within one frame, so no game tick runs between two readings.
+
+- `temperature gap between joined rooms shrinks`. One call over 6000 ticks at medium closes the gap from 10.00 to 9.00.
+- `gas moves through the stairs`. One step of 60 ticks moves 20 of the 200 smoke to the lower stairs cell.
+- `speed setting changes the rate`. 6000 ticks close 0.50 degrees at slow and 4.00 at fast.
+- `nothing moves when the stairs are removed`. With the lower stairs destroyed, both temperatures and both smoke readings stay the same.
+- `stairs equalize`. Passes when every row above passes.
+
+### Result
+
+Green run `20261106-195102`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| temperature gap between joined rooms shrinks | PASS, from 10.00 to 9.00 |
+| gas moves through the stairs | PASS, 20 smoke on the lower stairs cell |
+| speed setting changes the rate | PASS, 0.50 at slow and 4.00 at fast |
+| nothing moves when the stairs are removed | PASS |
+| stairs equalize | PASS |
+
+### Red run
+
+Run `20261106-194904`, before the equalizer existed. The first row failed with `the mod has no ZLevels.StairEqualizer class`. The gas and removed-stairs rows failed the same way, and the speed row failed with `the settings have no StairsEqualizeSpeed`. The aggregate failed. Setup passed, so the two joined rooms were built and checked as indoor before any row ran.
+
+### Regression, final code
+
+- `20261106-195159`, core: 33 rows, PASS.
+- `20261106-195313`, `-OneFloorColony`: 3 rows, PASS.
+- `20261106-195346`, `-StairsDamage`: 4 rows, PASS.
+- `20261106-195424`, `-Cooling`: 47 rows, PASS. The cooling runs depend on room temperature, so they show the equalizer does not disturb them.
+- `20261106-195557`, `-CoolingTwoNets`: 8 rows, PASS.
+
+### Decisions
+
+- Linear closing. The plan's DM12 gives days for a 10 degree gap to close, and a steady rate meets those figures exactly. Reverse in `StepHeat`. Cost if wrong: the gap closes on a different curve, and the three day figures no longer hold.
+- Half each. Each room takes half of the closing. That is exact when the rooms are the same size, and approximate when they are not. Reverse in `StepHeat`.
+- Gas share. The tenth of the difference per step, and the same speed multipliers as heat, are my choice. Reverse with `GasSharePerStepAtMedium`.
+- Smoke in the test. `GasGrid.AddGas` refuses tox gas unless the Biotech expansion is active, and deadlife dust unless Anomaly is active (`ModLister.CheckBiotech` and `ModLister.CheckAnomaly`). The validation mod list loads neither, so the scenario uses smoke, which needs no expansion.
+
+### Limits
+
+- The settings slider is not driven. Its label is plain English, as the new labels of the port are. No translation key is added.
+- Only smoke is tested. Tox gas and deadlife dust take the same code path, but no run loads their expansions.
+- One pair of stairs in one colony is tested. Several pairs, and a pair on a third floor, are not.
+- The rooms are closed rooms that the scenario builds. Rooms open to the outdoors are not tested.
+- The 60 tick call in `ZLevelsManager.GameComponentTick` is not checked by a row. The scenario calls `Step` directly. The regression runs show that the call does not break a run, but not that the game makes it.
+- Multiplayer: untested.
+

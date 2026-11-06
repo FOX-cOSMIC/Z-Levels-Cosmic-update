@@ -56,6 +56,8 @@ namespace ZLevels
                     //}
                     this.ZLevelsFixer(tile.Key);
                 }
+                // Heat and gas move between the rooms that stairs join, once every 60 ticks (idea "heat and gas through stairs").
+                StairEqualizer.StepAll(this);
             }
         }
 

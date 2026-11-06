@@ -405,6 +405,14 @@ namespace ZLevelsValidation
                     RunCallColonistsTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsequalize"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunStairsEqualizeCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())
