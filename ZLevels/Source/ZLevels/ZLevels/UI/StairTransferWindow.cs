@@ -98,8 +98,13 @@ namespace ZLevels
                 }
             }
             TransferResult result = Send(stairs, chosenColonists, chosenItems);
-            Messages.Message(result.ColonistsSent + " colonists sent to " + OtherFloorName(stairs) + ". " + result.ItemsMarked + " items marked for it. "
-                + result.ItemsNotNeeded + " checked items were not needed there and were not sent.", MessageTypeDefOf.NeutralEvent, historical: false);
+            string message = result.ColonistsSent + " colonists sent to " + OtherFloorName(stairs) + ". " + result.ItemsMarked + " items marked for it. "
+                + result.ItemsNotNeeded + " checked items were not needed there and were not sent.";
+            if (result.ItemsGone > 0)
+            {
+                message += " " + result.ItemsGone + " checked items were no longer loose on this floor and were not sent.";
+            }
+            Messages.Message(message, MessageTypeDefOf.NeutralEvent, historical: false);
             Close();
         }
 
@@ -153,9 +158,13 @@ namespace ZLevels
             }
             List<Pawn> sent = CallColonistsTargeter.CallTo(colonists, LandingCell(other), other.Map);
             result.ColonistsSent = sent.Count;
-            List<Thing> list = items.ToList();
-            result.ItemsMarked = Designator_HaulToFloor.MarkItemsForFloor(list, ZUtils.ZTracker.GetZIndexFor(other.Map));
-            result.ItemsNotNeeded = list.Count - result.ItemsMarked;
+            // An item that is no longer loose on the floor (a colonist picked it up, or it was used, since the window opened) is counted as gone, and
+            // is not marked. A despawned item has no map, so it must not reach the marking.
+            List<Thing> all = items.Where(item => item != null).ToList();
+            List<Thing> loose = all.Where(Designator_HaulToFloor.IsLooseItem).ToList();
+            result.ItemsGone = all.Count - loose.Count;
+            result.ItemsMarked = Designator_HaulToFloor.MarkItemsForFloor(loose, ZUtils.ZTracker.GetZIndexFor(other.Map));
+            result.ItemsNotNeeded = loose.Count - result.ItemsMarked;
             return result;
         }
     }
@@ -167,5 +176,8 @@ namespace ZLevels
         public int ColonistsSent;
         public int ItemsMarked;
         public int ItemsNotNeeded;
+
+        // Checked items that were no longer loose on the floor when Send ran: picked up, stored or used since the window opened.
+        public int ItemsGone;
     }
 }

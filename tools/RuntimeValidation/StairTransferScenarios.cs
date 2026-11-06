@@ -15,14 +15,15 @@ namespace ZLevelsValidation
     // this file builds before it exists, and each row FAILs until its part does. The scenario is frame-driven, as the haul scenario is.
     //   The button is on the stairs (row 1). The window lists the colonists and items (row 2). Send walks the checked colonist up within 6000
     //   ticks (row 3). Send marks the checked steel for the other floor (row 4). A checked item the other floor does not need is counted and is not
-    //   marked (row 5). An unchecked colonist and an unchecked item stay on the lower floor (row 6).
+    //   marked (row 5). An unchecked colonist and an unchecked item stay on the lower floor (row 6). A checked item that has left the floor is
+//   counted as gone, is not marked, and does not stop Send (row 7).
     public partial class RuntimeValidation
     {
         private const string TransferButtonLabel = "Transfer across the stairs";
         private const int StairTransferTicks = 6000;
         private const string StairTransferAggregate = "stair transfer";
 
-        // The six rows, in the order the run records them. The aggregate is recorded after them.
+        // The seven rows, in the order the run records them. The aggregate is recorded after them.
         private static readonly string[] StairTransferRowLabels =
         {
             "transfer button is on the stairs",
@@ -31,6 +32,7 @@ namespace ZLevelsValidation
             "send marks the checked item for the other floor",
             "an item the other floor does not need is not marked",
             "unchecked colonist and item stay where they are",
+            "a checked item that left the floor is skipped and counted",
         };
 
         private int transferStage;
@@ -216,6 +218,18 @@ namespace ZLevelsValidation
                     : "FAIL: the wood is marked " + woodMarked + ", is on " + transferWoodNotNeeded.MapHeld + ", and " + notNeeded + " items were not needed";
             });
 
+            // Row 7: a checked item that has left the floor is counted as gone and is not marked, and Send still returns. A steel stack that was never
+            // spawned stands in for one a colonist has picked up: its Map is null in both cases.
+            RecordTransferRowChecked(StairTransferRowLabels[6], () =>
+            {
+                Thing left = ThingMaker.MakeThing(ThingDefOf.Steel);
+                object gone = CallTransferWindow("Send", transferFrom, new List<Pawn>(), new List<Thing> { left });
+                int goneCount = TransferCount(gone, "ItemsGone");
+                int markedGone = TransferCount(gone, "ItemsMarked");
+                return goneCount == 1 && markedGone == 0
+                    ? "PASS: the item that left the floor is counted as gone and not marked"
+                    : "FAIL: " + goneCount + " items counted as gone and " + markedGone + " marked";
+            });
             transferDueTick = Find.TickManager.TicksGame + StairTransferTicks;
             Find.TickManager.CurTimeSpeed = TimeSpeed.Superfast;
             transferStage = 2;
