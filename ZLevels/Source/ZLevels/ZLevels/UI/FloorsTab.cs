@@ -98,6 +98,12 @@ namespace ZLevels
 
         public override void DoWindowContents(Rect inRect)
         {
+            // The Guide button sits above the table, and the table takes the rest of the window (idea "in-game guide").
+            if (Widgets.ButtonText(new Rect(inRect.x, inRect.y, 160f, 30f), "Guide to floors"))
+            {
+                FloorsGuideWindow.Open();
+            }
+            inRect = new Rect(inRect.x, inRect.y + 36f, inRect.width, inRect.height - 36f);
             List<Map> floors = FloorsOfColony();
             List<Pawn> colonists = ColonistsOnFloors(floors);
             List<WorkTypeDef> workTypes = WorkTypesShown();

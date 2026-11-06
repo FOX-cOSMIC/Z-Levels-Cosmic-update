@@ -1638,3 +1638,46 @@ Run `20261106-194904`, before the equalizer existed. The first row failed with `
 - The 60 tick call in `ZLevelsManager.GameComponentTick` is not checked by a row. The scenario calls `Step` directly. The regression runs show that the call does not break a run, but not that the game makes it.
 - Multiplayer: untested.
 
+## In-game guide
+
+Lucas's idea "in-game guide" in `docs/mod-comparison/ideas.html`. A guide window explains the floors in plain words. The Guide button at the top of the Floors tab opens it. The window is `FloorsGuideWindow`, and its text is `FloorsGuideWindow.GuideText`.
+
+### What the guide covers
+
+The text names the floors, the stairs, the two floor keys (N for one floor up and M for one floor down, the defaults), Stay on this floor, Work on this floor, Call colonists here, and the Floors tab.
+
+### What the scenario checks
+
+`-FloorsGuide` opens the guide the way the Floors tab's button does, then reads the guide text. The button itself is not clicked.
+
+- `guide opens`. The guide window is on the window stack after `Open`.
+- `guide text covers stairs, floors, stay on floor, work on floor, and the keys`. The text names the stairs, the floors, Stay on this floor, Work on this floor, N and M.
+- `floors guide`. Passes when both rows above pass.
+
+### Result
+
+Green run `20261106-200016`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| guide opens | PASS |
+| guide text covers stairs, floors, stay on floor, work on floor, and the keys | PASS |
+| floors guide | PASS |
+
+### Red run
+
+Run `20261106-195902`, before the window existed. The first row failed with `the mod has no ZLevels.FloorsGuideWindow class`. The text row failed the same way, and the aggregate failed.
+
+### Regression, final code
+
+- `20261106-200050`, core: 33 rows, PASS.
+- `20261106-200158`, `-FloorsTab` with the user's mod list, read only: PASS with other mods, 10 rows. The Floors tab moved its table down by 36 pixels for the Guide button, and this run passes with the table in its new place.
+
+### Limits
+
+- The Guide button, its click, and the window's layout on screen are not driven. No screenshot was taken.
+- The text check looks for keywords. It does not check each sentence against the current menus.
+- The keys named in the guide are the defaults. A player who rebinds them sees the defaults in the text.
+- The guide text is English only, as the other new labels of the port are.
+- Multiplayer: untested.
+

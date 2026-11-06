@@ -413,6 +413,14 @@ namespace ZLevelsValidation
                     RunStairsEqualizeCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorsguide"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorsGuideCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())
