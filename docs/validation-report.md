@@ -887,3 +887,59 @@ These runs are not repeats of the final method.
 - Exploratory: `.artifacts/runs/20261106-081614/`, `.artifacts/runs/20261106-081820/` and `.artifacts/runs/20261106-082036/`.
 
 Each folder holds `validation-results.txt`, which has the rows, and `Player.log`.
+
+## Lighter update on extra floors
+
+Recorded 2026-11-06 for Task 20 of the multi-floor ideas plan. The change is committed as `89e95e3`, and the step cost rows as `f5b349e`.
+
+### What changed
+
+Four steps of the map tick skip on any floor whose Z index is not 0: the wind update, wild animal spawning, the choice of the next weather, and passing ships. The surface runs all four. Each step is a Harmony prefix on the game's own tick method. The prefixes are in `HarmonyPatches/ExtraFloorTickPatches.cs`.
+
+### Red and green
+
+Run the scenario with `tools/Invoke-RuntimeValidation.ps1 -LighterFloors`. Its required row is `lighter floors`. The rows are `no wild spawn on the lower floor in 2000 ticks`, `lower floor weather does not change`, and `the surface still runs its weather`.
+
+- Red, run `20261106-083418`: the spawn row fails with 2 wild animals spawned on the lower floor. The weather row fails because the lower floor's weather decider ran. The surface row passes. The patch was not in the code.
+- Green, run `20261106-083516`: all rows pass. The entry row shows 3 wild animal kinds acceptable on the lower floor.
+- Green rerun with the step cost rows, run `20261106-084041`: all rows pass.
+- Completion check through task-done, run `20261106-084157`: passes.
+
+An earlier red, run `20261106-083222`, did not fail the spawn row. The spawner found no entry cell, because it needs an edge the colony can reach. The scenario now opens the lower floor's outer ring, removes the roofs there, and places one colonist on the floor. Both red runs ran without the patch.
+
+### Core regression
+
+The core validation passes with the change: run `20261106-083608`.
+
+### Benefit
+
+The Task 19 timing ran three times on the patched code: `20261106-083754`, `20261106-083827` and `20261106-083901`. The table compares means and ranges with the three Task 19 repeats.
+
+| Measure | Task 19 repeats, mean | Task 19 repeats, range | Patched runs, mean | Patched runs, range |
+|---|---|---|---|---|
+| Map tick, lower floor, us per tick | 52.0 | 50.0 to 54.8 | 56.0 | 44.7 to 62.0 |
+| Map tick, upper floor, us per tick | 86.1 | 75.4 to 106.0 | 100.7 | 94.4 to 106.9 |
+| Search, one floor, us per call | 392.6 | 359.5 to 412.7 | 387.3 | 357.5 to 416.7 |
+| Search, two floors, us per call | 620.4 | 526.0 to 747.4 | 595.9 | 485.2 to 714.5 |
+| Search, three floors, us per call | 500.0 | 443.3 to 564.5 | 454.6 | 306.4 to 541.5 |
+
+No measurable benefit shows. The lower floor mean rose by 4.0 us per tick, and the upper floor mean rose by 14.6 us per tick. Both differences lie inside the run-to-run spread.
+
+### Step cost on the surface
+
+Run `20261106-084041` times each skipped step alone on the surface, 300 calls each, which keeps all four steps. Wind costs 20.4 us per call. Wild spawning costs 0.5 us, weather choice 0.8 us, and passing ships 0.5 us.
+
+The extra-floor cost of each step is not measured, because the patch skips the step on those floors. The reason for the missing benefit is therefore not known. Either wind costs far less on the extra floors than on the surface, or the spread hides the difference. Three runs cannot separate the two.
+
+### Limits
+
+- Wind and passing ships have no row. Their skip is covered by the code and by the core regression, not by a red and green pair.
+- The benefit is not shown. The means move the wrong way on both floors, but inside the spread.
+- The surface reference tick in the patched runs stays at 241 to 283 us per tick, as expected, because the surface is not skipped.
+
+### Run folders
+
+- Red: `.artifacts/runs/20261106-083222/`, which had no entry cell and is not a valid red, and `.artifacts/runs/20261106-083418/`.
+- Green: `.artifacts/runs/20261106-083516/`, `.artifacts/runs/20261106-084041/` and `.artifacts/runs/20261106-084157/`.
+- Core: `.artifacts/runs/20261106-083608/`.
+- Benefit: `.artifacts/runs/20261106-083754/`, `.artifacts/runs/20261106-083827/` and `.artifacts/runs/20261106-083901/`.
