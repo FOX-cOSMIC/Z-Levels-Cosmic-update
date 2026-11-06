@@ -1804,7 +1804,8 @@ A floor pipe is one object across two floors. Its lower end is placed on a floor
 - `pipe refused on the top floor`. The placement check returns its top-floor message.
 - `pipe refused where the cell above is blocked`. A wall above makes the check return its blocked message.
 - `pipe allowed where the cell above is clear`.
-- `floor pipe`. Passes when the nine rows pass.
+- `pipe on the lowest of three floors has one other end`. The top floor is made after the rows above, so their two-floor layout does not change. A pipe that also stands on the top floor fails the row.
+- `floor pipe`. Passes when the ten rows pass.
 
 The three placement rows were added after the first green run, because no row had reached the placement check. Their red is the mutant run below, not a missing-def run.
 
@@ -1833,6 +1834,19 @@ Run one at a time on the default validation mod list, after the nine rows were i
 
 `-StayOnFloor` passed in this batch. Its intermittent failure from Task 36 did not recur here.
 
+### Three floors, found in review
+
+On a colony with three floors, placing a pipe's other end made a further end on the top floor. One pipe became a chain of three pipes, not one pair. The two-floor rows could not show this, because the surface is the top floor in those rows.
+
+The cause is in `Building_FloorPipe.SpawnSetup`. The other end is placed through the game's placement, which runs that end's own `SpawnSetup`, and that call made the top end. `Partner()` checks the floor above first, so the middle end paired with the top end. A flip or the flow could then go to the wrong floor.
+
+The row `pipe on the lowest of three floors has one other end` was added last, so the two-floor rows keep their layout. It builds a top floor with `CreateUpperLevel`. It passes when the middle floor has a pipe at the test cell and the top floor has none.
+
+- Red, run `20261106-230839`, built before the fix: the row fails with `FAIL: the middle floor has a pipe True and the top floor has a pipe True, at (24, 0, 58)`. The nine earlier rows pass.
+- Green, run `20261106-230929`, after the fix in commit `c57e5f1`: all ten rows pass, and the aggregate `floor pipe` passes. The row reads `PASS: one other end on the middle floor at (24, 0, 26), none on the top floor`.
+
+The fix makes the placement of the other end a case that `SpawnSetup` skips. A flag is set around the call and reset in a `finally` block.
+
 ### Limits
 
 - Saving and loading a pipe, with its chosen resource and its direction, is not tested.
@@ -1843,7 +1857,7 @@ Run one at a time on the default validation mod list, after the nine rows were i
 - The pipe's texture is `Things/Building/Furniture/Column`, the same texture the power column uses. Runs are headless, so no texture was drawn, and the pipe's look on screen was not checked.
 - The gizmos were not clicked. The rows call the methods the gizmos call.
 - The scenario calls `Step` itself, 240 times a day. It does not wait for the game's rare tick, so the real tick's timing is not proven by a row.
-- Only the lower-to-surface pair was run. Upper-floor pairs use the same code, but were not run.
+- Flow and flip were run only on the lower-to-surface pair. The three-floor row checks where the other end stands. No flow or flip runs on that colony.
 - Multiplayer: untested.
 
 ## Stair transfer (2026-11-06)
@@ -1869,7 +1883,8 @@ Lucas's decision D5, answered 2026-11-06, is to send a chosen list now. The idea
 - `send marks the checked item for the other floor`. The steel carries the mark for the surface, and one item is marked.
 - `an item the other floor does not need is not marked`. The checked wood is counted as not needed, is not marked, and stays on the lower floor. The plan does not list this row. It tests DM20 directly.
 - `unchecked colonist and item stay where they are`. After the transfer, the unchecked colonist and the unchecked wood are still on the lower floor, and the wood is unmarked.
-- `stair transfer`. Passes when the six rows pass.
+- `a checked item that left the floor is skipped and counted`. A checked steel stack that is no longer on the floor is counted as gone, and `Send` marks nothing for it. The stand-in is a steel stack that was never spawned, so its map is null, as a carried item's is.
+- `stair transfer`. Passes when the seven rows pass.
 
 ### Red and green runs
 
@@ -1879,7 +1894,7 @@ Lucas's decision D5, answered 2026-11-06, is to send a chosen list now. The idea
 
 ### Regression
 
-Run one at a time on the default validation mod list, on the final code. The logs are in the ledger folder, named `task38-reg-<name>.log`.
+Run one at a time on the default validation mod list, on the code as it stood at the end of Task 38. The logs are in the ledger folder, named `task38-reg-<name>.log`. These runs predate the stale-item fix in commit `58668d1`. The final regression, at the end of this report, covers the fixed code.
 
 | Run | Command | Result |
 |---|---|---|
@@ -1891,16 +1906,139 @@ Run one at a time on the default validation mod list, on the final code. The log
 | 20261106-225936 | `-StairsEqualize` | PASS |
 | 20261106-230014 | `-FloorsGuide` | PASS |
 
+### A checked item that left the floor, found in review
+
+The window keeps the list of loose items that it built when it opened. A colonist who picks up a checked item holds it outside the map, so `Thing.Map` is null for that item. `Send` then threw `NullReferenceException` in `MarkItemsForFloor`, after the colonists were already sent. A second send would throw again while the item stayed checked.
+
+`Send` now keeps only the items that `Designator_HaulToFloor.IsLooseItem` accepts. Any other checked item, whether stored, carried or used, is counted in `TransferResult.ItemsGone`. The window's message reports that count, and the item is not marked.
+
+- Red, run `20261106-231843`, before the fix. The row `a checked item that left the floor is skipped and counted` fails with `Object reference not set to an instance of an object.` The six earlier rows pass, and the aggregate `stair transfer` fails.
+- Green, run `20261106-231957`, after the fix in commit `58668d1`. All seven rows pass, and the aggregate `stair transfer` passes. The build has no `error CS` line.
+
+Not tested: the window's own "Send checked" button and the new message text. The scenario calls the static `Send`. No real carried item was used, so the stand-in is the only test of that state.
+
 ### Limits
 
 - The window is not opened on screen. The scenario calls the methods the window calls: `ColonistsOn`, `ItemsOn`, `Send` and `LandingCell`. The checkboxes, the layout and the Send button were not clicked.
 - The button is read from the gizmo list. It was not clicked.
-- The window's lists are taken when it opens. A colonist or an item that changes while the window is open is not refreshed.
+- The window's lists are taken when it opens, and they are not refreshed. A checked item that has left the floor by then is skipped and counted, as the section above describes. A colonist who dies or goes down by then is skipped by `CallTo`. No row covers that.
 - A downed or dead colonist is left out of the list. No row covers that case.
 - The landing cell's fallback, the other end's own cell, is not tested.
 - `CallTo` moves the colonist's floor lock to the floor it is sent to. No row checks the lock.
 - The transfer is run from the lower stairs only. The surface's button uses the same code, but was not run.
 - Items that do not fit on the other floor, and a destination that is full, are not tested.
 - The guide's new sentence is checked only by the keyword check in `-FloorsGuide`.
+- Multiplayer: untested.
+
+## Final regression, every scenario (2026-11-06 and 2026-11-07)
+
+The final regression ran the core validation and each scenario switch in the runner's `$scenarioSwitches` map, one run at a time. That is 59 runs. The batch script is `.superpowers/sdd/2026-11-05-multifloors-ideas/task39-run-all.sh`. Its summary is `task39-all-summary.txt`, and each run has a log named `task39-<name>.log`. The batch started at 23:21 on 2026-11-06, on commit `58668d1`, the last code change of Task 39.
+
+### Result
+
+The runner printed its pass line for 54 of the 59 runs. One of the five runs that did not pass was a batch mistake, and a rerun passes it. After that rerun, 55 switches pass. The other four are explained below.
+
+- `-FloorsTab` failed in the batch because the batch script did not pass `-ModsConfigSource`. The scenario needs Royalty, and the default mod list does not load it. The rerun reads the user's mod list, read only, and passes: run `20261107-002345`. Every row and the aggregate pass.
+
+### Runs that do not pass
+
+- `-VaultInfestation`, run `20261106-232823`. Its two rows and its aggregate pass. The runner then stopped on a game error in Player.log: `Tried to destroy non-destroyable thing ZL_VaultExit48371`. The stack starts at `ZLevelsValidation.RuntimeValidation.ClearCell`, which `SpawnFood` calls (`tools/RuntimeValidation/RuntimeValidation.cs`, lines 2279 and 2324). The helper clears a cell for food, and that cell held the vault exit. The fault sits in the vault session's scenario and a shared harness helper. Nothing here changed it.
+- `-UnreachableZone`, run `20261106-233639`. The reachable control cell got no haul in 60 seconds, so the row failed. Five reruns passed: `20261107-001507`, `20261107-001639`, `20261107-001828`, `20261107-002001` and `20261107-002129`. Each rerun had one haul to the reachable cell. The failing run's log has one `ERROR` line, the known duplicate package id warning for `Aoba.DeadManSwitch.Core`. The working tree did not change during the batch. The cause is not found, and no fix was made. Treat this check as flaky until the cause is found.
+- `-CoolingNoColumns`, run `20261106-234147`. This is a negative control, so the failure is by design. Its variant places no column pair, so its 14 link rows fail, and so does its aggregate. The positive control, `uncooled core overheats`, passes.
+- `-CrossFloorFight`, run `20261107-000331`. The shot row fails, as it did in Task 28 (run `20261106-163149`). The rule refuses the line, because the cells on it that are two or more from the target are not open air (`ZL_OutsideTerrain`). The ground under the shooter on the surface is `Marble_Rough` in this run and `Sand` in the Task 28 run. Whether a shot may cross solid ground is decision D6, and it is open. The two melee rows pass.
+
+### Table
+
+Result lines counts the lines of `validation-results.txt` that carry a `|` separator, so the generated-level and INFO lines are included. Failing lines counts the `FAIL` lines.
+
+| Switch | Run folder | Batch verdict | Result lines | Failing lines |
+|---|---|---|---|---|
+| core | 20261106-232115 | PASS | 33 | 0 |
+| `-InfestationGuard` | 20261106-232255 | PASS | 8 | 0 |
+| `-StaleLookup` | 20261106-232343 | PASS | 3 | 0 |
+| `-VaultPlacement` | 20261106-232427 | PASS | 6 | 0 |
+| `-VaultPocket` | 20261106-232505 | PASS | 3 | 0 |
+| `-VaultEnter` | 20261106-232544 | PASS | 8 | 0 |
+| `-VaultLoad` | 20261106-232637 | PASS | 6 | 0 |
+| `-VaultSave` | 20261106-232720 | PASS | 6 | 0 |
+| `-VaultInfestation` | 20261106-232823 | not passed | 3 | 0 |
+| `-VaultRock` | 20261106-232902 | PASS | 8 | 0 |
+| `-Supply` | 20261106-233236 | PASS | 12 | 0 |
+| `-UnreachableZone` | 20261106-233639 | not passed | 3 | 1 |
+| `-MultiBuild` | 20261106-233812 | PASS | 7 | 0 |
+| `-StairsDamage` | 20261106-233915 | PASS | 4 | 0 |
+| `-Cooling` | 20261106-233953 | PASS | 47 | 0 |
+| `-CoolingNoColumns` | 20261106-234147 | not passed | 46 | 15 |
+| `-CoolingTwoNets` | 20261106-234315 | PASS | 8 | 0 |
+| `-SocialRelaxQueue` | 20261106-234353 | PASS | 2 | 0 |
+| `-RestSearchNull` | 20261106-234431 | PASS | 5 | 0 |
+| `-TraderReturn` | 20261106-234504 | PASS | 1 | 0 |
+| `-ReservationRefused` | 20261106-234536 | PASS | 6 | 0 |
+| `-FloorHotkeys` | 20261106-234614 | PASS | 7 | 0 |
+| `-StayOnFloor` | 20261106-234652 | PASS | 12 | 0 |
+| `-WorkOnFloorOrder` | 20261106-234740 | PASS | 6 | 0 |
+| `-NeedCooldown` | 20261106-234813 | PASS | 9 | 0 |
+| `-IdleSearchPause` | 20261106-234856 | PASS | 5 | 0 |
+| `-StaleClaims` | 20261106-234934 | PASS | 7 | 0 |
+| `-FloorGuard` | 20261106-235012 | PASS | 6 | 0 |
+| `-StorageIndex` | 20261106-235050 | PASS | 6 | 0 |
+| `-StairRoutes` | 20261106-235128 | PASS | 5 | 0 |
+| `-AddonLoad` | 20261106-235205 | PASS | 2 | 0 |
+| `-ChoreSpread` | 20261106-235238 | PASS | 3 | 0 |
+| `-OneFloorColony` | 20261106-235311 | PASS | 3 | 0 |
+| `-StairsView` | 20261106-235344 | PASS | 3 | 0 |
+| `-StairPlacement` | 20261106-235421 | PASS | 4 | 0 |
+| `-SearchTiming` | 20261106-235454 | PASS | 13 | 0 |
+| `-LighterFloors` | 20261106-235532 | PASS | 8 | 0 |
+| `-OwnFloorFirst` | 20261106-235605 | PASS | 8 | 0 |
+| `-JobTargets` | 20261106-235638 | PASS | 2 | 0 |
+| `-BackgroundHaul` | 20261106-235710 | PASS | 6 | 0 |
+| `-JobTakenOnArrival` | 20261106-235748 | PASS | 10 | 0 |
+| `-RaidGround` | 20261106-235826 | PASS | 5 | 0 |
+| `-LeaveFromLower` | 20261106-235904 | PASS | 10 | 0 |
+| `-SkyfallerRoof` | 20261106-235947 | PASS | 6 | 0 |
+| `-MoodOtherFloor` | 20261107-000024 | PASS | 5 | 0 |
+| `-EventsOtherFloor` | 20261107-000102 | PASS | 8 | 0 |
+| `-ThiefCarry` | 20261107-000215 | PASS | 12 | 0 |
+| `-ChildAnimalMech` | 20261107-000253 | PASS | 8 | 0 |
+| `-CrossFloorFight` | 20261107-000331 | not passed | 8 | 2 |
+| `-FloorsTab` | 20261107-000504 | not passed | 7 | 1 |
+| `-FloorWorkFilter` | 20261107-000541 | PASS | 5 | 0 |
+| `-HaulToFloor` | 20261107-000629 | PASS | 78 | 0 |
+| `-BenchLink` | 20261107-000717 | PASS | 5 | 0 |
+| `-CallColonists` | 20261107-000755 | PASS | 13 | 0 |
+| `-StairsEqualize` | 20261107-000838 | PASS | 6 | 0 |
+| `-FloorsGuide` | 20261107-000916 | PASS | 3 | 0 |
+| `-WayUps` | 20261107-000948 | PASS | 8 | 0 |
+| `-FloorPipe` | 20261107-001031 | PASS | 12 | 0 |
+| `-StairTransfer` | 20261107-001109 | PASS | 10 | 0 |
+
+The `-FloorsTab` row is the batch run. Its rerun with the user's mod list is run `20261107-002345`, and it passes.
+
+### Fix and rerun folders
+
+- Three-floor pipe: red `20261106-230839`, green `20261106-230929`, fix in commit `c57e5f1`.
+- Stale item in the transfer window: red `20261106-231843`, green `20261106-231957`, fix in commit `58668d1`.
+- `-UnreachableZone` reruns: `20261107-001507`, `20261107-001639`, `20261107-001828`, `20261107-002001` and `20261107-002129`.
+- `-FloorsTab` rerun with the user's mod list, read only: `20261107-002345`.
+
+### Working tree
+
+The runs used the working tree, which holds the vault session's uncommitted work. That is `VaultPocket.xml`, `VaultExitSpot.cs`, a deleted `GenStep_VaultFloor.cs`, an untracked `GenStep_VaultRock.cs`, vault lines in `tools/Invoke-RuntimeValidation.ps1` and `tools/RuntimeValidation/RuntimeValidation.cs`, and the build outputs `ZLevels.dll` and `ZLevelsRimatomics.dll`. Those shared files last changed before the batch began, so every run in the batch tested the same sources. The vault switches (`-VaultPlacement`, `-VaultPocket`, `-VaultEnter`, `-VaultLoad`, `-VaultSave`, `-VaultRock` and `-VaultInfestation`) belong to that session. The committed tree was not run alone, because the game's mod junctions point at this checkout.
+
+### Harness findings
+
+- The batch script read the run path from the last verdict line. PowerShell cuts that line short for a failing run, so the summary lost the path for four runs. It also recorded no folder for `-VaultInfestation`, which stopped on a logged error and printed a different line. The table takes each folder from the log. These are faults in the batch script, not in the scenarios.
+- The batch script omitted `-ModsConfigSource` for `-FloorsTab`. That caused its batch failure, as described above.
+- The log gate matches ` ERROR ` without regard to case. The fix belongs in the runner, which the vault session also edits, so it was not changed.
+- In one earlier core run, 27 of 33 rows reached Player.log (Task 1). The cause is not known, and no later run has shown it.
+
+### Limits and open items
+
+- Decision D6 decides the shot row of `-CrossFloorFight`.
+- The `-UnreachableZone` flake has no cause yet.
+- The `ClearCell` helper destroys a non-destroyable thing. The vault session should decide the fix.
+- `-SocialRelaxQueue` reads the game speed during the screen fade, so its paused row may pass without a pause (Task 4). This was not checked.
+- No switch covers these: the pipe texture on screen, saving and loading a pipe, pipe damage, deconstructing one end of a pipe, flow on the three-floor colony, the stair transfer button on the surface, and the window's "Send checked" button with its messages.
 - Multiplayer: untested.
 
