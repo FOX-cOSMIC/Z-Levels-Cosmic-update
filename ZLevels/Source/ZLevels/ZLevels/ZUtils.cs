@@ -46,6 +46,7 @@ namespace ZLevels
 		{
 			zTracker = null;
 			StorageIndex.Clear();
+			StairRouteCache.Clear();
 		}
 
         // Infestations stop at five levels down: level -5 and every level below it is free of them.
@@ -101,16 +102,17 @@ namespace ZLevels
                         if (!skipOldMap || skipOldMap && otherMap != oldMap)
                         {
                             IntVec3 newPosition = IntVec3.Invalid;// stairs.MinBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)).Position;
-                            if (thing is Pawn pawn)
+                            if (thing is Pawn)
                             {
-                                foreach (var stair in stairs.OrderBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)))
+                                // The reachable stair with the shortest walk from the colonist's own cell (idea "saved stair routes" on
+                                // docs/mod-comparison/ideas.html). The route starts on the map the stairs stand on, so it is used only when
+                                // that map is the colonist's own map.
+                                if (stairs[0].Map == oldMap)
                                 {
-                                    //ZLogger.Message($"CHECK: {pawn} is from {zTracker.GetMapInfo(pawn.Map)}, can reach {stair} - {pawn.CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly)}," +
-                                    //    $" stair is from {zTracker.GetMapInfo(stair.Map)}");
-                                    if (pawn.CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly))
+                                    Building_Stairs route = StairRouteCache.Best(oldMap, oldPosition, otherMapZIndex > oldMapZIndex);
+                                    if (route != null)
                                     {
-                                        newPosition = stair.Position;
-                                        break;
+                                        newPosition = route.Position;
                                     }
                                 }
                             }

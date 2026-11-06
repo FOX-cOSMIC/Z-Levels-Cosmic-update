@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
@@ -1050,6 +1051,105 @@ namespace ZLevelsValidation
                 destinations.AddRange(map.haulDestinationManager.AllHaulDestinationsListInPriorityOrder);
             }
             return destinations;
+        }
+
+        // Task 13 (idea "saved stair routes" on docs/mod-comparison/ideas.html). A colonist changes floor at the reachable stair with the shortest
+        // walk, not the one nearest in a straight line. The nearest stair is walled in, a farther one lies behind a wall with a long walk
+        // around it, and the last one has the shortest walk. The scenario checks the chosen stair, and it counts the walk checks of a second
+        // decision from the same cell.
+        private void RunStairRoutesCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Map lower = CreateLevelBelow(tracker, surface);
+                IntVec3 center = new IntVec3(surface.Size.x / 2, 0, surface.Size.z / 2);
+                CarveAround(surface, center, 14);
+                CarveAround(lower, center, 14);
+                IntVec3 start = center + new IntVec3(-8, 0, 0);
+                IntVec3 blocked = center + new IntVec3(-5, 0, 0);
+                IntVec3 far = center + new IntVec3(-2, 0, 0);
+                IntVec3 near = center + new IntVec3(-8, 0, 8);
+                for (int z = -10; z <= 9; z++)
+                {
+                    SpawnWallOn(lower, center + new IntVec3(-3, 0, z));
+                }
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        if (dx != 0 || dz != 0)
+                        {
+                            SpawnWallOn(lower, blocked + new IntVec3(dx, 0, dz));
+                        }
+                    }
+                }
+                SpawnStairPair(tracker, surface, lower, blocked);
+                SpawnStairPair(tracker, surface, lower, far);
+                SpawnStairPair(tracker, surface, lower, near);
+                tracker.GameComponentTick();
+                Pawn colonist = SpawnPawnAt(lower, start);
+
+                ChooseStairFloor(colonist, lower, start);
+                bool shortestWalk = colonist.Map == surface && colonist.Position == near;
+                Record("a farther stair with a shorter walk is picked", shortestWalk ? "PASS" : "FAIL: the colonist went to " + colonist.Position + " on " + colonist.Map + ", not " + near);
+                bool reachable = colonist.Map == surface && (colonist.Position == far || colonist.Position == near);
+                Record("a wall that blocks the nearest stair sends the colonist to the reachable one", reachable ? "PASS" : "FAIL: the colonist went to " + colonist.Position + " on " + colonist.Map);
+
+                TeleportThingMethod().Invoke(null, new object[] { colonist, lower, start });
+                int checksBefore = StairRouteCache.WalkChecks;
+                ChooseStairFloor(colonist, lower, start);
+                int checks = StairRouteCache.WalkChecks - checksBefore;
+                Record("a second decision runs no walk check", checks == 0 ? "PASS" : "FAIL: " + checks + " walk checks in the second decision");
+
+                bool all = shortestWalk && reachable && checks == 0;
+                Record("stair routes", all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("stair routes", "FAIL: " + exception);
+                Log.Error("Z-Levels stair routes validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The floor change the colonist makes from the lower level to the surface. The first map the iterator yields is the surface, and the
+        // colonist is already moved to the stair the decision chose.
+        private static void ChooseStairFloor(Pawn colonist, Map lower, IntVec3 start)
+        {
+            foreach (Map map in ClosestOrderMaps(colonist, lower, start))
+            {
+                break;
+            }
+        }
+
+        // ZUtils.GetAllMapsInClosestOrder with skipOldMap set. ZUtils is internal to the mod, so the harness calls it by name.
+        private static IEnumerable<Map> ClosestOrderMaps(Pawn colonist, Map oldMap, IntVec3 oldPosition)
+        {
+            Type zutils = typeof(ZLevelsManager).Assembly.GetType("ZLevels.ZUtils", true);
+            MethodInfo method = zutils.GetMethod("GetAllMapsInClosestOrder", BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("ZLevels.ZUtils.GetAllMapsInClosestOrder is missing");
+            return (IEnumerable<Map>)method.Invoke(null, new object[] { colonist, oldMap, oldPosition, true, false });
+        }
+
+        private static void SpawnWallOn(Map map, IntVec3 cell)
+        {
+            ClearCell(map, cell);
+            GenSpawn.Spawn(ThingMaker.MakeThing(ThingDefOf.Wall, ThingDefOf.Steel), cell, map);
+        }
+
+        // A stair pair at one cell: a stairs down on the surface and the stairs up below it, as SetUpLowerStairs makes them.
+        private static void SpawnStairPair(ZLevelsManager tracker, Map surface, Map lower, IntVec3 cell)
+        {
+            ClearCell(surface, cell);
+            surface.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+            Building_StairsDown surfaceStairs = (Building_StairsDown)ThingMaker.MakeThing(ZLevelsDefOf.ZL_StairsDown, ThingDefOf.Steel);
+            surfaceStairs.SetFaction(Faction.OfPlayer);
+            GenSpawn.Spawn(surfaceStairs, cell, surface);
+            ClearCell(lower, cell);
+            lower.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+            tracker.SpawnStairsBelow(SpawnRestPawn(surface), cell, lower);
         }
 
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)

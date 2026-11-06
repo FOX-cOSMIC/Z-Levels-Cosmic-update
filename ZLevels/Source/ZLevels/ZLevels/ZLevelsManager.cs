@@ -1361,6 +1361,8 @@ namespace ZLevels
         {
             if (this.GetZIndexFor(pawnToTeleport.Map) < this.GetZIndexFor(mapToTeleport))
             {
+                StairRouteCache.Invalidate(pawnToTeleport.Map);
+                StairRouteCache.Invalidate(mapToTeleport);
                 var stairs = this.GetLowerLevel(mapToTeleport.Tile, mapToTeleport)?.thingGrid?
                     .ThingsListAt(cellToTeleport)?.Where(x => x is Building_StairsUp)?.FirstOrDefault();
                 if (stairs != null && stairs.Stuff != null)
@@ -1380,6 +1382,8 @@ namespace ZLevels
         {
             if (this.GetZIndexFor(pawn.Map) > this.GetZIndexFor(map))
             {
+                StairRouteCache.Invalidate(pawn.Map);
+                StairRouteCache.Invalidate(map);
                 var stairs = pawn.Map.thingGrid.ThingsListAt(cell)?
                     .Where(x => x is Building_StairsDown)?.FirstOrDefault();
                 ZLogger.Message("Stairs: " + stairs);
