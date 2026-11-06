@@ -330,6 +330,24 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstayonfloor"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!stayOnFloorSaved)
+                        {
+                            stayOnFloorSaved = true;
+                            RunStayOnFloorBeforeSave();
+                        }
+                        return;
+                    }
+                    if (stayOnFloorChecked) return;
+                    stayOnFloorChecked = true;
+                    finished = true;
+                    RunStayOnFloorAfterReload();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsfloorhotkeys"))
                 {
                     finished = true;

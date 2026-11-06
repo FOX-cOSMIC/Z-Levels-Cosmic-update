@@ -117,7 +117,7 @@ namespace ZLevels
                     if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                     ZTracker.ResetJobTrackerFor(pawn);
 
-                    foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                    foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         ZLogger.Message("Searching follow job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                             + " for " + ZTracker.GetMapInfo(oldMap));
@@ -225,7 +225,7 @@ namespace ZLevels
                 };
                 if (oldMap != null)
                 {
-                    foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(actor, oldMap, oldPosition))
+                    foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(actor, ZUtils.GetAllMapsInClosestOrder(actor, oldMap, oldPosition)))
                     {
                         if (IngestibleSource.def.ingestible.chairSearchRadius > 0f)
                         {
@@ -364,7 +364,7 @@ namespace ZLevels
                                 }
                             }
 
-                            foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                             {
                                 ZLogger.Message("Searching food job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                                     + " for " + ZTracker.GetMapInfo(oldMap));
@@ -547,7 +547,7 @@ namespace ZLevels
                             __result = TryGiveJob(pawn, CanDoDuringMedicalRest, InBed, ___joyGiverChances, __instance);
                             return false;
                         }
-                        foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                        foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                         {
                             ZLogger.Message(pawn + " - other map: " + otherMap);
                             ZLogger.Message("Searching joy job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
@@ -753,7 +753,7 @@ namespace ZLevels
                                     return true;
                                 }
                             }
-                            foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                            foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                             {
                                 ZLogger.Message("Searching rest job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
                                     + " for " + ZTracker.GetMapInfo(oldMap));
@@ -823,7 +823,7 @@ namespace ZLevels
                 }
                 else
                 {
-                    if (pawn.ownership?.OwnedBed != null && ZTracker.GetAllMaps(pawn.Map.Tile)
+                    if (pawn.ownership?.OwnedBed != null && ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMaps(pawn.Map.Tile))
                         .Contains(pawn.ownership?.OwnedBed?.Map))
                     {
                         building_Bed = pawn.ownership.OwnedBed;
@@ -868,7 +868,7 @@ namespace ZLevels
                     recursiveTrap = true;
                     Map oldMap = pawn.Map;
                     IntVec3 oldPosition = pawn.Position;
-                    foreach (var map in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                    foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         if (map != oldMap)
                         {
@@ -950,7 +950,7 @@ namespace ZLevels
             private static void Postfix(ref IEnumerable<Thing> __result, Pawn pawn)
             {
                 var list = __result.ToList();
-                foreach (var map in ZUtils.ZTracker.GetAllMaps(pawn.Tile))
+                foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.ZTracker.GetAllMaps(pawn.Tile)))
                 {
                     if (map != pawn.Map)
                     {
@@ -968,7 +968,7 @@ namespace ZLevels
             {
                 if (__result)
                 {
-                    foreach (var map in ZUtils.ZTracker.GetAllMaps(pawn.Tile))
+                    foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.ZTracker.GetAllMaps(pawn.Tile)))
                     {
                         if (map != pawn.Map)
                         {
@@ -1288,7 +1288,7 @@ namespace ZLevels
                     var origPawnPosition = pawn.Position;
                     ZLogger.Message(giver + " - billGiver.Map: " + ZTracker.GetMapInfo(giver.Map));
                     ZLogger.Message(giver + " - billGiver.Position: " + workBench.Position);
-                    foreach (var map in ZTracker.GetAllMapsInClosestOrder(origBillGiverMap))
+                    foreach (var map in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)))
                     {
                         try
                         {
@@ -1398,7 +1398,7 @@ namespace ZLevels
                 }
                 var oldMap = pawn.Map;
                 var oldPosition = pawn.Position;
-                foreach (var map in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                 {
                     Job job2 = scanner.ResourceDeliverJobFor(pawn, blueprint, true);
                     if (job2 != null)
@@ -1445,7 +1445,7 @@ namespace ZLevels
                 {
                     var oldMap = pawn.Map;
                     var oldPosition = pawn.Position;
-                    foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                    foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         if (otherMap != oldMap)
                         {
@@ -1466,7 +1466,7 @@ namespace ZLevels
             {
                 bool result = true;
                 List<SlotGroup> allGroupsListInPriorityOrder = new List<SlotGroup>();
-                foreach (var map in ZUtils.GetAllMapsInClosestOrder(carrier, carrier.Map, carrier.Position))
+                foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(carrier, ZUtils.GetAllMapsInClosestOrder(carrier, carrier.Map, carrier.Position)))
                 {
                     allGroupsListInPriorityOrder.AddRange(map.haulDestinationManager.AllGroupsListInPriorityOrder);
                 }
@@ -1743,7 +1743,7 @@ namespace ZLevels
                 var ZTracker = ZUtils.ZTracker;
                 List<IHaulDestination> allHaulDestinationsListInPriorityOrder = map.haulDestinationManager.AllHaulDestinationsListInPriorityOrder;
                 List<IHaulDestination> allHaulDestinations = new List<IHaulDestination>();
-                foreach (var map2 in ZTracker.GetAllMaps(map.Tile))
+                foreach (var map2 in ZTracker.floorPolicy.Allowed(carrier, ZTracker.GetAllMaps(map.Tile)))
                 {
                     allHaulDestinations.AddRange(map2.haulDestinationManager.AllHaulDestinationsListInPriorityOrder);
                 }
@@ -1894,7 +1894,7 @@ namespace ZLevels
                 Map oldThingMap = t.Map;
                 IntVec3 oldThingPosition = t.Position;
 
-                foreach (var otherMap in ZTracker.GetAllMapsInClosestOrder(oldThingMap))
+                foreach (var otherMap in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(oldThingMap)))
                 {
                     if (oldThingMap != otherMap)
                     {
@@ -1941,8 +1941,8 @@ namespace ZLevels
                 if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                 Thing thing = null;
 
-                foreach (var otherMap in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
-                    pawn2, oldMap2, oldPosition2))
+                foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
+                    pawn2, oldMap2, oldPosition2)))
                 {
                     thing = scanner.FindBed(pawn, pawn2);
                     if (thing != null) break;
@@ -1972,8 +1972,8 @@ namespace ZLevels
                 if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                 Thing thing = null;
 
-                foreach (var otherMap in ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
-                    pawn2, oldMap2, oldPosition2))
+                foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
+                    pawn2, oldMap2, oldPosition2)))
                 {
                     thing = HealthAIUtility.FindBestMedicine(pawn, pawn2);
                     if (thing != null) break;
@@ -2027,7 +2027,7 @@ namespace ZLevels
                 for (int j = 0; j < list.Count; j++)
                 {
                     WorkGiver workGiver = list[j];
-                    foreach (var otherMap in ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition))
+                    foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         jobTracker.mapDest = otherMap;
                         ZLogger.Message("Workgiver N" + (j + 1) + " from " + list.Count + " - " + pawn + " search job - " + workGiver + " in " + ZUtils.ZTracker.GetMapInfo(otherMap), debugLevel: DebugLevel.Jobs);

@@ -351,5 +351,227 @@ namespace ZLevelsValidation
         {
             return "(" + v.x + ", " + v.z + ")";
         }
+
+        // Task 6 (idea 5 on docs/mod-comparison/ideas.html). A colonist locked to a floor does no job on another floor, the lock survives a
+        // save and reload, and it ends when the colonist dies. The first run of the scenario sets the lock and saves. The instance that the
+        // load creates runs the rest.
+        private bool stayOnFloorSaved;
+        private bool stayOnFloorChecked;
+        private static int stayLockedPawnId = -1;
+        private static int stayLowerZIndex = int.MinValue;
+        private static bool stayBeforeSaveOk;
+
+        private void RunStayOnFloorBeforeSave()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Map lower = CreateLevelBelow(tracker, surface);
+                // The lower stairs are made from a surface stairs down: SpawnStairsBelow places the partner at the same cell on the lower level.
+                IntVec3 stairCell = FindOpenBlock(surface, 1, 1);
+                if (!stairCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell on the surface for the stairs");
+                }
+                surface.terrainGrid.SetTerrain(stairCell, TerrainDefOf.Concrete);
+                Building_StairsDown surfaceStairs = (Building_StairsDown)ThingMaker.MakeThing(ZLevelsDefOf.ZL_StairsDown, ThingDefOf.Steel);
+                surfaceStairs.SetFaction(Faction.OfPlayer);
+                GenSpawn.Spawn(surfaceStairs, stairCell, surface);
+                ClearCell(lower, stairCell);
+                lower.terrainGrid.SetTerrain(stairCell, TerrainDefOf.Concrete);
+                Pawn surfaceColonist = SpawnRestPawn(surface);
+                tracker.SpawnStairsBelow(surfaceColonist, stairCell, lower);
+                Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().FirstOrDefault();
+                if (stairs == null)
+                {
+                    throw new InvalidOperationException("the lower level has no stairs up after SpawnStairsBelow");
+                }
+                // The lower level is solid rock around the new stairs, so an open area of radius 2 is carved for the colonists to stand on.
+                foreach (IntVec3 cell in GenRadial.RadialCellsAround(stairs.Position, 2.5f, true))
+                {
+                    if (cell == stairs.Position || !cell.InBounds(lower)) continue;
+                    ClearCell(lower, cell);
+                    lower.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
+                }
+                // Building.SpawnSetup sets recheckStairs, and the tracker re-reads its stairs on the next tick. This scenario runs no tick loop,
+                // so it runs that tick here. Without it the lower level registers no stairs up and a lower colonist cannot climb.
+                tracker.GameComponentTick();
+                // Both colonists stand on cells the lower stairs can reach. A cell in a sealed part of the lower level gives no haul at all.
+                IntVec3 arrival = stairs.Position + new IntVec3(1, 0, 0);
+                ClearCell(lower, arrival);
+                lower.terrainGrid.SetTerrain(arrival, TerrainDefOf.Concrete);
+                IntVec3 lockedCell = FindReachableCellNear(lower, arrival, new List<IntVec3>());
+                IntVec3 freeCell = FindReachableCellNear(lower, arrival, new List<IntVec3> { lockedCell });
+                if (!lockedCell.IsValid || !freeCell.IsValid)
+                {
+                    throw new InvalidOperationException("no cells the lower stairs can reach for two colonists");
+                }
+                Pawn locked = SpawnPawnAt(lower, lockedCell);
+                Pawn free = SpawnPawnAt(lower, freeCell);
+                locked.workSettings.SetPriority(WorkTypeDefOf.Hauling, 3);
+                free.workSettings.SetPriority(WorkTypeDefOf.Hauling, 3);
+
+                // Two steel stacks lie on the surface outside any storage, and a storage zone on the surface takes them. A search reserves the
+                // stack it chooses, so each colonist's haul needs a stack of its own. Other steel on the surface is forbidden.
+                ThingDef steelDef = ThingDef.Named("Steel");
+                IntVec3 steelCell = FindOpenBlock(surface, 1, 1);
+                if (!steelCell.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell on the surface for the steel");
+                }
+                Thing steel = ThingMaker.MakeThing(steelDef);
+                steel.stackCount = 30;
+                GenSpawn.Spawn(steel, steelCell, surface);
+                IntVec3 steelCellB = FindOpenBlock(surface, 1, 1);
+                if (!steelCellB.IsValid)
+                {
+                    throw new InvalidOperationException("no second open cell on the surface for the steel");
+                }
+                Thing steelB = ThingMaker.MakeThing(steelDef);
+                steelB.stackCount = 30;
+                GenSpawn.Spawn(steelB, steelCellB, surface);
+                foreach (Thing other in surface.listerThings.ThingsOfDef(steelDef).ToList())
+                {
+                    if (other != steel && other != steelB) other.SetForbidden(true);
+                }
+                IntVec3 zoneNear = FindOpenBlock(surface, 1, 1);
+                if (!zoneNear.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell on the surface for the storage zone");
+                }
+                Zone_Stockpile zone = MakeSupplyZone(surface, zoneNear);
+
+                int lowerZ = tracker.GetZIndexFor(lower);
+                tracker.floorPolicy.SetLock(locked, lowerZ, int.MaxValue);
+                // Each colonist starts its search with a fresh job tracker, as the unforced haul scenario does.
+                tracker.ResetJobTrackerFor(locked);
+                tracker.ResetJobTrackerFor(free);
+                Job lockedJob = SearchWorkJob(locked);
+                Job freeJob = SearchWorkJob(free);
+                bool lockedSkips = !HaulsOn(lockedJob, surface);
+                bool freeTakes = HaulsOn(freeJob, surface);
+                bool gizmoOffered = locked.GetGizmos().OfType<Command_Toggle>().Any(toggle => toggle.defaultLabel == "Stay on this floor");
+                Record("locked colonist skips the surface haul", lockedSkips ? "PASS" : "FAIL: the locked colonist on " + locked.Map + " takes " + lockedJob.def.defName + " for " + lockedJob.targetA.Thing);
+                Record("unlocked colonist takes the same haul", freeTakes ? "PASS" : "FAIL: the unlocked colonist on " + free.Map + " takes " + (freeJob == null ? "no job" : freeJob.def.defName + " for " + freeJob.targetA.Thing));
+                Record("stay on this floor gizmo is offered", gizmoOffered ? "PASS" : "FAIL: the colonist has no gizmo labelled Stay on this floor");
+                Job surfaceJob = SearchWorkJob(surfaceColonist);
+                bool freeSeesSurface = tracker.GetAllMapsInClosestOrder(lower).Contains(surface);
+                Record("stay on floor diagnostic", "INFO: the locked colonist's search gives " + DescribeJob(lockedJob) + "; the unlocked colonist's search gives " + DescribeJob(freeJob) + "; a colonist on the surface gets " + DescribeJob(surfaceJob) + "; the unlocked colonist's search covers the surface " + freeSeesSurface + "; stairs up on the lower level " + lower.listerThings.AllThings.OfType<Building_StairsUp>().Count() + " (registered " + tracker.GetStairsUpFor(lower).Count() + "); steel at " + steel.Position + " on " + steel.Map + "; zone cells " + zone.Cells.Count() + "; surface colonist hauling priority " + surfaceColonist.workSettings.GetPriority(WorkTypeDefOf.Hauling) + " disabled " + surfaceColonist.WorkTypeIsDisabled(WorkTypeDefOf.Hauling) + "; steel forbidden " + steel.IsForbidden(surfaceColonist) + "; zone accepts steel " + zone.settings.AllowedToAccept(steel) + "; auto haul allowed " + HaulAIUtility.PawnCanAutomaticallyHaul(surfaceColonist, steel, true) + "; surface reach to steel " + surface.reachability.CanReach(surfaceColonist.Position, steel.Position, PathEndMode.ClosestTouch, TraverseParms.For(TraverseMode.PassDoors)) + "; unlocked colonist at " + free.Position + " on " + free.Map);
+                stayBeforeSaveOk = lockedSkips && freeTakes && gizmoOffered;
+                Record("floor locks before the save", "INFO: " + tracker.floorPolicy.Count + " held; the locked colonist held " + tracker.floorPolicy.HasLock(locked));
+                stayLockedPawnId = locked.thingIDNumber;
+                stayLowerZIndex = lowerZ;
+                GameDataSaveLoader.SaveGame("ZLevelsValidation");
+                LongEventHandler.ExecuteWhenFinished(() => GameDataSaveLoader.LoadGame("ZLevelsValidation"));
+            }
+            catch (Exception exception)
+            {
+                Record("stay on floor", "FAIL: " + exception);
+                Log.Error("Z-Levels stay on floor validation failed: " + exception);
+                Root.Shutdown();
+            }
+        }
+
+        private void RunStayOnFloorAfterReload()
+        {
+            try
+            {
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                int now = Find.TickManager.TicksGame;
+                Pawn locked = FindPawnById(stayLockedPawnId);
+                Record("floor locks after the load", "INFO: " + tracker.floorPolicy.Count + " held; the locked colonist found " + (locked != null));
+                bool survives = locked != null && tracker.floorPolicy.LockedFloorIndex(locked, now) == stayLowerZIndex;
+                Record("lock survives save and reload", survives ? "PASS" : "FAIL: after the load the locked colonist " + (locked == null ? "is not on any map" : "has no lock to floor " + stayLowerZIndex));
+
+                // The row needs the lock to exist before the death, so a lost lock cannot pass as an ended one.
+                bool ended = false;
+                if (survives)
+                {
+                    locked.Kill(null);
+                    ended = locked.Dead && !tracker.floorPolicy.HasLock(locked) && tracker.floorPolicy.LockedFloorIndex(locked, now) == null;
+                }
+                Record("lock ends when the colonist dies", ended ? "PASS" : "FAIL: the lock " + (survives ? "is still held after the death" : "was not present before the death"));
+                Record("stay on floor", stayBeforeSaveOk && survives && ended ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("stay on floor", "FAIL: " + exception);
+                Log.Error("Z-Levels stay on floor validation failed after the load: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The colonist's work job search. Its TryIssueJobPackage carries the Z-Levels all-floors search.
+        private static Job SearchWorkJob(Pawn pawn)
+        {
+            JobGiver_Work giver = FindNormalWorkNode(pawn.thinker.MainThinkNodeRoot);
+            if (giver == null)
+            {
+                throw new InvalidOperationException("the colonist's think tree has no normal JobGiver_Work");
+            }
+            return giver.TryIssueJobPackage(pawn, new JobIssueParams()).Job;
+        }
+
+        // The think tree has an emergency JobGiver_Work, which offers only prioritized and emergency work, and a normal one, which offers hauling.
+        private static JobGiver_Work FindNormalWorkNode(ThinkNode node)
+        {
+            if (node is JobGiver_Work work && !work.emergency)
+            {
+                return work;
+            }
+            foreach (ThinkNode sub in node.subNodes)
+            {
+                JobGiver_Work found = FindNormalWorkNode(sub);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        // The first standable cell near the given cell that the cell can reach, and that no cell in avoid is next to.
+        private static IntVec3 FindReachableCellNear(Map map, IntVec3 near, List<IntVec3> avoid)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(near, 6f, false))
+            {
+                if (!cell.InBounds(map) || !cell.Standable(map) || cell.GetEdifice(map) != null || cell.GetFirstItem(map) != null) continue;
+                if (avoid.Any(other => other.DistanceTo(cell) < 2f)) continue;
+                if (!map.reachability.CanReach(near, cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                return cell;
+            }
+            return IntVec3.Invalid;
+        }
+
+        private static Pawn SpawnPawnAt(Map map, IntVec3 cell)
+        {
+            Pawn pawn = PawnGenerator.GeneratePawn(PawnKindDefOf.Colonist, Faction.OfPlayer);
+            GenSpawn.Spawn(pawn, cell, map);
+            return pawn;
+        }
+
+        // A job that hauls a thing lying on the map. The scenario's surface haul is any haul of a thing on the surface.
+        private static bool HaulsOn(Job job, Map map)
+        {
+            return job != null && job.targetA.Thing != null && job.targetA.Thing.Map == map;
+        }
+
+        private static string DescribeJob(Job job)
+        {
+            return job == null ? "no job" : job.def.defName + " for " + job.targetA.Thing + " on " + job.targetA.Thing?.Map;
+        }
+
+        private static Pawn FindPawnById(int id)
+        {
+            foreach (Map map in Find.Maps)
+            {
+                foreach (Pawn pawn in map.mapPawns.AllPawns)
+                {
+                    if (pawn.thingIDNumber == id) return pawn;
+                }
+            }
+            return null;
+        }
     }
 }

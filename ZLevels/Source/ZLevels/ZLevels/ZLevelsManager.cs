@@ -1927,6 +1927,7 @@ namespace ZLevels
             base.ExposeData();
             Scribe_Collections.Look<Pawn, ActiveArea>(ref this.activeAreas, "activeAreas", LookMode.Reference,
                 LookMode.Deep, ref this.ActiveAreasKeys, ref this.ActiveAreasValues);
+            this.floorPolicy.ExposeLocks();
             Scribe_Collections.Look<Pawn, JobTracker>(ref this.jobTracker, "jobTracker", LookMode.Reference,
                 LookMode.Deep, ref this.JobTrackerKeys, ref this.JobTrackerValues);
             Scribe_Collections.Look<Map, int>(ref this.mapIndex, "mapIndex", LookMode.Reference,
@@ -1981,6 +1982,8 @@ namespace ZLevels
                 }
             }
         }
+
+        public FloorPolicy floorPolicy = new FloorPolicy();
 
         public Dictionary<Pawn, ActiveArea> activeAreas;
         private List<Pawn> ActiveAreasKeys = new List<Pawn>();
