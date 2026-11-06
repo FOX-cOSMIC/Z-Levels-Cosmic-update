@@ -269,6 +269,28 @@ namespace ZLevels
             return null;
         }
 
+        // The other end of a stairs piece: the stairs at the same cell on the floor above or below. A StairsUp stands on the lower floor, and its
+        // other end is the StairsDown on the floor above. A StairsDown stands on the upper floor, and its other end is the StairsUp below. This is
+        // the layout SpawnStairsBelow makes. Building_Stairs.GetMatchingStair searches the other way round, so this method does not use it.
+        public Building_Stairs GetOtherEnd(Building_Stairs stairs)
+        {
+            if (stairs == null || !stairs.Spawned)
+            {
+                return null;
+            }
+            if (stairs is Building_StairsUp)
+            {
+                Map upper = this.GetUpperLevel(stairs.Map.Tile, stairs.Map);
+                return upper == null ? null : stairs.Position.GetThingList(upper).OfType<Building_StairsDown>().FirstOrDefault();
+            }
+            if (stairs is Building_StairsDown)
+            {
+                Map lower = this.GetLowerLevel(stairs.Map.Tile, stairs.Map);
+                return lower == null ? null : stairs.Position.GetThingList(lower).OfType<Building_StairsUp>().FirstOrDefault();
+            }
+            return null;
+        }
+
         public List<Map> GetAllMaps(PlanetTile tile)
         {
             List<Map> maps = new List<Map>();

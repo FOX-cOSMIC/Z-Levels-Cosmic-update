@@ -23,6 +23,12 @@ namespace ZLevels
         //}
 
 
+        // The view button comes from StairsGizmoPatch.AddViewButton (idea "view the connected floor"), on every stairs piece.
+        public override IEnumerable<Gizmo> GetGizmos()
+        {
+            return StairsGizmoPatch.AddViewButton(this, base.GetGizmos());
+        }
+
         public virtual Building_Stairs GetMatchingStair()
         {
             return null;

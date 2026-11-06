@@ -1282,6 +1282,56 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
+        // Task 17 (idea "view the connected floor" on docs/mod-comparison/ideas.html). Each stairs piece offers a button that moves the camera to
+        // its other end, the matching stairs on the floor above or below. The scenario checks the button on both ends, presses the lower end's
+        // button from the lower floor and the surface end's button from the surface, and reads the floor the camera ends on.
+        private void RunStairsViewCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Building_StairsUp lowerStairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                Building_Stairs surfaceStairs = tracker.GetOtherEnd(lowerStairs);
+                if (surfaceStairs == null)
+                {
+                    throw new InvalidOperationException("the lower stairs have no matching stairs on the surface");
+                }
+                Command_Action lowerButton = StairsViewButton(lowerStairs);
+                Command_Action surfaceButton = StairsViewButton(surfaceStairs);
+                string missing = lowerButton == null ? "the lower stairs" : surfaceButton == null ? "the surface stairs" : null;
+                Record("stairs offer the view button", missing == null ? "PASS" : "FAIL: no view button on " + missing);
+                if (lowerButton == null || surfaceButton == null)
+                {
+                    Record("pressing it moves the camera to the other end", "FAIL: there is no button to press");
+                }
+                else
+                {
+                    Current.Game.CurrentMap = lower;
+                    lowerButton.action();
+                    Map fromLower = Current.Game.CurrentMap;
+                    Current.Game.CurrentMap = surface;
+                    surfaceButton.action();
+                    Map fromSurface = Current.Game.CurrentMap;
+                    bool moved = fromLower == surface && fromSurface == lower;
+                    Record("pressing it moves the camera to the other end", moved ? "PASS"
+                        : "FAIL: the lower button ended on " + (fromLower == surface ? "the surface" : "another map") + ", the surface button ended on " + (fromSurface == lower ? "the lower floor" : "another map"));
+                }
+            }
+            catch (Exception exception)
+            {
+                Record("pressing it moves the camera to the other end", "FAIL: " + exception);
+                Log.Error("Z-Levels stairs view validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The view button of a stairs piece, or null when the piece offers none. The label is the one the gizmo shows.
+        private static Command_Action StairsViewButton(Building_Stairs stairs)
+        {
+            return stairs.GetGizmos().OfType<Command_Action>().FirstOrDefault(gizmo => gizmo.defaultLabel == "View the connected floor");
+        }
+
         // The number of cross-floor searches that the action starts, read from FloorPolicy.CrossFloorSearches before and after it.
         private static int CrossFloorSearchesDuring(Action action)
         {
