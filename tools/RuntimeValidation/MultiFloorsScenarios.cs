@@ -831,6 +831,9 @@ namespace ZLevelsValidation
             {
                 Map surface = Find.CurrentMap;
                 ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                // The pause limits the cross-floor search, so the colony needs a second floor for the pause to count anything. On one floor the
+                // vanilla search runs instead (Task 16), and this scenario would count no searches.
+                CreateLevelBelow(tracker, surface);
                 Pawn idle = SpawnRestPawn(surface);
                 idle.workSettings.DisableAll();
                 int start = Find.TickManager.TicksGame;
@@ -1211,6 +1214,80 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels chore spread validation failed: " + exception);
             }
             Root.Shutdown();
+        }
+
+        // Task 16 (idea "nothing extra until floors exist" on docs/mod-comparison/ideas.html). A colony with one floor runs the vanilla job
+        // searches. The scenario runs one colonist's work, rest, food and fun searches on the surface. FloorPolicy.CrossFloorSearches counts the
+        // searches that go through the floor filter, and a one-floor colony must add nothing to it.
+        private void RunOneFloorColonyCheck()
+        {
+            const string label = "a one-floor colony runs no cross-floor search";
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                int floors = tracker.GetAllMaps(surface.Tile).Count;
+                if (floors != 1)
+                {
+                    throw new InvalidOperationException("the colony has " + floors + " floors, not one");
+                }
+                Pawn colonist = SpawnRestPawn(surface);
+                JobGiver_GetRest restGiver = FindThinkNode<JobGiver_GetRest>(colonist.thinker.MainThinkNodeRoot);
+                if (restGiver == null)
+                {
+                    throw new InvalidOperationException("the colonist's think tree has no JobGiver_GetRest");
+                }
+                colonist.needs.rest.CurLevelPercentage = 0.1f;
+                // A hungry food giver and a fun giver, set up as the need cool-down scenario does.
+                colonist.needs.food.CurLevelPercentage = 0.2f;
+                JobGiver_GetFood foodGiver = new JobGiver_GetFood();
+                typeof(JobGiver_GetFood).GetField("minCategory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .SetValue(foodGiver, HungerCategory.Hungry);
+                colonist.needs.joy.CurLevelPercentage = 0.5f;
+                JobGiver_GetJoy joyGiver = new JobGiver_GetJoy();
+                joyGiver.ResolveReferences();
+
+                int work = CrossFloorSearchesDuring(() => SearchWorkJob(colonist));
+                int rest = CrossFloorSearchesDuring(() => TryGiveRestJob(restGiver, colonist));
+                int food = CrossFloorSearchesDuring(() => InvokeTryGiveJob(foodGiver, colonist));
+                int fun = CrossFloorSearchesDuring(() => InvokeTryGiveJob(joyGiver, colonist));
+                // The haul check of a stored thing (StoreUtility.IsInValidBestStorage, patched in JobPatches). Ten steel on a stockpile of the
+                // surface are the thing. The stockpile must hold the steel and accept it, or the check returns before its loop and counts nothing.
+                IntVec3 stockNear = FindOpenBlock(surface, 1, 1);
+                if (!stockNear.IsValid)
+                {
+                    throw new InvalidOperationException("no open cell on the surface for the stockpile");
+                }
+                Zone_Stockpile stockpile = MakeSupplyZone(surface, stockNear);
+                PlaceSupplyStack(surface, stockpile, ThingDefOf.Steel, 10);
+                Thing steel = stockpile.Cells.Select(cell => cell.GetFirstItem(surface)).FirstOrDefault(thing => thing != null && thing.def == ThingDefOf.Steel);
+                IHaulDestination destination = steel == null ? null : StoreUtility.CurrentHaulDestinationOf(steel);
+                if (destination == null || !destination.Accepts(steel))
+                {
+                    throw new InvalidOperationException("the stockpile does not hold and accept the steel, so the haul check would not run");
+                }
+                int haul = CrossFloorSearchesDuring(() => StoreUtility.IsInValidBestStorage(steel));
+                // The answer is shown, not gated: the steel sits in its stockpile, so the check should say it is stored.
+                Record("one-floor haul answer", "INFO: the steel counts as stored in its stockpile: " + StoreUtility.IsInValidBestStorage(steel));
+                string counts = "work " + work + ", rest " + rest + ", food " + food + ", fun " + fun + ", haul check " + haul;
+                // The gate reads the required row as a plain PASS, so the counts go on their own row.
+                Record("one-floor search counts", "INFO: " + counts);
+                Record(label, work + rest + food + fun + haul == 0 ? "PASS" : "FAIL: cross-floor searches on one floor: " + counts);
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels one-floor colony validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The number of cross-floor searches that the action starts, read from FloorPolicy.CrossFloorSearches before and after it.
+        private static int CrossFloorSearchesDuring(Action action)
+        {
+            int before = FloorPolicy.CrossFloorSearches;
+            action();
+            return FloorPolicy.CrossFloorSearches - before;
         }
 
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)

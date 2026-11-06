@@ -73,6 +73,7 @@ namespace ZLevels
         {
             private static bool Prefix(JobGiver_AIFollowPawn __instance, ref Job __result, Pawn pawn)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
                 try
                 {
                     var ZTracker = ZUtils.ZTracker;
@@ -175,6 +176,7 @@ namespace ZLevels
         {
             private static void Postfix(ref IEnumerable<Toil> __result, JobDriver_Ingest __instance, Toil chewToil)
             {
+                if (!ZUtils.HasExtraFloors(__instance.pawn)) return;
                 var list = __result.ToList<Toil>();
                 Thing IngestibleSource = __instance.job.GetTarget(TargetIndex.A).Thing;
                 Pawn actor = __instance.pawn;
@@ -292,6 +294,7 @@ namespace ZLevels
             [HarmonyPrefix]
             private static bool JobGiver_GetFoodPrefix(JobGiver_GetFood __instance, ref Job __result, float ___maxLevelPercentage, HungerCategory ___minCategory, Pawn pawn)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
                 if (pawn.def.race.Humanlike)
                 {
                     ZLogger.Message(pawn + " starting food search");
@@ -480,6 +483,7 @@ namespace ZLevels
             private static bool JobGiver_GetJoyPrefix(JobGiver_GetJoy __instance, ref Job __result,
                  ref DefMap<JoyGiverDef, float> ___joyGiverChances, Pawn pawn)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
                 try
                 {
                     ZLogger.Message(pawn + " starting joy search");
@@ -666,6 +670,7 @@ namespace ZLevels
             private static bool JobGiver_GetRestPrefix(JobGiver_GetRest __instance, ref Job __result,
                 RestCategory ___minCategory, float ___maxLevelPercentage, Pawn pawn)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
                 try
                 {
                     var ZTracker = ZUtils.ZTracker;
@@ -871,6 +876,7 @@ namespace ZLevels
             public static bool recursiveTrap;
             private static void Postfix(WorkGiver_InteractAnimal __instance, ref Job __result, Pawn pawn, Pawn tamee)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return;
                 if (!recursiveTrap && __result is null)
                 {
                     recursiveTrap = true;
@@ -944,6 +950,7 @@ namespace ZLevels
         {
             private static void Postfix(ref IEnumerable<Thing> __result, Pawn pawn)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return;
                 var list = __result.ToList();
                 foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.ZTracker.GetAllMaps(pawn.Tile)))
                 {
@@ -961,6 +968,7 @@ namespace ZLevels
         {
             private static void Postfix(ref bool __result, WorkGiver_DoBill __instance, Pawn pawn, bool forced = false)
             {
+                if (!ZUtils.HasExtraFloors(pawn)) return;
                 if (__result)
                 {
                     foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.ZTracker.GetAllMaps(pawn.Tile)))
@@ -988,12 +996,14 @@ namespace ZLevels
         {
             public static bool Prefix(Thing t, ref bool __result)
             {
+                if (t.Map != null && !ZUtils.HasExtraFloors(t.Map)) return true;
                 IHaulDestination haulDestination = StoreUtility.CurrentHaulDestinationOf(t);
                 if (haulDestination == null || !haulDestination.Accepts(t))
                 {
                     __result = false;
                     return false;
                 }
+                FloorPolicy.CrossFloorSearches++;
                 var ZTracker = ZUtils.ZTracker;
                 foreach (var map in ZTracker.GetAllMapsInClosestOrder(t.Map))
                 {
@@ -1144,6 +1154,7 @@ namespace ZLevels
                 {
                     return true;
                 }
+                if (!ZUtils.HasExtraFloors(pawn)) return true;
                 if (pawn.RaceProps.Humanlike)
                 {
                     var ZTracker = ZUtils.ZTracker;

@@ -13,6 +13,10 @@ namespace ZLevels
         // -FloorGuard scenario sets it, and the scenario sets it back to false when its call ends (idea "always move the colonist back").
         public static bool ThrowInSearchForTest;
 
+        // Test counter (debug): how many searches have gone through the floor filter (Allowed), which every colonist search in JobPatches uses.
+        // The -OneFloorColony scenario reads it. A colony with one floor must add nothing to it.
+        public static int CrossFloorSearches;
+
         // The search iterators call this right after they move a thing to a floor. It throws only when the hook is on and the floor is not
         // the thing's own floor, so the colonist is away from its floor when the search fails.
         public static void FailSearchIfTesting(Map ownMap, Map map)
@@ -81,6 +85,7 @@ namespace ZLevels
         // The maps a pawn may search, in the order given. A null pawn has no lock, so it keeps every map.
         public IEnumerable<Map> Allowed(Pawn pawn, IEnumerable<Map> maps)
         {
+            CrossFloorSearches++;
             if (pawn == null)
             {
                 return maps;

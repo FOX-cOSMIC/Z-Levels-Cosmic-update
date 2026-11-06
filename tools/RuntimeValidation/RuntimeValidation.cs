@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsonefloorcolony"))
+                {
+                    finished = true;
+                    RunOneFloorColonyCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelschorespread"))
                 {
                     finished = true;

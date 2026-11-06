@@ -28,6 +28,19 @@ namespace ZLevels
 			}
 		}
 
+        // Nothing extra until floors exist (idea "nothing extra until floors exist" on docs/mod-comparison/ideas.html). A pawn whose tile has one
+        // floor runs the vanilla job search: the cross-floor search would have no other floor to search. A null pawn counts as one floor.
+        public static bool HasExtraFloors(Pawn pawn)
+        {
+            return pawn != null && ZTracker.GetAllMaps(pawn.Tile).Count > 1;
+        }
+
+        // The same test for a map, for the checks that have a thing and its map but no colonist.
+        public static bool HasExtraFloors(Map map)
+        {
+            return map != null && ZTracker.GetAllMaps(map.Tile).Count > 1;
+        }
+
         private static Dictionary<Map, MapComponentZLevel> mapComponents = new Dictionary<Map, MapComponentZLevel>();
         public static MapComponentZLevel GetMapComponentZLevel(Map key)
         {
