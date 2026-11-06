@@ -1819,12 +1819,69 @@ namespace ZLevelsValidation
         // work on the own floor. The rows: a priority-3 job on the own floor is taken with no search on another floor; a priority-1 mining job on the
         // lower floor beats a priority-3 hauling job on the surface; a priority-3 job is taken when nothing is on the lower floor; and the threshold
         // setting defaults to 2. The settings class is internal, so the scenario reads it by name.
+        // A tend job without medicine went into the Z-Levels job list as a haul with no target. The colonist's driver then failed when it started
+        // the job, and the colonist tried again. The row fails before the fix and passes after it. (A refuel job cannot lack fuel here: vanilla
+        // CanRefuel returns false when no fuel is reachable, before any job is made.)
+        private void RunJobTargetCheck()
+        {
+            const string label = "job targets";
+            Rand.PushState(20261109);
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                IntVec3 block = FindCentralOpenBlock(surface, 9, 9);
+                if (!block.IsValid)
+                {
+                    throw new InvalidOperationException("no open 9 by 9 block on the surface away from the edges");
+                }
+                List<IntVec3> avoid = new List<IntVec3>();
+
+                // Row 1. A tend job for a patient, with no medicine on the surface.
+                foreach (Thing medicine in surface.listerThings.ThingsInGroup(ThingRequestGroup.Medicine).ToList())
+                {
+                    medicine.Destroy();
+                }
+                Pawn doctor = SpawnColonistNear(surface, block + new IntVec3(2, 0, 2), avoid);
+                Pawn patient = SpawnColonistNear(surface, block + new IntVec3(4, 0, 4), avoid);
+                Job tend = JobPatches.TryIssueJobPackagePatch.TendJobOnThing(doctor, patient);
+                if (tend == null || tend.targetB.HasThing)
+                {
+                    throw new InvalidOperationException("the tend job did not come back without medicine");
+                }
+                tracker.ResetJobTrackerFor(doctor);
+                tracker.BuildJobListFor(doctor, surface, tend);
+                List<Job> queued = tracker.jobTracker[doctor].activeJobs ?? new List<Job>();
+                Job emptyHaul = queued.FirstOrDefault(job => job.def == ZLevelsDefOf.ZL_HaulThingToDest && !job.targetA.HasThing);
+                bool tendOk = emptyHaul == null;
+                Record("tend without medicine makes no haul with no target", tendOk ? "PASS" : "FAIL: a " + emptyHaul.def.defName + " with no target; the job list is " + string.Join(", ", queued.Select(job => job.def.defName)));
+
+                Record(label, tendOk ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels job target validation failed: " + exception);
+            }
+            finally
+            {
+                Rand.PopState();
+            }
+            Root.Shutdown();
+        }
+
         private void RunOwnFloorFirstCheck()
         {
             const string label = "own floor first";
             Rand.PushState(20261108);
+            // The threshold reads the priorities the game shows. The game reports priority 3 for every work type while "use work priorities"
+            // is off, so this check turns the setting on for its own length and restores it afterwards.
+            bool previousUseWorkPriorities = Find.PlaySettings.useWorkPriorities;
+            Find.PlaySettings.useWorkPriorities = true;
             try
             {
+                Record("use work priorities during the check", "INFO: was " + (previousUseWorkPriorities ? "on" : "off") + ", on for this check");
                 Map surface = Find.CurrentMap;
                 ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
                 RequireFloors(tracker, surface, 1);
@@ -1855,7 +1912,7 @@ namespace ZLevelsValidation
                 List<IntVec3> avoid = new List<IntVec3>();
 
                 // Row 1. A colonist with priority-3 hauling and mining, and nothing to mine below. Its own floor has the haul.
-                Pawn plain = SpawnColonistNear(surface, block + new IntVec3(4, 0, 6), avoid);
+                Pawn plain = SpawnCapableColonistNear(surface, block + new IntVec3(4, 0, 6), avoid, WorkTypeDefOf.Hauling, WorkTypeDefOf.Mining);
                 SetWork(plain, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 3);
                 Record("own floor first work list", "INFO: " + string.Join(", ", plain.workSettings.WorkGiversInOrderNormal.Select(giver => giver.def.defName)));
                 int runsBefore = FloorPolicy.OtherFloorSearchRuns;
@@ -1882,7 +1939,7 @@ namespace ZLevelsValidation
 
                 // Row 3. Nothing on the lower floor, and a priority-3 haul on the surface.
                 lower.designationManager.RemoveDesignation(mine);
-                Pawn hauler = SpawnColonistNear(surface, block + new IntVec3(6, 0, 6), avoid);
+                Pawn hauler = SpawnCapableColonistNear(surface, block + new IntVec3(6, 0, 6), avoid, WorkTypeDefOf.Hauling);
                 SetWork(hauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
                 Job haulerJob = SearchWorkJob(hauler);
                 bool haulerOk = IsSurfaceJob(haulerJob, surface);
@@ -1905,6 +1962,7 @@ namespace ZLevelsValidation
             }
             finally
             {
+                Find.PlaySettings.useWorkPriorities = previousUseWorkPriorities;
                 Rand.PopState();
             }
             Root.Shutdown();
@@ -1955,14 +2013,31 @@ namespace ZLevelsValidation
                 for (int attempt = 0; attempt < 10; attempt++)
                 {
                     Pawn candidate = SpawnPawnAt(surface, cell);
-                    if (!candidate.WorkTypeIsDisabled(WorkTypeDefOf.Mining))
+                    // Row 2 sets hauling as well as mining, and SetWork logs an error for a work type that is disabled.
+                    if (!candidate.WorkTypeIsDisabled(WorkTypeDefOf.Mining) && !candidate.WorkTypeIsDisabled(WorkTypeDefOf.Hauling))
                     {
                         return candidate;
                     }
                     candidate.Destroy(DestroyMode.Vanish);
                 }
             }
-            throw new InvalidOperationException("no colonist who can mine could be placed beside the stairs");
+            throw new InvalidOperationException("no colonist who can mine and haul could be placed beside the stairs");
+        }
+
+        // A colonist near the cell who is not disabled from any of the work types. Some backstories disable work types, and SetWork cannot give a
+        // disabled work type a priority, so a colonist who has one disabled is removed and another is spawned, up to ten times.
+        private static Pawn SpawnCapableColonistNear(Map map, IntVec3 near, List<IntVec3> avoid, params WorkTypeDef[] needed)
+        {
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                Pawn candidate = SpawnColonistNear(map, near, avoid);
+                if (needed.All(work => !candidate.WorkTypeIsDisabled(work)))
+                {
+                    return candidate;
+                }
+                candidate.Destroy(DestroyMode.Vanish);
+            }
+            throw new InvalidOperationException("no colonist who can " + string.Join(" and ", needed.Select(work => work.defName)) + " could be placed near " + near);
         }
 
         // A mineable rock next to an open cell that the start cell can reach, within eight cells of the start cell.

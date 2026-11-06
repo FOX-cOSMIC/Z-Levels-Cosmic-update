@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsjobtargets"))
+                {
+                    finished = true;
+                    RunJobTargetCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsownfloorfirst"))
                 {
                     finished = true;

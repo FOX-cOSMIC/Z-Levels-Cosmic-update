@@ -732,10 +732,19 @@ namespace ZLevels
                 ZLogger.Message("Job method 1.78");
                 log += "Job method 1.78" + "\n";
                 pawnJobTracker.targetDest = new TargetInfo(jobToDo.targetA.Thing);
-                Job job = JobMaker.MakeJob(ZLevelsDefOf.ZL_HaulThingToDest, jobToDo.targetB.Thing);
-                job.count = Medicine.GetMedicineCountToFullyHeal(jobToDo.targetA.Thing as Pawn);
-                ZLogger.Message(pawn + " is doing ZL_HaulThingToDest " + jobToDo.targetB.Thing + " to " + pawnJobTracker.targetDest);
-                tempJobs.Add(job);
+                if (jobToDo.targetB.HasThing)
+                {
+                    Job job = JobMaker.MakeJob(ZLevelsDefOf.ZL_HaulThingToDest, jobToDo.targetB.Thing);
+                    job.count = Medicine.GetMedicineCountToFullyHeal(jobToDo.targetA.Thing as Pawn);
+                    ZLogger.Message(pawn + " is doing ZL_HaulThingToDest " + jobToDo.targetB.Thing + " to " + pawnJobTracker.targetDest);
+                    tempJobs.Add(job);
+                }
+                else if (jobToDo.targetA.Thing.Map != pawn.Map)
+                {
+                    // Without medicine nothing is carried. The colonist only walks to the patient's level; the tend job runs there.
+                    ZLogger.Message(pawn + " is doing ZL_GoToMap to " + pawnJobTracker.targetDest);
+                    tempJobs.Add(JobMaker.MakeJob(ZLevelsDefOf.ZL_GoToMap));
+                }
             }
             else if (jobToDo?.targetQueueA?.Count > 0
                 && jobToDo.targetQueueA.Where(x => x.HasThing && x.Thing.Map != null).Any())
