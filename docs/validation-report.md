@@ -1514,3 +1514,66 @@ Run `20261106-191145`, before the link existed. The unlinked row passed. The lin
 - The button uses the game's install icon, `TexCommand.Install`, because the mod ships no command icons.
 - A linked floor with no ingredients falls back to the other floors, in their usual order.
 - Multiplayer: untested.
+
+## Call colonists here
+
+Lucas's idea "call colonists here" in `docs/mod-comparison/ideas.html`. A player colonist's gizmo list has a "Call colonists here" button. The button starts a targeter on the floor the player is viewing. A standable cell that is picked sends each selected colonist to it. A colonist on another floor takes the stairs first. A colonist already on the cell gets no job.
+
+The button is added by `CallColonistsGizmoPatch`, a postfix on `Pawn.GetGizmos`. The order is `CallColonistsTargeter.CallTo`. It resets each colonist's job tracker. A colonist on the target floor gets a `Goto` job. A colonist on another floor gets the route that a float-menu order builds: `BuildJobListFor` with the target floor, then `EndCurrentJob`, which starts the go-to-map job and queues the walk after it.
+
+### What the scenario checks
+
+`-CallColonists` runs one colony with a lower floor, and makes two calls. The walker is a colonist on the lower floor, locked to that floor, and it is called to a free cell on the surface. The stayer is a drafted colonist standing on the surface, and it is called to the cell it stands on.
+
+- `call colonists gizmo is offered to a selected colonist`. The stayer's gizmos hold the button. The row is recorded before the calls, so it fails on its own when the button is missing.
+- `colonist on the lower floor reaches the spot within 6000 ticks`. The walker stands on its cell before 6000 ticks pass.
+- `colonists already at the spot stay there`. The call sends the stayer nowhere, and no route job appears for it during the walker's walk.
+- `a locked colonist keeps its lock on the floor it is called to`. After the call, the walker's lock names the surface.
+- `call colonists`. Passes when every row above passes.
+
+### Result
+
+Green run `20261106-193148`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| call colonists gizmo is offered to a selected colonist | PASS |
+| colonist on the lower floor reaches the spot within 6000 ticks | PASS, after 2106 ticks |
+| colonists already at the spot stay there | PASS |
+| a locked colonist keeps its lock on the floor it is called to | PASS, floor index 0 |
+| call colonists | PASS |
+
+### Decision: a call moves the lock
+
+A locked colonist keeps its lock through a call. `FloorPolicy.MoveLock` moves the lock to the floor of the cell, and the lock keeps its expiry. Without the move, the lock stays on the old floor, and the colonist's job searches are limited to that floor. To reverse the decision, remove the `MoveLock` call from `CallTo`. The last row checks for this move.
+
+### Red runs
+
+- Run `20261106-192923`, before the order existed. The first row failed with `the mod has no ZLevels.CallColonistsTargeter class`, and the aggregate failed. That version had no gizmo row, so the other rows failed only because setup stopped at the missing order.
+- Run `20261106-193056`, with the gizmo row added. The gizmo row failed on its own, with `the colonist's gizmos hold no Call colonists here button`. The walker row failed with the missing order, and the aggregate failed.
+
+The order is reached by name, so a missing class fails rows and not the build.
+
+### Regression, final code
+
+- `20261106-193251`, core: 33 rows, PASS.
+- `20261106-193447`, `-WorkOnFloorOrder`: PASS.
+- `20261106-193907`, `-BenchLink`: PASS.
+- `20261106-193956`, `-FloorWorkFilter`: PASS.
+- `20261106-194232`, `-FloorsTab` with the user's mod list, read only: PASS. Other mods logged four error lines, and Z-Levels logged none.
+- `-StayOnFloor`: run `20261106-193404` failed on `unlocked colonist takes the same haul`, before the harness fix in the next section. Runs `20261106-193622`, `20261106-193706` and `20261106-193754` pass after it.
+
+### Harness fix found by the regression
+
+`-StayOnFloor` spawned its two colonists at random and set Hauling priority on each, without checking that the colonist can haul. A colonist with Hauling disabled got no haul. The game logged `Tried to change priority on disabled worktype Hauling for pawn Soto`, and the unlocked row failed. The locked row could also pass for the wrong reason, since a colonist that cannot haul skips a haul too. `SpawnHaulerAt` spawns again until the colonist can haul. Task 16 recorded the same failure and left it open.
+
+### Limits
+
+- The button, its click and the targeter's mouse path are not driven. No screenshot was taken.
+- The scenario makes one call with one walker from the lower floor. Several selected colonists in one call, a colonist on the upper floor, and a colonist two floors down are not tested.
+- The gizmo group key, which should merge the button across a selection, is not tested.
+- A picked cell that another pawn stands on is not tested.
+- The lock's expiry is kept through a call, but no row checks a timed lock.
+- The button uses `TexCommand.GatherSpotActive`, because the mod ships no command icons.
+- Multiplayer: untested.
+

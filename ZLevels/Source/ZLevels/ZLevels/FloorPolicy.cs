@@ -63,6 +63,15 @@ namespace ZLevels
             lockedUntil.Remove(pawn);
         }
 
+        // A call that moves a locked colonist to another floor moves the lock with it. The lock keeps its expiry. A colonist with no lock is left alone.
+        public void MoveLock(Pawn pawn, int floorIndex)
+        {
+            if (HasLock(pawn))
+            {
+                lockedFloor[pawn] = floorIndex;
+            }
+        }
+
         public int Count => lockedFloor.Count;
 
         public bool HasLock(Pawn pawn)

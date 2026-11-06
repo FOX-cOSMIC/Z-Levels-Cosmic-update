@@ -398,6 +398,13 @@ namespace ZLevelsValidation
                     RunBenchLinkAfterReload();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscallcolonists"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCallColonistsTick();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
                 {
                     if (!PlayerControlReady())
