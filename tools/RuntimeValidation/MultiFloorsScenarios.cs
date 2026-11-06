@@ -410,8 +410,8 @@ namespace ZLevelsValidation
                 {
                     throw new InvalidOperationException("no cells the lower stairs can reach for two colonists");
                 }
-                Pawn locked = SpawnPawnAt(lower, lockedCell);
-                Pawn free = SpawnPawnAt(lower, freeCell);
+                Pawn locked = SpawnHaulerAt(lower, lockedCell);
+                Pawn free = SpawnHaulerAt(lower, freeCell);
                 locked.workSettings.SetPriority(WorkTypeDefOf.Hauling, 3);
                 free.workSettings.SetPriority(WorkTypeDefOf.Hauling, 3);
 
@@ -555,6 +555,22 @@ namespace ZLevelsValidation
             Pawn pawn = PawnGenerator.GeneratePawn(PawnKindDefOf.Colonist, Faction.OfPlayer);
             GenSpawn.Spawn(pawn, cell, map);
             return pawn;
+        }
+
+        // A colonist who can haul. A random colonist can have Hauling disabled. Then SetPriority for Hauling fails, and the scenario's haul never
+        // starts. The helper spawns again until the colonist can haul, and destroys each colonist it does not keep.
+        private static Pawn SpawnHaulerAt(Map map, IntVec3 cell)
+        {
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                Pawn candidate = SpawnPawnAt(map, cell);
+                if (!candidate.WorkTypeIsDisabled(WorkTypeDefOf.Hauling))
+                {
+                    return candidate;
+                }
+                candidate.Destroy(DestroyMode.Vanish);
+            }
+            throw new InvalidOperationException("no colonist who can haul could be placed at " + cell);
         }
 
         // A job that hauls a thing lying on the map. The scenario's surface haul is any haul of a thing on the surface.
