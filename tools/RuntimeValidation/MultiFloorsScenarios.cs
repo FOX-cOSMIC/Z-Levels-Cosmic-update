@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using RimWorld;
+using RimWorld.Planet;
 using Verse;
 using Verse.AI;
 using ZLevels;
@@ -990,6 +991,65 @@ namespace ZLevelsValidation
                 Log.Error("Z-Levels floor guard validation failed: " + exception);
             }
             Root.Shutdown();
+        }
+
+        // Task 12 (idea 7 on docs/mod-comparison/ideas.html). The haul search lists the storage of every floor of a tile. The list should be
+        // built only when a storage is added, removed or re-prioritised. The scenario counts the builds over 200 lookups, and after each
+        // change it compares the index with a list built the old way.
+        private void RunStorageIndexCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                SetUpLowerStairs(surface, tracker, out Map lower);
+                PlanetTile tile = surface.Tile;
+                MakeSupplyZone(surface, FindOpenBlock(surface, 1, 1));
+                Zone_Stockpile lowerZone = MakeSupplyZone(lower, FindOpenBlock(lower, 1, 1));
+
+                List<IHaulDestination> fresh = FreshDestinations(tracker, tile);
+                int buildsBefore = StorageIndex.Rebuilds;
+                IReadOnlyList<IHaulDestination> listed = null;
+                for (int i = 0; i < 200; i++)
+                {
+                    listed = StorageIndex.Destinations(tile);
+                }
+                int builds = StorageIndex.Rebuilds - buildsBefore;
+                Record("200 lookups rebuild the index at most once", builds <= 1 ? "PASS: " + builds + " builds for 200 lookups" : "FAIL: " + builds + " builds for 200 lookups");
+                bool same = listed.SequenceEqual(fresh);
+                Record("the index lists the same destinations as before", same ? "PASS" : "FAIL: the index differs from a list built the old way");
+
+                int countBefore = fresh.Count;
+                MakeSupplyZone(surface, FindOpenBlock(surface, 1, 1));
+                List<IHaulDestination> freshAfterAdd = FreshDestinations(tracker, tile);
+                bool addListed = StorageIndex.Destinations(tile).SequenceEqual(freshAfterAdd) && freshAfterAdd.Count > countBefore;
+                Record("a storage added after the index was built is listed", addListed ? "PASS" : "FAIL: the index still has the old list (" + countBefore + " then " + freshAfterAdd.Count + " destinations)");
+
+                lowerZone.Deregister();
+                List<IHaulDestination> freshAfterRemove = FreshDestinations(tracker, tile);
+                bool removeListed = StorageIndex.Destinations(tile).SequenceEqual(freshAfterRemove) && freshAfterRemove.Count < freshAfterAdd.Count;
+                Record("a storage removed after the index was built is dropped", removeListed ? "PASS" : "FAIL: the index still lists the removed storage");
+
+                bool all = builds <= 1 && same && addListed && removeListed;
+                Record("storage index", all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("storage index", "FAIL: " + exception);
+                Log.Error("Z-Levels storage index validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The list the old haul search built on each lookup, for comparison with the index.
+        private static List<IHaulDestination> FreshDestinations(ZLevelsManager tracker, PlanetTile tile)
+        {
+            var destinations = new List<IHaulDestination>();
+            foreach (Map map in tracker.GetAllMaps(tile))
+            {
+                destinations.AddRange(map.haulDestinationManager.AllHaulDestinationsListInPriorityOrder);
+            }
+            return destinations;
         }
 
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)

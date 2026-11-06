@@ -45,6 +45,7 @@ namespace ZLevels
         public static void ResetZTracker()
 		{
 			zTracker = null;
+			StorageIndex.Clear();
 		}
 
         // Infestations stop at five levels down: level -5 and every level below it is free of them.

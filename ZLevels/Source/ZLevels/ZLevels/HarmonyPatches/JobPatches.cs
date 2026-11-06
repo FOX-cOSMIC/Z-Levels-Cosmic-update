@@ -1745,11 +1745,10 @@ namespace ZLevels
             {
                 var ZTracker = ZUtils.ZTracker;
                 List<IHaulDestination> allHaulDestinationsListInPriorityOrder = map.haulDestinationManager.AllHaulDestinationsListInPriorityOrder;
-                List<IHaulDestination> allHaulDestinations = new List<IHaulDestination>();
-                foreach (var map2 in ZTracker.floorPolicy.Allowed(carrier, ZTracker.GetAllMaps(map.Tile)))
-                {
-                    allHaulDestinations.AddRange(map2.haulDestinationManager.AllHaulDestinationsListInPriorityOrder);
-                }
+                // The saved list holds the destinations of every floor of the tile, in the order this code used to add them. Keeping only the
+                // carrier's floors gives the same list, without building it again on each lookup (idea 7 on docs/mod-comparison/ideas.html).
+                List<Map> allowedMaps = ZTracker.floorPolicy.Allowed(carrier, ZTracker.GetAllMaps(map.Tile)).ToList();
+                List<IHaulDestination> allHaulDestinations = StorageIndex.Destinations(map.Tile).Where(destination => allowedMaps.Contains(destination.Map)).ToList();
                 IntVec3 intVec = t.SpawnedOrAnyParentSpawned ? t.PositionHeld : carrier.PositionHeld;
                 float num = float.MaxValue;
                 StoragePriority storagePriority = StoragePriority.Unstored;
