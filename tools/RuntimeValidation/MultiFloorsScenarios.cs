@@ -818,6 +818,41 @@ namespace ZLevelsValidation
             GenSpawn.Spawn(chocolate, cell, map);
         }
 
+        // Task 9 (idea "unlimited idle searches" on docs/mod-comparison/ideas.html). An idle colonist whose work search finds nothing waits
+        // 600 ticks before its next search. The scenario runs a search every 10 ticks for 1500 ticks and counts the searches that run.
+        private void RunIdleSearchPauseCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Pawn idle = SpawnRestPawn(surface);
+                idle.workSettings.DisableAll();
+                int start = Find.TickManager.TicksGame;
+                int before = tracker.floorPolicy.SearchCount(idle);
+                bool foundWork = false;
+                for (int step = 0; step <= 150; step++)
+                {
+                    Find.TickManager.DebugSetTicksGame(start + step * 10);
+                    if (SearchWorkJob(idle) != null) foundWork = true;
+                }
+                int searches = tracker.floorPolicy.SearchCount(idle) - before;
+                bool noWork = !foundWork;
+                bool searched = searches >= 1;
+                bool atMostThree = searches <= 3;
+                Record("the idle colonist finds no work", noWork ? "PASS" : "FAIL: a search found work for a colonist with every work type off");
+                Record("the idle colonist is searched", searched ? "PASS" : "FAIL: no search ran, so a count of 0 proves nothing");
+                Record("an idle colonist searches at most 3 times in 1500 ticks", atMostThree ? "PASS: " + searches + " searches ran" : "FAIL: " + searches + " searches ran in 1500 ticks");
+                Record("idle search pause", noWork && searched && atMostThree ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("idle search pause", "FAIL: " + exception);
+                Log.Error("Z-Levels idle search pause validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
         private static Pawn FindPawnById(int id)
         {
             foreach (Map map in Find.Maps)

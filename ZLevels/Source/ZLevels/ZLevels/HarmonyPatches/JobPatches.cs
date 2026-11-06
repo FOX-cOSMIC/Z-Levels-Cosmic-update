@@ -1192,6 +1192,12 @@ namespace ZLevels
                         {
                             ZLogger.Message(pawn + " has no active jobs");
                         }
+                        // Idle pause (DM6): after a normal search that found nothing, the next normal search waits 600 ticks. The emergency search
+                        // is not paused, and the vanilla search on the colonist's own map still runs, so local work is not delayed.
+                        if (!___emergency && !ZTracker.floorPolicy.IdleSearchAllowed(pawn, Find.TickManager.TicksGame))
+                        {
+                            return true;
+                        }
                         ThinkResult result;
                         var oldMap = pawn.Map;
                         var oldPosition = pawn.Position;
@@ -1201,6 +1207,7 @@ namespace ZLevels
 
                         try
                         {
+                            if (!___emergency) ZTracker.floorPolicy.CountSearch(pawn);
                             jobTracker.searchingJobsNow = true;
                             jobTracker.oldMap = pawn.Map;
                             jobTracker.pawn = pawn;
@@ -1227,6 +1234,7 @@ namespace ZLevels
                             {
                                 __result = ThinkResult.NoJob;
                                 ZTracker.ResetJobTrackerFor(pawn);
+                                if (!___emergency) ZTracker.floorPolicy.NoteIdleSearch(pawn, Find.TickManager.TicksGame);
                                 ZLogger.Message(pawn + " failed to find job", debugLevel: DebugLevel.Jobs);
                             }
                         }

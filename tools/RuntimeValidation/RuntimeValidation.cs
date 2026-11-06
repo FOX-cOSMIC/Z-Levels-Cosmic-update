@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsidlesearchpause"))
+                {
+                    finished = true;
+                    RunIdleSearchPauseCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsneedcooldown"))
                 {
                     finished = true;
