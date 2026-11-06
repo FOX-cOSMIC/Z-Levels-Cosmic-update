@@ -117,6 +117,7 @@ namespace ZLevels
                             if (newPosition.IsValid)
                             {
                                 TeleportThing(thing, otherMap, newPosition);
+                                FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                                 //ZLogger.Message($"1 CHECK: {thing} is going to {zTracker.GetMapInfo(otherMap)}");
                                 currentLookedIntoMap = otherMap;
                                 yield return otherMap;
@@ -176,6 +177,7 @@ namespace ZLevels
                 else
                 {
                     TeleportThing(thing, otherMap, oldPosition);
+                    FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                     currentLookedIntoMap = otherMap;
                     yield return otherMap;
                 }
@@ -220,6 +222,7 @@ namespace ZLevels
                     var position = selectedStairs.Position;
                     TeleportThing(thing, otherMap, position);
                     TeleportThing(thing2, otherMap, position);
+                    FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                     currentLookedIntoMap = otherMap;
                     yield return otherMap;
                 }

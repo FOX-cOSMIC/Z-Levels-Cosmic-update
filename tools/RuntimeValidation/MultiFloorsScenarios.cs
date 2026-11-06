@@ -938,6 +938,60 @@ namespace ZLevelsValidation
             Root.Shutdown();
         }
 
+        // Task 11 (idea "Always move the colonist back" on docs/mod-comparison/ideas.html). A medical search moves two colonists to the lower
+        // level before it looks for medicine there. If the search fails at that point, both colonists must be back on their own floor and
+        // cell. The scenario makes the search fail on the lower level with FloorPolicy.ThrowInSearchForTest. Medicine on the surface is
+        // removed first, so the search does not stop on the surface before it reaches the lower level.
+        private void RunFloorGuardCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                foreach (Thing medicine in surface.listerThings.ThingsInGroup(ThingRequestGroup.Medicine).ToList())
+                {
+                    medicine.Destroy();
+                }
+                SetUpLowerStairs(surface, tracker, out Map lower);
+                Pawn colonist = SpawnRestPawn(surface);
+                Pawn patient = SpawnRestPawn(surface);
+                IntVec3 colonistCell = colonist.Position;
+                IntVec3 patientCell = patient.Position;
+
+                Exception thrown = null;
+                FloorPolicy.ThrowInSearchForTest = true;
+                try
+                {
+                    JobPatches.TryIssueJobPackagePatch.TendJobOnThing(colonist, patient);
+                }
+                catch (Exception exception)
+                {
+                    thrown = exception;
+                }
+                finally
+                {
+                    FloorPolicy.ThrowInSearchForTest = false;
+                }
+
+                bool failedOnLower = thrown is InvalidOperationException && thrown.Message.Contains("another floor");
+                Record("the medical search fails on another floor", failedOnLower ? "PASS" : "FAIL: " + (thrown == null ? "the search did not fail" : thrown.ToString()));
+                bool colonistBack = colonist.Map == surface;
+                Record("colonist is back on its own floor after a failed search", colonistBack ? "PASS" : "FAIL: the colonist is on " + colonist.Map + " at " + colonist.Position);
+                bool colonistCellKept = colonist.Position == colonistCell;
+                Record("colonist keeps its cell", colonistCellKept ? "PASS" : "FAIL: the colonist is at " + colonist.Position + ", not " + colonistCell);
+                bool patientBack = patient.Map == surface && patient.Position == patientCell;
+                Record("patient is back on its own floor and cell after a failed search", patientBack ? "PASS" : "FAIL: the patient is at " + patient.Position + " on " + patient.Map + ", not " + patientCell + " on the surface");
+                bool all = failedOnLower && colonistBack && colonistCellKept && patientBack;
+                Record("floor guard", all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("floor guard", "FAIL: " + exception);
+                Log.Error("Z-Levels floor guard validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null

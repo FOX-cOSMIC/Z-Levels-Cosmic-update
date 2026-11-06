@@ -117,6 +117,7 @@ namespace ZLevels
                     if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                     ZTracker.ResetJobTrackerFor(pawn);
 
+                    using (new FloorRestore(pawn, oldMap, oldPosition))
                     foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         ZLogger.Message("Searching follow job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
@@ -133,7 +134,6 @@ namespace ZLevels
                             break;
                         }
                     }
-                    ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                     if (select) Find.Selector.Select(pawn);
                     return false;
                 }
@@ -225,6 +225,7 @@ namespace ZLevels
                 };
                 if (oldMap != null)
                 {
+                    using (new FloorRestore(actor, oldMap, oldPosition))
                     foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(actor, ZUtils.GetAllMapsInClosestOrder(actor, oldMap, oldPosition)))
                     {
                         if (IngestibleSource.def.ingestible.chairSearchRadius > 0f)
@@ -263,7 +264,6 @@ namespace ZLevels
                         }
                     }
 
-                    ZUtils.TeleportThing(actor, oldMap, oldPosition);
                     if (select) Find.Selector.Select(actor);
 
                     if (thing != null && thing.Map != null && thing.Map != actor.Map)
@@ -367,6 +367,7 @@ namespace ZLevels
                             // Needs cool-down (DM5): a redirect to another floor waits 2000 ticks after the last one, unless the colonist is very hungry.
                             int redirectNow = Find.TickManager.TicksGame;
                             bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, pawn.needs.food.CurCategory >= HungerCategory.UrgentlyHungry);
+                            using (new FloorRestore(pawn, oldMap, oldPosition))
                             foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                             {
                                 if (otherMap != oldMap && !redirectOpen) continue;
@@ -388,7 +389,6 @@ namespace ZLevels
                                 }
                             }
 
-                            ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                             if (select) Find.Selector.Select(pawn);
                             return false;
                         }
@@ -555,6 +555,7 @@ namespace ZLevels
                         // Needs cool-down (DM5): fun is a redirect too, and it shares the clock with food.
                         int redirectNow = Find.TickManager.TicksGame;
                         bool redirectOpen = ZTracker.floorPolicy.RedirectAllowed(pawn, redirectNow, false);
+                        using (new FloorRestore(pawn, oldMap, oldPosition))
                         foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                         {
                             if (otherMap != oldMap && !redirectOpen) continue;
@@ -570,8 +571,6 @@ namespace ZLevels
                                 jobList[result] = otherMap;
                             }
                         }
-
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition);
 
                         if (jobList.Count > 0 && jobList.Keys.TryRandomElementByWeight(j => j.def.joyGainRate, out Job job))
                         {
@@ -763,6 +762,7 @@ namespace ZLevels
                                     return true;
                                 }
                             }
+                            using (new FloorRestore(pawn, oldMap, oldPosition))
                             foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                             {
                                 ZLogger.Message("Searching rest job for " + pawn + " in " + ZTracker.GetMapInfo(otherMap)
@@ -780,8 +780,6 @@ namespace ZLevels
                                     break;
                                 }
                             }
-                            ZUtils.TeleportThing(pawn, oldMap, oldPosition);
-
                             if (result == null)
                             {
                                 // No floor gave a job. Vanilla decides, as it does when a colonist is not tired enough.
@@ -878,21 +876,27 @@ namespace ZLevels
                     recursiveTrap = true;
                     Map oldMap = pawn.Map;
                     IntVec3 oldPosition = pawn.Position;
-                    foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
+                    try
                     {
-                        if (map != oldMap)
+                        using (new FloorRestore(pawn, oldMap, oldPosition))
+                        foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                         {
-                            var newPosition = ZUtils.GetCellToTeleportFrom(pawn.Map, pawn.Position, map);
-                            ZUtils.TeleportThing(pawn, map, newPosition);
-                            var job = __instance.TakeFoodForAnimalInteractJob(pawn, tamee);
-                            if (job != null)
+                            if (map != oldMap)
                             {
-                                __result = job;
+                                var newPosition = ZUtils.GetCellToTeleportFrom(pawn.Map, pawn.Position, map);
+                                ZUtils.TeleportThing(pawn, map, newPosition);
+                                var job = __instance.TakeFoodForAnimalInteractJob(pawn, tamee);
+                                if (job != null)
+                                {
+                                    __result = job;
+                                }
                             }
                         }
                     }
-                    ZUtils.TeleportThing(pawn, oldMap, oldPosition);
-                    recursiveTrap = false;
+                    finally
+                    {
+                        recursiveTrap = false;
+                    }
                 }
             }
         }
@@ -900,58 +904,39 @@ namespace ZLevels
         [HarmonyPatch(typeof(WorkGiver_ConstructDeliverResources), "FindNearbyNeeders")]
         public class FindNearbyNeedersPatch
         {
-            private static Map oldMap;
-            private static IntVec3 oldPosition;
+            // The finalizer puts the colonist back even when the original method throws (idea "always move the colonist back").
             private static void Prefix(Pawn pawn, ThingDef stuff, IConstructible c, int resNeeded, int resTotalAvailable,
-                bool canRemoveExistingFloorUnderNearbyNeeders, ref int neededTotal, ref Job jobToMakeNeederAvailable, out bool __state)
+                bool canRemoveExistingFloorUnderNearbyNeeders, ref int neededTotal, ref Job jobToMakeNeederAvailable, out FloorRestore __state)
             {
+                __state = null;
                 if (c is Thing thing && thing.Map != pawn.Map)
                 {
-                    oldMap = pawn.Map;
-                    oldPosition = pawn.Position;
+                    __state = new FloorRestore(pawn, pawn.Map, pawn.Position);
                     ZUtils.TeleportThing(pawn, thing.Map, thing.Position);
-                    __state = true;
-                }
-                else
-                {
-                    __state = false;
                 }
             }
-            private static void Postfix(Pawn pawn, ThingDef stuff, IConstructible c, int resNeeded, int resTotalAvailable,
-                bool canRemoveExistingFloorUnderNearbyNeeders, ref int neededTotal, ref Job jobToMakeNeederAvailable, bool __state)
+            private static void Finalizer(FloorRestore __state)
             {
-                if (__state && pawn.Map != oldMap)
-                {
-                    ZUtils.TeleportThing(pawn, oldMap, oldPosition);
-                }
+                __state?.Dispose();
             }
         }
 
         [HarmonyPatch(typeof(GenConstruct), "CanConstruct", new Type[] { typeof(Thing), typeof(Pawn), typeof(bool), typeof(bool), typeof(JobDef)})]
         public static class CanConstructPatch
         {
-            private static Map oldMap;
-            private static IntVec3 oldPosition;
-            private static void Prefix(Thing t, Pawn p, out bool __state, bool checkSkills = true, bool forced = false)
+            // The finalizer puts the colonist back even when the original method throws (idea "always move the colonist back").
+            private static void Prefix(Thing t, Pawn p, out FloorRestore __state, bool checkSkills = true, bool forced = false)
             {
+                __state = null;
                 if (t.Map != p.Map)
                 {
-                    oldMap = p.Map;
-                    oldPosition = p.Position;
+                    __state = new FloorRestore(p, p.Map, p.Position);
                     ZUtils.TeleportThing(p, t.Map, t.Position);
-                    __state = true;
-                }
-                else
-                {
-                    __state = false;
                 }
             }
-            private static void Postfix(Thing t, Pawn p, bool __state, bool checkSkills = true, bool forced = false)
+            private static void Finalizer(FloorRestore __state)
             {
-                if (__state && p.Map != oldMap)
-                {
-                    ZUtils.TeleportThing(p, oldMap, oldPosition);
-                }
+                __state?.Dispose();
             }
         }
         [HarmonyPatch(typeof(WorkGiver_Haul), "PotentialWorkThingsGlobal")]
@@ -1207,6 +1192,7 @@ namespace ZLevels
                         if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                         ZTracker.ResetJobTrackerFor(pawn);
 
+                        using (new FloorRestore(pawn, oldMap, oldPosition))
                         try
                         {
                             if (!___emergency) ZTracker.floorPolicy.CountSearch(pawn);
@@ -1242,10 +1228,9 @@ namespace ZLevels
                         }
                         catch (Exception ex)
                         {
+                            jobTracker.searchingJobsNow = false;
                             ZLogger.Error("Exception in TryIssueJobPackagePatch: " + ex);
                         }
-
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                         if (select) Find.Selector.Select(pawn);
                         return false;
                     }
@@ -1308,6 +1293,7 @@ namespace ZLevels
                     var origPawnPosition = pawn.Position;
                     ZLogger.Message(giver + " - billGiver.Map: " + ZTracker.GetMapInfo(giver.Map));
                     ZLogger.Message(giver + " - billGiver.Position: " + workBench.Position);
+                    using (new FloorRestore(workBench, origBillGiverMap, origBillGiverPosition, pawn, origPawnMap, origPawnPosition))
                     foreach (var map in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)))
                     {
                         try
@@ -1335,8 +1321,6 @@ namespace ZLevels
                     }
 
                     ZLogger.Message("Final position " + workBench.Position);
-                    ZUtils.TeleportThing(workBench, origBillGiverMap, origBillGiverPosition);
-                    ZUtils.TeleportThing(pawn, origPawnMap, origPawnPosition);
 
                     if (!flag)
                     {
@@ -1418,16 +1402,15 @@ namespace ZLevels
                 }
                 var oldMap = pawn.Map;
                 var oldPosition = pawn.Position;
+                using (new FloorRestore(pawn, oldMap, oldPosition))
                 foreach (var map in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                 {
                     Job job2 = scanner.ResourceDeliverJobFor(pawn, blueprint, true);
                     if (job2 != null)
                     {
-                        ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                         return job2;
                     }
                 }
-                ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                 if (scanner.def.workType != WorkTypeDefOf.Hauling)
                 {
                     Job job3 = scanner.NoCostFrameMakeJobFor(blueprint);
@@ -1465,6 +1448,7 @@ namespace ZLevels
                 {
                     var oldMap = pawn.Map;
                     var oldPosition = pawn.Position;
+                    using (new FloorRestore(pawn, oldMap, oldPosition))
                     foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         if (otherMap != oldMap)
@@ -1476,7 +1460,6 @@ namespace ZLevels
                             }
                         }
                     }
-                    ZUtils.TeleportThing(pawn, oldMap, oldPosition);
                 }
                 return job2;
             }
@@ -1914,6 +1897,7 @@ namespace ZLevels
                 Map oldThingMap = t.Map;
                 IntVec3 oldThingPosition = t.Position;
 
+                using (new FloorRestore(pawn, oldPawnMap, oldPawnPosition, t, oldThingMap, oldThingPosition))
                 foreach (var otherMap in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(oldThingMap)))
                 {
                     if (oldThingMap != otherMap)
@@ -1940,8 +1924,6 @@ namespace ZLevels
                     }
                     if (job != null) break;
                 }
-                ZUtils.TeleportThing(pawn, oldPawnMap, oldPawnPosition);
-                ZUtils.TeleportThing(t, oldThingMap, oldThingPosition);
                 return job;
             }
 
@@ -1961,6 +1943,7 @@ namespace ZLevels
                 if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                 Thing thing = null;
 
+                using (new FloorRestore(pawn, oldMap1, oldPosition1, pawn2, oldMap2, oldPosition2))
                 foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
                     pawn2, oldMap2, oldPosition2)))
                 {
@@ -1969,8 +1952,6 @@ namespace ZLevels
                 }
 
                 if (select) Find.Selector.Select(pawn);
-                ZUtils.TeleportThing(pawn, oldMap1, oldPosition1);
-                ZUtils.TeleportThing(pawn2, oldMap2, oldPosition2);
 
                 Log.Message("HasJobOnThingRescue: " + thing + "pawn2.CanReserve(thing): " + pawn2.CanReserve(thing));
                 if (thing != null && pawn2.CanReserve(thing))
@@ -1992,6 +1973,7 @@ namespace ZLevels
                 if (Find.Selector.SelectedObjects.Contains(pawn)) select = true;
                 Thing thing = null;
 
+                using (new FloorRestore(pawn, oldMap1, oldPosition1, pawn2, oldMap2, oldPosition2))
                 foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrderForTwoThings(pawn, oldMap1, oldPosition1,
                     pawn2, oldMap2, oldPosition2)))
                 {
@@ -2000,8 +1982,6 @@ namespace ZLevels
                 }
 
                 if (select) Find.Selector.Select(pawn);
-                ZUtils.TeleportThing(pawn, oldMap1, oldPosition1);
-                ZUtils.TeleportThing(pawn2, oldMap2, oldPosition2);
 
                 if (thing != null)
                 {
