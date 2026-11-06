@@ -17,6 +17,10 @@ namespace ZLevels
         // The -OneFloorColony scenario reads it. A colony with one floor must add nothing to it.
         public static int CrossFloorSearches;
 
+        // Test counter (debug): how many work searches the copied TryIssueJobPackage runs on a floor other than the colonist's own. The
+        // -OwnFloorFirst scenario reads it. The own-floor-first change must leave it at zero when the own floor has work.
+        public static int OtherFloorSearchRuns;
+
         // The search iterators call this right after they move a thing to a floor. It throws only when the hook is on and the floor is not
         // the thing's own floor, so the colonist is away from its floor when the search fails.
         public static void FailSearchIfTesting(Map ownMap, Map map)

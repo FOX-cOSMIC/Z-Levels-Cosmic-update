@@ -330,6 +330,12 @@ namespace ZLevelsValidation
                     RunReservationRefusedCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsownfloorfirst"))
+                {
+                    finished = true;
+                    RunOwnFloorFirstCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelslighterfloors"))
                 {
                     finished = true;

@@ -2040,6 +2040,7 @@ namespace ZLevels
                     foreach (var otherMap in ZUtils.ZTracker.floorPolicy.Allowed(pawn, ZUtils.GetAllMapsInClosestOrder(pawn, oldMap, oldPosition)))
                     {
                         jobTracker.mapDest = otherMap;
+                        if (otherMap != oldMap) FloorPolicy.OtherFloorSearchRuns++;
                         ZLogger.Message("Workgiver N" + (j + 1) + " from " + list.Count + " - " + pawn + " search job - " + workGiver + " in " + ZUtils.ZTracker.GetMapInfo(otherMap), debugLevel: DebugLevel.Jobs);
                         if (workGiver.def.priorityInType != num && bestTargetOfLastPriority.IsValid)
                         {

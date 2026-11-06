@@ -1814,6 +1814,183 @@ namespace ZLevelsValidation
             return (int)typeof(WeatherDecider).GetField("curWeatherDuration", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(decider);
         }
 
+        // Task 21 (idea 8 on docs/mod-comparison/ideas.html, own floor first). A colonist searches its own floor first, and another floor only when the
+        // own floor has no work. Work types at or below the threshold setting (2 by default) are searched on every floor before the lower-priority
+        // work on the own floor. The rows: a priority-3 job on the own floor is taken with no search on another floor; a priority-1 mining job on the
+        // lower floor beats a priority-3 hauling job on the surface; a priority-3 job is taken when nothing is on the lower floor; and the threshold
+        // setting defaults to 2. The settings class is internal, so the scenario reads it by name.
+        private void RunOwnFloorFirstCheck()
+        {
+            const string label = "own floor first";
+            Rand.PushState(20261108);
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                RequireFloors(tracker, surface, 1);
+                // The stairs join the floors, so the colony searches the lower floor. Without stairs the search does not reach it.
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
+                lower.fogGrid.ClearAllFog();
+                RequireFloors(tracker, surface, 2);
+
+                // A stockpile and three steel stacks outside it on the surface, and the colonists near the middle of the open block.
+                IntVec3 block = FindCentralOpenBlock(surface, 9, 9);
+                if (!block.IsValid)
+                {
+                    throw new InvalidOperationException("no open 9 by 9 block on the surface away from the edges");
+                }
+                IntVec3 center = block + new IntVec3(4, 0, 4);
+                Zone_Stockpile stockpile = MakeSupplyZone(surface, center);
+                foreach (IntVec3 corner in new[] { block, block + new IntVec3(8, 0, 0), block + new IntVec3(0, 0, 8) })
+                {
+                    if (stockpile.ContainsCell(corner))
+                    {
+                        throw new InvalidOperationException("a steel stack would start inside the stockpile at " + corner);
+                    }
+                    ClearCell(surface, corner);
+                    Thing steel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                    steel.stackCount = 10;
+                    GenSpawn.Spawn(steel, corner, surface);
+                }
+                List<IntVec3> avoid = new List<IntVec3>();
+
+                // Row 1. A colonist with priority-3 hauling and mining, and nothing to mine below. Its own floor has the haul.
+                Pawn plain = SpawnColonistNear(surface, block + new IntVec3(4, 0, 6), avoid);
+                SetWork(plain, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 3);
+                Record("own floor first work list", "INFO: " + string.Join(", ", plain.workSettings.WorkGiversInOrderNormal.Select(giver => giver.def.defName)));
+                int runsBefore = FloorPolicy.OtherFloorSearchRuns;
+                Job plainJob = SearchWorkJob(plain);
+                int otherRuns = FloorPolicy.OtherFloorSearchRuns - runsBefore;
+                bool plainOk = otherRuns == 0 && IsSurfaceJob(plainJob, surface);
+                Record("own-floor work: zero searches on other floors", plainOk ? "PASS" : "FAIL: " + otherRuns + " searches on other floors, job " + DescribeOwnFloorJob(plainJob));
+
+                // Row 2. A priority-1 mining job on the lower floor, and a priority-3 haul on the surface. The mining job must win.
+                IntVec3 rock = FindMineableNextToOpen(lower, stairs.Position + new IntVec3(1, 0, 0));
+                if (!rock.IsValid)
+                {
+                    throw new InvalidOperationException("no mineable rock next to an open cell on the lower floor");
+                }
+                Designation mine = new Designation(rock, DesignationDefOf.Mine);
+                lower.designationManager.AddDesignation(mine);
+                Pawn digger = SpawnCapableMiner(surface, stairs.Position);
+                SetWork(digger, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 1);
+                // A job on another floor comes back as its first step (ZL_GoToMap). The work itself is the tracker's mainJob.
+                Job diggerJob = SearchWorkJob(digger);
+                Job diggerWork = MainWorkJob(tracker, digger, diggerJob);
+                bool diggerOk = diggerWork != null && diggerWork.def == JobDefOf.Mine && diggerWork.targetA.Thing != null && diggerWork.targetA.Thing.Map == lower;
+                Record("priority-1 work upstairs beats priority-3 work on the own floor", diggerOk ? "PASS" : "FAIL: the work is " + DescribeOwnFloorJob(diggerWork) + ", first step " + DescribeOwnFloorJob(diggerJob));
+
+                // Row 3. Nothing on the lower floor, and a priority-3 haul on the surface.
+                lower.designationManager.RemoveDesignation(mine);
+                Pawn hauler = SpawnColonistNear(surface, block + new IntVec3(6, 0, 6), avoid);
+                SetWork(hauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                Job haulerJob = SearchWorkJob(hauler);
+                bool haulerOk = IsSurfaceJob(haulerJob, surface);
+                Record("priority-3 work with nothing upstairs is taken", haulerOk ? "PASS" : "FAIL: the job is " + DescribeOwnFloorJob(haulerJob));
+
+                // Row 4. The threshold setting, read by name, is 2 on a new settings object.
+                Type settingsType = Type.GetType("ZLevels.ZLevelsSettings, ZLevels");
+                FieldInfo threshold = settingsType == null ? null : settingsType.GetField("WorkGiverHighPriorityThreshold", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                object value = threshold == null ? null : threshold.GetValue(Activator.CreateInstance(settingsType));
+                bool defaultTwo = value is int && (int)value == 2;
+                Record("threshold setting is 2 by default", defaultTwo ? "PASS" : "FAIL: the setting is " + (value == null ? "missing" : value.ToString()));
+
+                bool all = plainOk && diggerOk && haulerOk && defaultTwo;
+                Record(label, all ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record(label, "FAIL: " + exception);
+                Log.Error("Z-Levels own floor first validation failed: " + exception);
+            }
+            finally
+            {
+                Rand.PopState();
+            }
+            Root.Shutdown();
+        }
+
+        private static void SetWork(Pawn pawn, WorkTypeDef first, int firstPriority, WorkTypeDef second, int secondPriority)
+        {
+            pawn.workSettings.DisableAll();
+            pawn.workSettings.SetPriority(first, firstPriority);
+            pawn.workSettings.SetPriority(second, secondPriority);
+        }
+
+        private static bool IsSurfaceJob(Job job, Map surface)
+        {
+            return job != null && job.targetA.Thing != null && job.targetA.Thing.Map == surface;
+        }
+
+        // The work job behind a search result. A job on another floor comes back as its first step, and the tracker keeps the work job as mainJob.
+        private static Job MainWorkJob(ZLevelsManager tracker, Pawn pawn, Job firstStep)
+        {
+            if (tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.mainJob != null)
+            {
+                return claims.mainJob;
+            }
+            return firstStep;
+        }
+
+        private static string DescribeOwnFloorJob(Job job)
+        {
+            if (job == null)
+            {
+                return "none";
+            }
+            return job.def.defName + " on " + (job.targetA.Thing == null ? "no thing" : job.targetA.Thing.ToString() + " on " + job.targetA.Thing.Map);
+        }
+
+        // A colonist on the surface beside the lower stairs, whose position maps onto the carved lower area, and who can mine. The copied search runs
+        // on the lower floor at the colonist's surface position, so that position must be open there.
+        private static Pawn SpawnCapableMiner(Map surface, IntVec3 stairsCell)
+        {
+            foreach (IntVec3 offset in new[] { new IntVec3(1, 0, 0), new IntVec3(-1, 0, 0), new IntVec3(0, 0, 1), new IntVec3(0, 0, -1) })
+            {
+                IntVec3 cell = stairsCell + offset;
+                if (!cell.Standable(surface) || cell.GetEdifice(surface) != null || cell.GetFirstItem(surface) != null)
+                {
+                    continue;
+                }
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    Pawn candidate = SpawnPawnAt(surface, cell);
+                    if (!candidate.WorkTypeIsDisabled(WorkTypeDefOf.Mining))
+                    {
+                        return candidate;
+                    }
+                    candidate.Destroy(DestroyMode.Vanish);
+                }
+            }
+            throw new InvalidOperationException("no colonist who can mine could be placed beside the stairs");
+        }
+
+        // A mineable rock next to an open cell that the start cell can reach, within eight cells of the start cell.
+        private static IntVec3 FindMineableNextToOpen(Map map, IntVec3 start)
+        {
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(start, 8f, false))
+            {
+                if (!cell.InBounds(map))
+                {
+                    continue;
+                }
+                Building rock = cell.GetEdifice(map);
+                if (rock == null || !rock.def.mineable)
+                {
+                    continue;
+                }
+                foreach (IntVec3 direction in GenAdj.CardinalDirections)
+                {
+                    IntVec3 neighbor = cell + direction;
+                    if (neighbor.InBounds(map) && neighbor.Standable(map) && map.reachability.CanReach(start, neighbor, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
+                    {
+                        return cell;
+                    }
+                }
+            }
+            return IntVec3.Invalid;
+        }
+
         private static bool HasClaim(ZLevelsManager tracker, Pawn pawn, Thing thing)
         {
             return tracker.jobTracker != null && tracker.jobTracker.TryGetValue(pawn, out JobTracker claims) && claims.reservedThings != null
