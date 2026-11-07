@@ -2112,7 +2112,7 @@ Attack probe, idle, 500 calls per measure:
 | `BestAttackTarget`, metric `FindAttackTarget` | -26.9%, drop 1.8 us, spread 0.2 us | -34.1%, drop 2.2 us, spread 0.7 us | -17.4%, drop 1.2 us, spread 0.2 us | 3 of 3 |
 | `BestAttackTarget`, metric `BestShootTargetFromCurrentPosition` | -22.8%, drop 1.7 us, spread 0.1 us | -26.5%, drop 1.7 us, spread 3.1 us | -14.8%, drop 1.1 us, spread 0.1 us | 2 of 3 |
 
-The `BestAttackTarget` row for `FindAttackTarget` is the one that holds in every run. The two flag patches, on `BestShootTargetFromCurrentPosition` and on `FindAttackTarget`, set a flag that the same loop reads. Their drops are consistent in some runs, but the baselines in those runs spread too widely to pass R2. The `BestShootTargetFromCurrentPosition` patch drops the `FindAttackTarget` metric by 2.4 to 2.8 microseconds in all three runs, because `FindAttackTarget` calls the shoot search for ranged pawns.
+The `BestAttackTarget` row for `FindAttackTarget` is the one that holds in every run. The two flag patches, on `BestShootTargetFromCurrentPosition` and on `FindAttackTarget`, set a flag that the same loop reads. The `FindAttackTarget` flag drops that metric by 1.9 microseconds in two runs, and by 0.8 microseconds in the third, where the spread was 3.1. The `BestShootTargetFromCurrentPosition` flag drops its own metric by 2.0 microseconds in two runs and by nothing in the third. The `BestShootTargetFromCurrentPosition` patch also lowers the `FindAttackTarget` metric by 2.4 to 2.8 microseconds in all three runs. The code gives no path for that. `FindAttackTarget` calls `BestAttackTarget` directly, and the shoot flag is set only inside `BestShootTargetFromCurrentPosition`. The cause is not known. The probe runs both metrics in one call, so the effect may come from the probe. Those numbers are not used.
 
 ### What the numbers mean
 
@@ -2132,6 +2132,7 @@ Task B of the plan removes each patch that costs time, one at a time, with a row
 - The surface is random in every run, because the runner starts a new random game. The three-floor work search baselines were 120 to 192 microseconds, so the runs differ. Each run compares only its own removals.
 - `FindAttackTarget` is called through reflection. Its times include a fixed reflection cost, and its percentages are against those times.
 - The spreads are large for the work search and for the `FindAttackTarget` probe. Three runs cannot separate small effects from noise there.
+- The probe is noisy by about 2 microseconds in some windows. In run `20261107-174220`, removing the `BestShootTargetFromCurrentPosition` patch changed its own metric by 0.0 percent, while the other two runs dropped by 2.0 microseconds. The flag patches are not relied on for the decision. The `BestAttackTarget` result is the one used, and the code gives it a path to both metrics.
 - The cost of `CanBeSeenOverFast`, `TryFindShootLineFromTo` and the four `TryGiveJob` patches is not measured. They are not in the plan's list.
 - Where the work search spends its time is not known. No part of the search has been profiled.
 
