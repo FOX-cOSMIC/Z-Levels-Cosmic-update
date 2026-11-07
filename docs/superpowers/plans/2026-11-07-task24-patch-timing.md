@@ -54,3 +54,13 @@
 - [ ] Report section in `docs/validation-report.md`: the rules, the numbers, the runs, and the outcome of each patch.
 - [ ] `docs/roadmap.md`: the Task 24 line, and D1 answered.
 - [ ] Commit only the paths above, with the trailer `Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>`.
+
+## Outcome (2026-11-07)
+
+- Runs: red `20261107-173554`, green `20261107-173858`, repeats `20261107-174047` and `20261107-174220`. All three repeats pass the integrity row. Two earlier attempts did not build: `20261107-173706` and `20261107-173731`.
+- Results, with each run's table: `docs/validation-report.md`, "Per-patch timing (Task 24, 2026-11-07)".
+- Reach and reservation patches: R2 holds in no run.
+- Attack loop, the prefix of `BestAttackTarget`, read on `FindAttackTarget`: R2 holds in all three runs, at 1.2 to 2.2 microseconds per idle call.
+- Ruling R6, made after the repeats: a patch costs time when R2 holds in all three runs. Reason: the two flag patches hold in one or two runs, and their baseline spreads are wide. Cost if wrong: a patch that holds in two of three runs is not removed.
+- Task B is not run. The loop is the only patch that meets R6. Removing it changes the attack search across floors, and no row tests that search. Decision D8 in `docs/roadmap.md` asks Lucas. The default keeps the loop.
+- Task C: the report section and the roadmap line are written in the commit that adds this outcome.

@@ -26,7 +26,7 @@ Built:
 
 Not built:
 
-- Task 24, "leave the busiest questions alone". Not built. Its plan gate asks for per-patch timing, which does not exist yet, because the Task 19 numbers time the whole search. The patches it would remove touch combat and reservation logic. Reverse: say so, and it is built one patch at a time, with a row for each, after the timing is taken.
+- Task 24, "leave the busiest questions alone". Measured on 2026-11-07, not built. The reach and reservation patches cost no measurable time in the work search. The attack search's loop over the other floors costs 1.2 to 2.2 microseconds per idle call. Removing it would stop that search, which is untested. Decision D8 asks whether to remove it. Report: `docs/validation-report.md`, "Per-patch timing (Task 24, 2026-11-07)".
 - The powered elevator and the freight elevator (idea "more ways up"). Decision D3 chose option a, so only ladders and stair sizes are built.
 - The standing "keep a set amount on the next floor" option of the stair transfer. Decision D5 chose option a, so the window sends a chosen list now only.
 - Power and fluids through the connectors. Decision D4 chose one chosen resource at a fixed rate. The "tubes between levels" line stays open for those.
@@ -43,7 +43,7 @@ Decisions made under "implement all of them" (plan 2026-11-06, DM14 to DM20):
 
 Waiting:
 
-- D6 is open and does not block the work. Its default (a) is applied as of 2026-11-07: the rule stays, and the shot row of `-CrossFloorFight` expects the refusal. Lucas can overrule it (see the decisions list).
+- D6, D8 and D9 are open. None of them blocks the work. D6's default (a) is applied as of 2026-11-07: the rule stays, and the shot row of `-CrossFloorFight` expects the refusal. D8 and D9 keep their defaults until Lucas answers (see the decisions list).
 
 ## Next
 
@@ -73,6 +73,8 @@ Waiting:
 - D7 (answered 2026-11-07: a). Keep the Royalty flag on `-FloorsTab` only. Lucas's words: "No mandatory DLC please." The default validation mod list does not load Royalty.
 - D1 (answered 2026-11-07: A). Measure, then rebuild the job search in place. Lucas's words: "D1 a". The measurement is Task 24's per-patch timing, in `docs/superpowers/plans/2026-11-07-task24-patch-timing.md`.
 - D2 was answered on 2026-11-05: "all of them". D1 was read as rebuild in place until Lucas answered it on 2026-11-07.
+- D8 (open, not blocking; default in effect). Remove the attack search's loop over the other floors, to save 1.2 to 2.2 microseconds per idle call? Options: (a) keep the loop (Recommended). (b) remove it, after a new row shows that a hostile on one floor still finds a colonist on another floor with the loop gone. The loop is the prefix of `BestAttackTarget` in `CombatPatches.cs`. Default: (a). Trade-off: (a) keeps a cost that is under 2 percent of one work search call. (b) saves it, and may stop fights across floors, which is untested. The work does not wait.
+- D9 (open, not blocking). What is the next speed target? The reach and reservation patches are not where the work search spends its time. Options: (a) profile the work search's own code, as a new plan (Recommended). (b) stop speed work here. Default: (b), no profile until Lucas asks. The work does not wait.
 
 ## Later
 

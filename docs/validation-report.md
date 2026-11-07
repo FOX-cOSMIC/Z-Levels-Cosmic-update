@@ -2062,3 +2062,82 @@ The runs used the working tree, which holds the vault session's uncommitted work
 - No switch covers these: the pipe texture on screen, saving and loading a pipe, pipe damage, deconstructing one end of a pipe, flow on the three-floor colony, the stair transfer button on the surface, and the window's "Send checked" button with its messages.
 - Multiplayer: untested.
 
+
+## Per-patch timing (Task 24, 2026-11-07)
+
+Task 24 of the multi-floor ideas plan removes the busiest questions if they cost time. Its gate needs per-patch numbers, and the Task 19 timing does not give them. The plan is `docs/superpowers/plans/2026-11-07-task24-patch-timing.md`. Lucas answered D1 with option A on 2026-11-07, and option A starts with measuring.
+
+The gate is measured, and nothing is removed. The reach and reservation patches cost no measurable time in the work search. One attack search loop costs a little, 1.2 to 2.2 microseconds per idle call. Removing it would change how the attack search looks at other floors. Decision D8 in `docs/roadmap.md` asks Lucas about it. The default keeps the loop.
+
+### What the scenario does
+
+`-SearchTiming` runs a per-patch phase after the three-floor timing. The code is in `tools/RuntimeValidation/PatchTimingScenarios.cs`. For each patch group, the phase removes the patch from the running game with `Harmony.Unpatch`, measures, and applies the patch again with `Harmony.Patch`. Each removal has a baseline before it and a baseline after it. Each group runs in three rounds. The mod's code does not change.
+
+- Work search: the Task 19 method on three floors, 500 calls per measure. Groups: `CanReach`, `CanReserve` and `CanReserveStack`.
+- Attack probe: 500 calls per measure on one colonist that holds a revolver. No hostile is in range, so every call finds nothing. Groups: `BestShootTargetFromCurrentPosition`, `FindAttackTarget` and `BestAttackTarget`. `FindAttackTarget` is called through reflection, so its times include a fixed reflection cost.
+- The row `patch timing recorded` passes only when every removal took effect, every patch was applied again, and every measure had calls.
+
+### Runs
+
+| Run | Result |
+|---|---|
+| `20261107-173554` | Red, before the phase existed. `patch timing recorded` FAIL with "the per-patch phase did not run". Runner exit 1, as planned. |
+| `20261107-173706` and `20261107-173731` | Did not build. A helper named `Find` hid the game's `Find` class, and then two Harmony members had the wrong shape. Both fixed. No rows. |
+| `20261107-173858` | PASS. The first run with the phase. |
+| `20261107-174047` | PASS. Repeat 2. |
+| `20261107-174220` | PASS. Repeat 3. |
+
+### Results
+
+Each cell gives the change in the mean, the drop in microseconds, and the spread of the baselines in that run. The drop is the baseline mean minus the mean without the patch, so a negative drop means the call was slower without the patch. The change is the same comparison as a percentage. The spread is the range of the baseline values around the removal. Rule R2 from the plan says a patch costs time when removing it lowers the mean by at least 10 percent and by more than that spread.
+
+Work search, three floors:
+
+| Patch | Run 173858 | Run 174047 | Run 174220 | Runs where R2 holds |
+|---|---|---|---|---|
+| `CanReach` | -0.6%, drop 0.8 us, spread 27.9 us | +11.9%, drop -14.8 us, spread 39.4 us | -0.8%, drop 1.6 us, spread 87.5 us | 0 of 3 |
+| `CanReserve` | -7.1%, drop 9.8 us, spread 69.3 us | +4.4%, drop -5.3 us, spread 43.7 us | +2.8%, drop -4.8 us, spread 26.9 us | 0 of 3 |
+| `CanReserveStack` | +1.9%, drop -2.5 us, spread 8.1 us | +1.0%, drop -1.2 us, spread 23.1 us | +9.9%, drop -15.5 us, spread 33.9 us | 0 of 3 |
+
+Every change in this table is smaller than the spread in its own run. `CanReserveStack` was slower without the patch in all three runs, but its spread was larger than the change each time.
+
+Attack probe, idle, 500 calls per measure:
+
+| Removed patch, metric | Run 173858 | Run 174047 | Run 174220 | Runs where R2 holds |
+|---|---|---|---|---|
+| `BestShootTargetFromCurrentPosition`, metric `FindAttackTarget` | -29.1%, drop 2.7 us, spread 16.2 us | -30.6%, drop 2.8 us, spread 17.2 us | -26.1%, drop 2.4 us, spread 14.6 us | 0 of 3 |
+| `BestShootTargetFromCurrentPosition`, metric `BestShootTargetFromCurrentPosition` | -26.1%, drop 2.0 us, spread 0.4 us | -27.1%, drop 2.0 us, spread 0.5 us | 0.0%, drop 0.0 us, spread 0.5 us | 2 of 3 |
+| `FindAttackTarget`, metric `FindAttackTarget` | -31.9%, drop 1.9 us, spread 1.6 us | -29.6%, drop 1.9 us, spread 0.3 us | -11.9%, drop 0.8 us, spread 3.1 us | 2 of 3 |
+| `FindAttackTarget`, metric `BestShootTargetFromCurrentPosition` | -3.7%, drop 0.2 us, spread 5.1 us | -12.9%, drop 1.1 us, spread 4.4 us | +12.9%, drop -0.9 us, spread 5.7 us | 0 of 3 |
+| `BestAttackTarget`, metric `FindAttackTarget` | -26.9%, drop 1.8 us, spread 0.2 us | -34.1%, drop 2.2 us, spread 0.7 us | -17.4%, drop 1.2 us, spread 0.2 us | 3 of 3 |
+| `BestAttackTarget`, metric `BestShootTargetFromCurrentPosition` | -22.8%, drop 1.7 us, spread 0.1 us | -26.5%, drop 1.7 us, spread 3.1 us | -14.8%, drop 1.1 us, spread 0.1 us | 2 of 3 |
+
+The `BestAttackTarget` row for `FindAttackTarget` is the one that holds in every run. The two flag patches, on `BestShootTargetFromCurrentPosition` and on `FindAttackTarget`, set a flag that the same loop reads. Their drops are consistent in some runs, but the baselines in those runs spread too widely to pass R2. The `BestShootTargetFromCurrentPosition` patch drops the `FindAttackTarget` metric by 2.4 to 2.8 microseconds in all three runs, because `FindAttackTarget` calls the shoot search for ranged pawns.
+
+### What the numbers mean
+
+- The busiest questions are not the cost. Removing a reach or reservation patch changed the work search by less than the run's own spread. Leaving them alone would save nothing that can be measured.
+- The attack loop costs 1.2 to 2.2 microseconds per idle call. A three-floor work search call took 120 to 192 microseconds in these runs, so the loop is under 2 percent of one work search call. The work search is not where the time goes.
+- The loop is the search of other floors for targets. The prefix of `BestAttackTarget` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/CombatPatches.cs` runs it, nearest floor first, and keeps the first target it finds. Removing it would stop that search. The effect on fights is untested.
+
+### Rule R6 and Task B
+
+Rule R2 is applied per run. This report counts a patch as costing time when R2 holds in all three runs. That is a ruling made after the repeats. It makes a removal harder to justify, not easier. Read per run, the two flag patches would also count in some runs.
+
+Task B of the plan removes each patch that costs time, one at a time, with a row for each removal. Task B is not run. Only the loop meets R6. Removing it changes the attack search, and no row in the plan tests that search across floors. A removal needs a row that shows a hostile on one floor still finds a colonist on another floor with the loop gone. That row does not exist yet. Decision D8 asks Lucas. The default keeps the loop.
+
+### Limits
+
+- The probe is idle. Every call found nothing, so the attack numbers are the cost of a search with no target. A fight with targets is not measured.
+- The surface is random in every run, because the runner starts a new random game. The three-floor work search baselines were 120 to 192 microseconds, so the runs differ. Each run compares only its own removals.
+- `FindAttackTarget` is called through reflection. Its times include a fixed reflection cost, and its percentages are against those times.
+- The spreads are large for the work search and for the `FindAttackTarget` probe. Three runs cannot separate small effects from noise there.
+- The cost of `CanBeSeenOverFast`, `TryFindShootLineFromTo` and the four `TryGiveJob` patches is not measured. They are not in the plan's list.
+- Where the work search spends its time is not known. No part of the search has been profiled.
+
+### Run folders
+
+- Red: `.artifacts/runs/20261107-173554`.
+- Green and repeats: `.artifacts/runs/20261107-173858`, `.artifacts/runs/20261107-174047` and `.artifacts/runs/20261107-174220`.
+- Did not build: `.artifacts/runs/20261107-173706` and `.artifacts/runs/20261107-173731`. They have no rows.
+- Harness commit: `e1d5291`.
