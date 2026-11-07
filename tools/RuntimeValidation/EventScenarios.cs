@@ -507,9 +507,11 @@ namespace ZLevelsValidation
             throw new InvalidOperationException("no sealed rock cell away from the stairs on the lower floor");
         }
 
-        // Task 28 (fighting across floors). Two checks around the stairs cell L. First, a hostile pawn on the lower floor shoots a colonist on the
-        // surface. The mod moves the shooter up for the shot (Verb_LaunchProjectile.TryCastShot prefix), so the shot should hit. Second, a colonist
-        // on the lower floor starts a melee attack on a hostile pawn on the surface, diagonally across the stairs cell. The attack should be refused.
+        // Task 28 (fighting across floors), with decision D6 answered (a) on 2026-11-07: the rule stays, so a shot across solid ground is refused.
+        // Two checks around the stairs cell L. First, a hostile pawn on the lower floor shoots at a colonist on the surface. The line of fire from
+        // the lower floor crosses solid ground, so the shot must be refused and the colonist unhurt. The shooter must stay on the lower floor, on its
+        // attack job, for the whole window, so the refusal is the rule and not a shooter that gave up. Second, a colonist on the lower floor starts a
+        // melee attack on a hostile pawn on the surface, diagonally across the stairs cell. The attack should be refused.
         // The two checks run one after the other, so the surface hostile cannot interfere with the shot target.
         private int fightStage;
         private int fightDueTick;
@@ -519,7 +521,7 @@ namespace ZLevelsValidation
         private int fightShotStart;
         private float fightTargetLast;
         private bool fightDone;
-        private bool fightShotHit;
+        private bool fightShotRefused;
         private float fightTargetBefore;
         private float fightEnemyBefore;
         private Map fightSurface;
@@ -682,15 +684,17 @@ namespace ZLevelsValidation
         private void FinishShotAcrossStairs()
         {
             bool hit = fightHits > 0;
-            // The row proves a cross-floor shot only if the shooter held its cell on the lower floor, on its attack job, the whole time.
+            // The refusal counts only if the shooter held its cell on the lower floor, on its attack job, the whole time. Otherwise a shooter that
+            // gave up would show no hit as well.
             bool stayed = fightOffFloor == 0 && fightJobLost == 0;
-            fightShotHit = hit && stayed;
-            // The line of fire the shooter's verb computes from the lower floor, and the surface ground under the shooter's cell.
+            // The line of fire the shooter's verb computes from the lower floor, and the surface ground under the shooter's cell. The rule must refuse it.
+            bool lineRefused = false;
             string lineOfFire = "no line of fire checked";
             if (fightShooter.Spawned)
             {
                 Verb shotVerb = fightShooter.equipment.PrimaryEq.PrimaryVerb;
                 bool lineClear = shotVerb.TryFindShootLineFromTo(fightShooter.Position, fightTarget, out ShootLine shootLine);
+                lineRefused = !lineClear;
                 lineOfFire = "the line of fire from the lower floor is " + (lineClear ? "clear" : "refused") + "; the surface ground under the shooter is "
                     + fightSurface.terrainGrid.TerrainAt(fightShooter.Position).defName;
             }
@@ -701,9 +705,12 @@ namespace ZLevelsValidation
             string jobs = fightJobLost == 0 ? "it held its attack job" : "it lost its attack job for " + fightJobLost + " frames";
             string firstHit = fightHits == 0 ? "no hit" : fightHits + " frames with a hit, the first " + fightFirstHitTick + " ticks in";
             string detail = firstHit + "; " + floors + "; " + jobs + "; " + shooterState + "; " + lineOfFire + "; the surface line held " + fightLineFound;
-            Record("a shot from the lower floor through the stairs hits a surface colonist, as it should", fightShotHit
-                ? "PASS: the colonist lost health" + (fightTarget.Dead ? " and died" : "") + "; " + detail
-                : "FAIL: " + (hit ? "the colonist lost health, but not only from the lower floor" : "the colonist was not hit") + "; " + detail);
+            fightShotRefused = !hit && stayed && lineRefused;
+            Record("a shot from the lower floor across solid ground is refused, as the rule says", fightShotRefused
+                ? "PASS: the colonist was not hit; " + detail
+                : "FAIL: " + (hit ? "the colonist lost health from the lower floor, so the shot got through"
+                    : !stayed ? "the shooter left the lower floor or its attack job, so the refusal proves nothing"
+                    : "the line of fire from the lower floor was not refused, or the shooter was not spawned") + "; " + detail);
             // A colonist that the shots killed has already left the map, so only pawns that are still spawned are despawned here.
             if (fightShooter.Spawned) fightShooter.DeSpawn(DestroyMode.Vanish);
             if (fightTarget.Spawned) fightTarget.DeSpawn(DestroyMode.Vanish);
@@ -829,7 +836,7 @@ namespace ZLevelsValidation
             Record("melee on one floor is taken, as a control", taken
                 ? "PASS: the attack job was taken; the hostile " + (landed ? "lost health" : "took no damage") + "; jobs seen: " + seen
                 : "FAIL: the attack job was never taken on one floor; jobs seen: " + seen + "; the colonist's job is " + DescribeJob(fightControlColonist.CurJob));
-            bool ok = fightShotHit && fightMeleeRefused && taken;
+            bool ok = fightShotRefused && fightMeleeRefused && taken;
             Record("cross floor fight", ok ? "PASS" : "FAIL: a row above failed");
             finished = true;
             Root.Shutdown();

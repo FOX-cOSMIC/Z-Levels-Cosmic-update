@@ -43,7 +43,7 @@ Decisions made under "implement all of them" (plan 2026-11-06, DM14 to DM20):
 
 Waiting:
 
-- Decisions D6 and D7 are open. They do not block the work (see the decisions list below). D6 also decides the shot row of `-CrossFloorFight`.
+- D6 is open and does not block the work. Its default (a) is applied as of 2026-11-07: the rule stays, and the shot row of `-CrossFloorFight` expects the refusal. Lucas can overrule it (see the decisions list).
 
 ## Next
 
@@ -69,9 +69,10 @@ Waiting:
 - D3 (Task 36). Answered 2026-11-06: ladders and stair sizes (the recommended option). No powered elevator and no freight elevator are built. The decisions made under it are DM14 to DM16 in the Phase E plan.
 - D4 (Task 37). Answered 2026-11-06: one chosen resource per pipe, at a fixed rate (the recommended option). The decisions made under it are DM17 to DM19 in the Phase E plan. The "Tubes between levels" line stays open for power and fluids.
 - D5 (Task 38). Answered 2026-11-06: send a chosen list of colonists and items now (the recommended option). The standing "keep a set amount" option is not built. The decision made under it is DM20 in the Phase E plan.
-- D6 (open, not blocking). May a shot from a lower floor reach a surface target over solid ground? Default: keep the rule, so it may not. The shot row of `-CrossFloorFight` stays red until this is decided.
-- D7 (open, not blocking). Keep the Royalty flag on `-FloorsTab` only, or add Royalty to the default validation mod list? Default: keep the flag.
-- D1 and D2 were answered on 2026-11-05: "all of them", and D1 is read as rebuild in place.
+- D6 (open, not blocking; default applied 2026-11-07). May a shot from a lower floor reach a surface target over solid ground? Default (a), applied: keep the rule, so the shot is refused. The row "a shot from the lower floor across solid ground is refused, as the rule says" expects the refusal. Reversal: option (b) changes the rule in `CombatPatches.cs` and this row. On 2026-11-07 Lucas wrote "D1 a", which I read as D1. If he meant D6, D6 is answered (a).
+- D7 (answered 2026-11-07: a). Keep the Royalty flag on `-FloorsTab` only. Lucas's words: "No mandatory DLC please." The default validation mod list does not load Royalty.
+- D1 (answered 2026-11-07: A). Measure, then rebuild the job search in place. Lucas's words: "D1 a". The measurement is Task 24's per-patch timing, in `docs/superpowers/plans/2026-11-07-task24-patch-timing.md`.
+- D2 was answered on 2026-11-05: "all of them". D1 was read as rebuild in place until Lucas answered it on 2026-11-07.
 
 ## Later
 

@@ -1219,7 +1219,7 @@ Runs 153721 and 153854 of e expected a surface colonist to be unable to reach a 
 
 ## Fighting across floors
 
-Task 28 of the multi-floor ideas plan. The scenario is `-CrossFloorFight`, run by `RunCrossFloorFightTick` in `tools/RuntimeValidation/EventScenarios.cs`. No game code changed. The shot row fails. The failure is a finding about the game's line-of-fire rule, and that rule is not decided yet.
+Task 28 of the multi-floor ideas plan. The scenario is `-CrossFloorFight`, run by `RunCrossFloorFightTick` in `tools/RuntimeValidation/EventScenarios.cs`. No game code changed. The shot row failed at first, and that failure is a finding about the game's line-of-fire rule. Decision D6 (option a) keeps the rule, applied as the default on 2026-11-07. The shot row now expects the refusal, and it passes. See "Decision D6" below.
 
 ### What the scenario checks
 
@@ -1248,7 +1248,7 @@ The mod moves the shooter onto the target's floor to check the line of fire. The
 
 During the run, the scenario asked the shooter's verb for the line from the lower floor. The answer was refused. The ground under the shooter on the surface was Sand.
 
-The spec does not say whether a shot may cross from one floor to another over solid ground. The code sets the rule explicitly. The shot row stays red until someone decides whether the rule should change.
+The spec does not say whether a shot may cross from one floor to another over solid ground. The code sets the rule explicitly. The shot row stayed red until decision D6 was applied on 2026-11-07. The rule was kept, so the row now expects the refusal.
 
 ### Why the melee across the stairs is refused
 
@@ -1275,6 +1275,26 @@ Other early runs failed in the scenario's own setup. They are not listed here.
 
 - `.artifacts/runs/20261106-163149`: the final scenario.
 - `.artifacts/runs/20261106-163519`: the core validation after the runner change, PASS.
+
+### Decision D6 (2026-11-07)
+
+Decision D6 asks whether a shot from a lower floor may reach a surface target over solid ground. Option (a) keeps the rule, and it is the recommended option. Option (b) lets the shot through. That changes the rule in `CombatPatches.cs` (lines 362 to 421) and this row. Lucas did not answer D6 by name. On 2026-11-07 he wrote "D1 a", which I read as D1, so option (a) was applied as the default. If "D1 a" was meant for D6, the answer is the same.
+
+The shot row now expects the refusal. Its label is "a shot from the lower floor across solid ground is refused, as the rule says". It passes when the colonist is not hit, the shooter stayed on the lower floor on its attack job for the whole window, and the line of fire from the lower floor is refused. The melee rows are unchanged. No game code changed for this decision.
+
+| Run | Build | Shot row | Scenario |
+|---|---|---|---|
+| `20261107-000331` | old row, a hit expected | FAIL: the colonist was not hit | FAIL |
+| `20261107-173118` | new row, rule kept | PASS: not hit, the line of fire refused, the shooter held its job | PASS |
+| `20261107-173346` | new row, rule switched off (temporary mutant) | FAIL: the colonist lost health, 3 frames with a hit, the first 52 ticks in; the line of fire was clear | FAIL |
+
+The mutant switched off the back-ward branch of the postfix of `Verb.TryFindShootLineFromTo` in `CombatPatches.cs`. The file was restored from a backup kept at `%TEMP%\claude-scratch\d6-mutant\CombatPatches.cs.orig`. Its SHA-256 after the restore is `52df9830bd0ce74b2cea780107a8f6ed0590637efe0f76498a77e53c2923635f`, the same as the backup, and `git status` lists no change to it. The mutant run shows that the rule, and not the vanilla line of fire, refuses the shot.
+
+Limits:
+
+- The row checks a refusal. It does not test a shot through open air, so a shot from a lower floor that the rule allows is untested.
+- The detail names the surface ground under the shooter. It does not name the cell that blocks the line.
+- Reversal: option (b) changes the rule and this row. The row would then expect a hit.
 
 ## Floors tab
 
@@ -1945,7 +1965,7 @@ The runner printed its pass line for 54 of the 59 runs. One of the five runs tha
 - `-VaultInfestation`, run `20261106-232823`. Its two rows and its aggregate pass. The runner then stopped on a game error in Player.log: `Tried to destroy non-destroyable thing ZL_VaultExit48371`. The stack starts at `ZLevelsValidation.RuntimeValidation.ClearCell`, which `SpawnFood` calls (`tools/RuntimeValidation/RuntimeValidation.cs`, lines 2279 and 2324). The helper clears a cell for food, and that cell held the vault exit. The fault sits in the vault session's scenario and a shared harness helper. Nothing here changed it.
 - `-UnreachableZone`, run `20261106-233639`. The reachable control cell got no haul in 60 seconds, so the row failed. Five reruns passed: `20261107-001507`, `20261107-001639`, `20261107-001828`, `20261107-002001` and `20261107-002129`. Each rerun had one haul to the reachable cell. The failing run's log has one `ERROR` line, the known duplicate package id warning for `Aoba.DeadManSwitch.Core`. The working tree did not change during the batch. The cause is not found, and no fix was made. Treat this check as flaky until the cause is found.
 - `-CoolingNoColumns`, run `20261106-234147`. This is a negative control, so the failure is by design. Its variant places no column pair, so its 14 link rows fail, and so does its aggregate. The positive control, `uncooled core overheats`, passes.
-- `-CrossFloorFight`, run `20261107-000331`. The shot row fails, as it did in Task 28 (run `20261106-163149`). The rule refuses the line, because the cells on it that are two or more from the target are not open air (`ZL_OutsideTerrain`). The ground under the shooter on the surface is `Marble_Rough` in this run and `Sand` in the Task 28 run. Whether a shot may cross solid ground is decision D6, and it is open. The two melee rows pass.
+- `-CrossFloorFight`, run `20261107-000331`. The shot row fails, as it did in Task 28 (run `20261106-163149`). The rule refuses the line, because the cells on it that are two or more from the target are not open air (`ZL_OutsideTerrain`). The ground under the shooter on the surface is `Marble_Rough` in this run and `Sand` in the Task 28 run. Whether a shot may cross solid ground is decision D6. Its default (a) was applied on 2026-11-07, and the shot row now expects the refusal: run `20261107-173118` passes (see "Fighting across floors"). The two melee rows pass.
 
 ### Table
 
@@ -2035,7 +2055,7 @@ The runs used the working tree, which holds the vault session's uncommitted work
 
 ### Limits and open items
 
-- Decision D6 decides the shot row of `-CrossFloorFight`.
+- Decision D6 decided the shot row of `-CrossFloorFight` on 2026-11-07, by its default (a). See "Fighting across floors".
 - The `-UnreachableZone` flake has no cause yet.
 - The `ClearCell` helper destroys a non-destroyable thing. The vault session should decide the fix.
 - `-SocialRelaxQueue` reads the game speed during the screen fade, so its paused row may pass without a pause (Task 4). This was not checked.
