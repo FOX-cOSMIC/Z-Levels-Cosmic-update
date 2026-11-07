@@ -5,10 +5,13 @@
     <Nullable>disable</Nullable>
     <OutputPath>Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <RimWorldDirectory Condition="'$(RimWorldDirectory)' == ''">C:/SteamLibrary/steamapps/common/RimWorld</RimWorldDirectory>
+    <HarmonyAssembly Condition="'$(HarmonyAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/2009463077/1.7/Assemblies/0Harmony.dll</HarmonyAssembly>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj" Private="false" />
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj" Private="false" />
     <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4990-unstable" PrivateAssets="all" />
+    <Reference Include="0Harmony" HintPath="$(HarmonyAssembly)" Private="false" />
   </ItemGroup>
 </Project>

@@ -1551,6 +1551,11 @@ namespace ZLevelsValidation
                 RequireFloors(tracker, surface, 3);
                 WorkSearchTiming threeFloors = TimeWorkSearches(tracker, colonists, callsEach);
 
+                // Task 24: the per-patch timing. A probe colonist outside the work-search group holds a revolver for the attack metrics. The phase runs
+                // before the map ticks, as the map ticks spawn the animals and plants that would change a search.
+                Pawn probe = SpawnColonistNear(surface, near, avoid);
+                List<PatchTimingLine> patchLines = TimePatchRemovals(tracker, colonists, probe);
+
                 // The map ticks come after every search, so the animals and plants they spawn cannot change a search.
                 double lowerMs = TimeMapTicks(lower, mapTicks);
                 double upperMs = TimeMapTicks(upper, mapTicks);
@@ -1574,6 +1579,11 @@ namespace ZLevelsValidation
                 Record(label, oneOk && twoOk && threeOk
                     ? "PASS"
                     : "FAIL: one floor ran " + oneFloor.Searches + " searches and " + oneFloor.CrossFloor + " cross-floor, two floors " + twoFloors.Searches + " of " + expected + " searches and " + twoFloors.CrossFloor + " cross-floor, three floors " + threeFloors.Searches + " of " + expected + " searches and " + threeFloors.CrossFloor + " cross-floor");
+                // Task 24: one line per patch and metric. A line fails when a removal or a re-apply did not take effect, or when a measurement had no calls.
+                foreach (PatchTimingLine line in patchLines) Record("patch timing, " + line.Name + ", " + line.Metric, "INFO: " + line.Text());
+                Record("patch timing recorded", patchLines.All(line => line.Integrity)
+                    ? "PASS"
+                    : "FAIL: " + string.Join("; ", patchLines.Where(line => !line.Integrity).Select(line => line.Problem)));
             }
             catch (Exception exception)
             {
