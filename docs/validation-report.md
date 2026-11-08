@@ -2330,7 +2330,7 @@ Round 6 ran `gpt-6.1-terra` at `xhigh` effort through T3. It reviewed `git diff 
 | S18 | nit | Fixed in `6c22ffc`. The row comments were corrected again in `97dea61`. |
 | Q3 | minor, still open after round 6 | The reviewer wrote: "It remains a minor issue because it requires a search to throw and the stale state to be used afterward." Deferred. See Limits. |
 
-Round 6 was the last round the approved budget allowed. The sol-loop reviewer has not seen the S17 change. A seventh round needs Lucas's approval. It is decision D11 in `docs/roadmap.md`.
+Round 6 was the last round the approved budget allowed. The sol-loop reviewer has not seen the S17 change. Lucas approved a seventh round on 2026-11-08. It is decision D11 in `docs/roadmap.md`.
 
 A Claude code-review subagent then reviewed the fix commits and returned CHANGES. Its findings were checked against the code and the runs. The fixes, and the findings that were declined, are listed under "Review after the fixes" below.
 
@@ -2368,7 +2368,20 @@ The code change is in the idle scenario. Core and RimatomicsPlusPlus ran on the 
 
 The only ERROR line in each run is the duplicate-mod message from `Aoba.DeadManSwitch.Core`.
 
-The second review of `6e6bc23..HEAD` is still pending. Its verdict will be recorded here.
+The later checks of these fixes are recorded under "Review after the fixes". The seventh sol-loop round is recorded under "Round 7".
+
+### Round 7
+
+Lucas answered D11 with round 7 first, the recommended option. The sol-loop reviewer was `gpt-6.1-terra` at `xhigh` effort, through the provider `codex_c8a7aecb-7ebd-43ad-9668-289453d39c6e`. It reviewed `git diff d188811..993268f -- tools/`, which holds the harness changes since round 6. Its verdict was APPROVE, with no new findings.
+
+| Id | Outcome |
+|---|---|
+| S17 | Resolved. The stairs exist before the first search. The two idle runs on `36d3221` show that the first search found no job, and that the paused search hauled the book to the lower stockpile. |
+| S18 | Resolved. The row comments say that the row does not establish surface-storage reachability, and does not prove the storage gate's effect. |
+| S14 | Resolved as unproven, as recorded in round 6. |
+| Q3 | Still open, with its prior minor severity. The harness changes do not change it. |
+
+The reviewer read the recorded runs. It did not start a new run.
 
 ### Gate proof
 
