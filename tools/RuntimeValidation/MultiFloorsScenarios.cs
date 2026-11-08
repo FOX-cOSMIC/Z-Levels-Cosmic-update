@@ -932,7 +932,8 @@ namespace ZLevelsValidation
                 Record("a paused search keeps a floor lock", pausedLockOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(lockedPaused) + " while the colonist is locked below");
                 // Row 6, a paused search and storage on another floor. The colonist is on the level below, with a book and no storage there, so its first
                 // search finds nothing and the pause starts. Then a bookcase on the surface, at a higher priority, and a stockpile on the level below are
-                // built. The paused search must not send the colonist up to the bookcase, because the pause checks the own floor only.
+                // built. The surface has a stair pair to this floor, and its hauling is allowed during the pause, so the bookcase and the surface's stockpile are
+                // reachable from here. Only the own-floor gate keeps the colonist from them. The paused search must not send the colonist up to either.
                 belowSurface.fogGrid.ClearAllFog();
                 // The level below is sealed rock until it is carved, so the colonist, the book and the stockpile get a clear disc first.
                 IntVec3 lowerSpot = new IntVec3(belowSurface.Size.x / 2, 0, belowSurface.Size.z / 2);
@@ -944,31 +945,61 @@ namespace ZLevelsValidation
                 SetWork(bookHauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
                 tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, false);
                 Job bookFirst = SearchWorkJob(bookHauler);
+                Record("INFO: the colonist's map after the first search", "INFO: " + bookHauler.Map + ", at " + bookHauler.Position);
+                // The first search must find nothing, so the idle pause starts. The stair pair is built after it, so the first search has no route to the surface.
+                Record("the first search finds nothing, so the pause starts", bookFirst == null ? "PASS" : "FAIL: the first search found " + DescribeOwnFloorJob(bookFirst));
+                // A stair pair between this floor and the surface, eight cells across and six up from the centre. The paused search is the one under test, and it
+                // must find the surface storage reachable from the colonist's floor, so that only the own-floor rule keeps it out.
+                IntVec3 bookStairs = lowerSpot + new IntVec3(-8, 0, -6);
+                CarveAround(surface, bookStairs, 6);
+                CarveAround(belowSurface, bookStairs, 6);
+                SpawnStairPair(tracker, surface, belowSurface, bookStairs);
+                tracker.GameComponentTick();
                 ThingDef bookcaseDef = DefDatabase<ThingDef>.GetNamed("Bookcase");
                 Building_Bookcase bookcase = (Building_Bookcase)ThingMaker.MakeThing(bookcaseDef, GenStuff.DefaultStuffFor(bookcaseDef));
                 bookcase.SetFaction(Faction.OfPlayer);
-                IntVec3 bookcaseCell = pauseBlock + new IntVec3(1, 0, 7);
+                IntVec3 bookcaseCell = bookStairs + new IntVec3(2, 0, 2);
                 ClearCell(surface, bookcaseCell);
                 GenSpawn.Spawn(bookcase, bookcaseCell, surface, Rot4.North, WipeMode.VanishOrMoveAside);
                 bookcase.GetStoreSettings().Priority = StoragePriority.Important;
                 Zone_Stockpile lowerZone = MakeSupplyZone(belowSurface, lowerSpot + new IntVec3(-1, 0, -1));
                 lowerZone.settings.Priority = StoragePriority.Normal;
                 Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
-                Job bookPaused = SearchWorkJob(bookHauler);
+                // The surface's hauling is allowed for the paused search, so the surface's storage is a candidate and only the own-floor gate keeps it out.
                 tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, true);
+                Map pausedStartMap = bookHauler.Map;
+                Job bookPaused = null;
+                // The cross-floor searches that the paused search starts, read only. The storage check of a thing on a floor is one of them.
+                int bookPausedCrossFloor = CrossFloorSearchesDuring(() => { bookPaused = SearchWorkJob(bookHauler); });
                 bool onSurface = bookPaused != null && bookPaused.targetB.Thing != null && bookPaused.targetB.Thing.Map == surface;
                 Record("the book search before the pause", "INFO: " + DescribeOwnFloorJob(bookFirst));
                 Record("the stockpile below", "INFO: " + lowerZone.CellCount + " cells, accepts the book " + lowerZone.settings.AllowedToAccept(novel));
                 Record("the bookcase on the surface", "INFO: accepts the book " + bookcase.Accepts(novel) + ", priority " + bookcase.GetStoreSettings().Priority + ", on " + bookcase.Map);
                 Record("the paused search job", "INFO: " + DescribeOwnFloorJob(bookPaused) + ", on the surface " + onSurface);
+                Record("INFO: the colonist's map around the paused search", "INFO: before " + pausedStartMap + ", after " + bookHauler.Map);
+                // Diagnostic, read only: the destination of the paused job, the zones of each floor at that cell, the colonist's map, and the map its job tracker names.
+                IntVec3 pausedCell = bookPaused != null && bookPaused.targetB.Thing == null ? bookPaused.targetB.Cell : IntVec3.Invalid;
+                string pausedZones = pausedCell.IsValid
+                    ? "surface zone " + (surface.zoneManager.ZoneAt(pausedCell)?.ToString() ?? "none") + ", lower zone " + (belowSurface.zoneManager.ZoneAt(pausedCell)?.ToString() ?? "none")
+                    : "no cell";
+                Record("INFO: the paused job's destination", "INFO: " + (bookPaused == null ? "no job" : "cell " + pausedCell) + ", " + pausedZones + ", colonist on " + bookHauler.Map + ", job tracker names " + MapDestOf(tracker, bookHauler));
+                Record("the cross-floor searches the paused storage search starts", "INFO: " + bookPausedCrossFloor + " (counts FloorPolicy.Allowed calls and storage checks together; zero shows neither ran, a count above zero does not show which)");
                 // A haul to a cell names no thing. A cell of the surface's stockpile, which is no stockpile of this floor, is a haul to another floor.
                 bool onSurfaceCell = bookPaused != null && bookPaused.targetB.Thing == null && surface.zoneManager.ZoneAt(bookPaused.targetB.Cell) != null
                     && belowSurface.zoneManager.ZoneAt(bookPaused.targetB.Cell) == null;
                 bool pausedStorageOk = bookFirst == null && !onSurface && !onSurfaceCell;
                 Record("a paused search does not send a haul to storage on another floor", pausedStorageOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(bookPaused) + ", with its destination on the surface");
                 // The paused search still finds the book's haul to this floor's stockpile. Without this row the rows above would pass when the search finds nothing.
-                bool toOwnStockpile = bookPaused != null && bookPaused.targetB.Thing == null && belowSurface.zoneManager.ZoneAt(bookPaused.targetB.Cell) == lowerZone;
+                // The haul must be the book's own HaulToCell job, to a cell with no thing, that the colonist on this floor holds, to this floor's stockpile, with no zone
+                // of the surface at that cell. The helper IsBookHaulToOwnStockpile checks each of those.
+                bool toOwnStockpile = IsBookHaulToOwnStockpile(bookPaused, novel, lowerZone, belowSurface, bookHauler, surface);
                 Record("a paused search keeps the book's haul on this floor's stockpile", toOwnStockpile ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(bookPaused) + ", not a haul to the stockpile on this floor");
+                // The check must tell the book's haul from another item's haul to the same cell. The cell-only check that row 6 used before accepts that other haul.
+                Job otherHaul = JobMaker.MakeJob(JobDefOf.HaulToCell, ThingMaker.MakeThing(ThingDefOf.Steel), lowerZone.cells[0]);
+                bool otherItemRejected = !IsBookHaulToOwnStockpile(otherHaul, novel, lowerZone, belowSurface, bookHauler, surface);
+                bool cellOnlyAcceptsOther = otherHaul.targetB.Thing == null && belowSurface.zoneManager.ZoneAt(otherHaul.targetB.Cell) == lowerZone;
+                Record("the book check rejects another item's haul to this floor's stockpile", otherItemRejected ? "PASS" : "FAIL: the check accepts another item's haul to this floor's stockpile");
+                Record("INFO: the cell-only check on the same other-item haul", "INFO: accepts " + cellOnlyAcceptsOther + ", the book check accepts " + !otherItemRejected);
 
                 // Row 7, a paused search and food for an animal, with the food on another floor (S10). This row makes a stair pair between the surface and the level
                 // below, nine cells from the surface centre, so the food check can walk to the stairs. The colonist and a tame monkey stand beside the stairs. The
@@ -1049,12 +1080,19 @@ namespace ZLevelsValidation
                 Job markedPaused = SearchWorkJob(markedHauler);
                 bool pausedMarkOk = markedFirst == null && markedPaused == null;
                 Record("a paused search does not haul an item marked for this floor from another floor", pausedMarkOk ? "PASS" : "FAIL: the first search gave " + DescribeOwnFloorJob(markedFirst) + ", the paused search gave " + DescribeOwnFloorJob(markedPaused) + ", with the berries on the level below");
+                // The haul candidates of the paused search, listed with the own-floor state set the way SearchOwnFloorOnly sets it. The marked berries of the level
+                // below must not be among them. The control is the same list outside the pause, which must include them, so the first check cannot pass on an empty list.
+                WorkGiver_Haul markedGiver = markedHauler.workSettings.WorkGiversInOrderNormal.OfType<WorkGiver_Haul>().FirstOrDefault();
+                bool candidatesPausedOk = markedGiver != null && !PausedHaulCandidates(markedGiver, markedHauler, surface).Contains(markedBerries);
+                bool candidatesNormalOk = markedGiver != null && markedGiver.PotentialWorkThingsGlobal(markedHauler).Contains(markedBerries);
+                Record("the paused search's haul candidates leave out an item marked from another floor", candidatesPausedOk ? "PASS" : "FAIL: the paused search's haul candidates include the marked berries on the level below");
+                Record("the haul candidates outside the pause include the marked berries", candidatesNormalOk ? "PASS" : "FAIL: the candidates outside the pause leave out the marked berries");
                 AdvanceClockPastIdlePause();
                 Job markedNormal = SearchWorkJob(markedHauler);
                 bool normalMarkOk = markedNormal != null && markedNormal.targetA.Thing == markedBerries;
                 Record("the same marked item is hauled once the pause is over", normalMarkOk ? "PASS" : "FAIL: the normal search gave " + DescribeOwnFloorJob(markedNormal) + ", not the berries");
 
-                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk && toOwnStockpile && pausedFoodOk && pausedFoodOwnOk && pausedMarkOk && normalMarkOk ? "PASS" : "FAIL: a row above failed");
+                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk && toOwnStockpile && otherItemRejected && pausedFoodOk && pausedFoodOwnOk && pausedMarkOk && candidatesPausedOk && candidatesNormalOk && normalMarkOk ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
             {
@@ -1502,6 +1540,53 @@ namespace ZLevelsValidation
             MethodInfo method = zutils.GetMethod("GetAllMapsInClosestOrder", BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException("ZLevels.ZUtils.GetAllMapsInClosestOrder is missing");
             return (IEnumerable<Map>)method.Invoke(null, new object[] { colonist, oldMap, oldPosition, true, false });
+        }
+
+        // The haul candidates of a colonist with the own-floor search state set the way OwnFloorFirstSearch.SearchOwnFloorOnly sets it, and restored after.
+        // The gate reads that state only inside the search, so the harness sets the two fields by reflection to see the candidates the search would see.
+        private static List<Thing> PausedHaulCandidates(WorkGiver_Haul giver, Pawn colonist, Map ownMap)
+        {
+            Type search = typeof(ZLevelsManager).Assembly.GetType("ZLevels.OwnFloorFirstSearch", true);
+            FieldInfo pawnField = search.GetField("OwnFloorOnlyPawn", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("ZLevels.OwnFloorFirstSearch.OwnFloorOnlyPawn is missing");
+            FieldInfo mapField = search.GetField("OwnFloorOnlyMap", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("ZLevels.OwnFloorFirstSearch.OwnFloorOnlyMap is missing");
+            Pawn previousPawn = (Pawn)pawnField.GetValue(null);
+            Map previousMap = (Map)mapField.GetValue(null);
+            pawnField.SetValue(null, colonist);
+            mapField.SetValue(null, ownMap);
+            try
+            {
+                return giver.PotentialWorkThingsGlobal(colonist).ToList();
+            }
+            finally
+            {
+                pawnField.SetValue(null, previousPawn);
+                mapField.SetValue(null, previousMap);
+            }
+        }
+
+        // The haul of the book to this floor's stockpile, as row 6 checks it: a HaulToCell job for the book, to a cell with no thing, that a colonist on this floor holds,
+        // to a cell of this floor's stockpile, and with no zone of the other map at that cell.
+        private static bool IsBookHaulToOwnStockpile(Job job, Thing book, Zone floorZone, Map floorMap, Pawn holder, Map otherMap)
+        {
+            return job != null && job.def == JobDefOf.HaulToCell && job.targetA.Thing == book && job.targetB.Thing == null
+                && holder.Map == floorMap && floorZone.Map == floorMap && floorMap.zoneManager.ZoneAt(job.targetB.Cell) == floorZone
+                && otherMap.zoneManager.ZoneAt(job.targetB.Cell) == null;
+        }
+
+        // The map that the colonist's job tracker names as its destination map. The tracker is internal to the mod, so the harness reads it by reflection.
+        private static string MapDestOf(ZLevelsManager tracker, Pawn colonist)
+        {
+            FieldInfo trackers = typeof(ZLevelsManager).GetField("jobTracker", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            System.Collections.IDictionary dictionary = trackers == null ? null : trackers.GetValue(tracker) as System.Collections.IDictionary;
+            if (dictionary == null || !dictionary.Contains(colonist))
+            {
+                return "no job tracker";
+            }
+            object jobTracker = dictionary[colonist];
+            FieldInfo mapDest = jobTracker.GetType().GetField("mapDest", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return mapDest == null ? "no mapDest field" : (mapDest.GetValue(jobTracker) as Map)?.ToString() ?? "null";
         }
 
         private static void SpawnWallOn(Map map, IntVec3 cell)
