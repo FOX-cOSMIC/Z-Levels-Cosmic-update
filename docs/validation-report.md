@@ -2271,6 +2271,8 @@ Regenerate this list with `git log --oneline ac693f5..HEAD`.
 - `678fb5d` records the round 6 section and the roadmap decisions.
 - `8f4b498` records the steam geyser failure and the head runs.
 - `97dea61` corrects the row 6 comments, releases the hold-back in a `finally` block, and logs the first search's destination. See "Row 6 and the first search".
+- `6e6bc23` records the head runs on `97dea61` and corrects the round 6 record.
+- `36d3221` moves the hold-back loop inside the `try`, and makes the idle aggregate row require the geyser check. See "Review after the fixes".
 
 The changes sit in the publish scripts, the validation harness, the docs, and the published DLLs. Nothing under `ZLevels/Source` changed since `ac693f5`.
 
@@ -2282,7 +2284,7 @@ Commit `2389ec5` writes the add-on to `ZLevels/1.7-Rimatomics/Assemblies`. `ZLev
 
 `AddonLoad` runs without Dubs Rimatomics. It fails if `ZLevelsRimatomics` loads (`RunAddonLoadCheck` in `tools/RuntimeValidation/MultiFloorsScenarios.cs`). The final regression run is `20261108-192051`, and it passes.
 
-The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`. Regenerate it with `sha256sum ZLevels/1.7/Assemblies/ZLevels.dll`. `build-info.txt` records the same hash. Runs `20261108-165207` (built and staged) and `20261108-181854` (built) record it too.
+The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`. Regenerate it with `sha256sum ZLevels/1.7/Assemblies/ZLevels.dll`. `ZLevels/1.7/Assemblies/build-info.txt` records the same hash. Runs `20261108-165207` (built and staged) and `20261108-181854` (built) record it too.
 
 ### Red and green runs
 
@@ -2297,9 +2299,9 @@ The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17
 
 ### A steam geyser in a cleared area
 
-Run `20261108-210917` ran the idle scenario on `678fb5d`. Every row passed, but the run log gate failed. The game logged `Tried to destroy non-destroyable thing SteamGeyser85991`, because a steam geyser lay in the area that row 6 clears. Each run starts a new random game, so a geyser is on the map in some runs only.
+Run `20261108-210917` ran the idle scenario on `678fb5d`. Every row passed, but the run log gate failed. The game logged `Tried to destroy non-destroyable thing SteamGeyser85991`, because a steam geyser lay in the area that row 6 clears. A geyser was on the map in some runs and not in others. The cause is not established, and the run folders show no seed.
 
-`ClearCell` destroyed every non-pawn thing on a cell. `Thing.Destroy` refuses a thing whose def is not destroyable. It logs that error and returns, so the geyser stayed on its cell. The runs in this record that passed the log gate never cleared a geyser.
+`ClearCell` destroyed every non-pawn thing on a cell. `Thing.Destroy` refuses a thing whose def is not destroyable. It logs that error and returns, so the geyser stayed on its cell. The runs in this record that passed the log gate never cleared a geyser. Run `20261108-131819` (identity `9f036f0`, dirty, before the `ClearCell` change) logged eight of the same errors and failed the log gate.
 
 The idle scenario now has a check for this. It puts a steam geyser in a cleared disc, then clears its cell. Run `20261108-211317` failed that check before the fix. The row reads "the geyser is still on the map", and the log shows the same error. Commit `67238f7` makes `ClearCell` remove a thing that is not destroyable with `DeSpawn`. Run `20261108-211455` passed the check and logged no error.
 
@@ -2315,7 +2317,7 @@ Commit `6c22ffc` builds the pair first. It also holds the surface stockpiles bac
 
 Run `204040` ran the same logic before the comments changed. It passes on a dirty tree.
 
-Commit `97dea61` corrects the row 6 comments. It releases the hold-back in a `finally` block, so an exception cannot leave the stockpiles refusing the book. It also logs two facts: how many surface stockpiles accept the book after the release, and where the first search's job goes. Run `212601`, on the working tree before that commit, has no FAIL rows. Run `212742`, on `97dea61`, passes.
+Commit `97dea61` corrects the row 6 comments. It releases the hold-back in a `finally` block, so an exception cannot leave the stockpiles refusing the book. Commit `36d3221` moves the loop that holds the stockpiles back inside the `try`, so the `finally` covers every throw. No run exercises that exception path. It also logs two facts: how many surface stockpiles accept the book after the release, and where the first search's job goes. Run `212601`, on the working tree before that commit, has no FAIL rows. Run `212742`, on `97dea61`, passes.
 
 ### Review round 6
 
@@ -2328,9 +2330,45 @@ Round 6 ran `gpt-6.1-terra` at `xhigh` effort through T3. It reviewed `git diff 
 | S18 | nit | Fixed in `6c22ffc`. The row comments were corrected again in `97dea61`. |
 | Q3 | minor, still open after round 6 | The reviewer wrote: "It remains a minor issue because it requires a search to throw and the stale state to be used afterward." Deferred. See Limits. |
 
-Round 6 was the last round the approved budget allowed. The S17 change has not been reviewed. A seventh round needs Lucas's approval. It is decision D11 in `docs/roadmap.md`.
+Round 6 was the last round the approved budget allowed. The sol-loop reviewer has not seen the S17 change. A seventh round needs Lucas's approval. It is decision D11 in `docs/roadmap.md`.
 
-A Claude code-review subagent then reviewed the fix commits and returned CHANGES. Its findings were checked against the code and the runs. The fixes are in `97dea61` and in the commit that records these corrections. One finding was declined: a history rewrite would break the run identities this section cites.
+A Claude code-review subagent then reviewed the fix commits and returned CHANGES. Its findings were checked against the code and the runs. The fixes, and the findings that were declined, are listed under "Review after the fixes" below.
+
+### Review after the fixes
+
+The Claude code-review subagent reviewed `6e6bc23`. It returned CHANGES with eleven findings, F1 to F11, and one more item about a commit subject. The table gives each one's disposition.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| F1: "The S17 change has not been reviewed" contradicted this record. | Important | Fixed. The sol-loop reviewer has not seen the S17 change. The subagent has. |
+| F2: The run's mod list was said to include the Ideology DLC. | Important | Fixed. The game did not load the DLC. See the section on run 213111. |
+| F3: The run folder count was wrong. | Minor | Fixed. The claim covers any run folder on this machine. |
+| F4: The gate removal for `153516` was stated as fact. | Minor | Fixed. It is labelled as inferred. No log records the edit. |
+| F5: Run `131819` was missing from the geyser record. | Minor | Fixed. It is in the geyser section and in the run folders. |
+| F6: A new random game was given as the cause of the geyser. | Minor | Fixed. The cause is labelled as not established. |
+| F7: The gate's duplicate-mod exemption omitted four package IDs. | Minor | Fixed. The four IDs are named. |
+| F8: Commit messages say "no log errors" in runs that have the duplicate-mod line. | Minor | Declined for the commit messages. A history rewrite would break the run identities cited here. |
+| F9: The hold-back loop sat outside the `try`. | Minor | Fixed in `36d3221`. No run reaches this exception path. |
+| F10: The idle aggregate row read PASS while the geyser row failed, as in run `211317`. | Minor | Fixed in `36d3221`. The aggregate now requires the geyser check. |
+| F11: The stage 9 exception was not attributed to the validation code. | Minor | Fixed. The text names `RuntimeValidation.GameComponentUpdate`. |
+| Item 11: The subject of commit `6c22ffc` names the reverted change. | Minor | Declined. A history rewrite would break the run identities. The PR title names the feature. |
+
+Two items stay open, because no log answers them: the game's new-game seed, and why the base game removes an ideo without the Ideology DLC. Both are in the Limits.
+
+### Runs on `36d3221`
+
+The code change is in the idle scenario. Core and RimatomicsPlusPlus ran on the new head as well.
+
+| Run | Switch | Identity | FAIL rows | Result |
+|---|---|---|---|---|
+| `20261108-220939` | IdleSearchPause | `36d3221`, clean | 0 | PASS |
+| `20261108-221119` | IdleSearchPause | `36d3221`, clean | 0 | PASS |
+| `20261108-221249` | core | `36d3221`, clean | 0 | PASS |
+| `20261108-221449` | RimatomicsPlusPlus | `36d3221`, clean | 0 | PASS |
+
+The only ERROR line in each run is the duplicate-mod message from `Aoba.DeadManSwitch.Core`.
+
+The second review of `6e6bc23..HEAD` is still pending. Its verdict will be recorded here.
 
 ### Gate proof
 
@@ -2338,7 +2376,7 @@ The own-floor gate is in `ZLevels/Source/ZLevels/ZLevels/FloorPolicy.cs`, line 1
 
 In run `204222`, the storage rows still pass, and the paused job still goes to the lower stockpile. One later row fails: "the same marked item is hauled once the pause is over". The aggregate row fails with it.
 
-So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls ran before row 6 changed. `153329` (identity `ac693f5`, dirty, built `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`, the gate present) and `153516` (identity `ac693f5`, dirty, built `C2EAA23D16E0A6D7F555FF29A0E9113C7B5FB0971D195A25D4580BE89EAD6787`, the gate removed) show the same result for the storage rows.
+So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls ran before row 6 changed. `153329` (identity `ac693f5`, dirty, built `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`, the gate present) and `153516` (identity `ac693f5`, dirty, built `C2EAA23D16E0A6D7F555FF29A0E9113C7B5FB0971D195A25D4580BE89EAD6787`, the gate removed) show the same result for the storage rows. The gate removal for `153516` is inferred from its `gate-removal` log folder and its different built hash. No log records the edit itself.
 
 ### Final regression on `a587c18`
 
@@ -2450,7 +2488,7 @@ Run `20261108-213111` passed all four rows of MoodOtherFloor on a clean tree at 
 
 `ERROR [Verse] Faction Xosxosgal Coalition contains ideo Corunan which was removed!`
 
-The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `IdeoManager.IdeoManagerTick`. No Z-Levels frame is in it. The run's mod list includes the Ideology DLC. Neither `ZLevels/Source` nor `tools/RuntimeValidation` calls ideology code or creates a faction. The same message appears in one other run folder on this machine, `20261106-152622`, a thief scenario. It appears in no other `Player.log` among the 1,455 run folders here. Three reruns of the same scenario on `97dea61` passed (`213832`, `213951`, `214115`). The gate was not changed. It fails on any ERROR line other than a duplicate-mod message. The clean runs checked have one such line, from `Aoba.DeadManSwitch.Core`, and the gate ignores it.
+The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `IdeoManager.IdeoManagerTick`. No Z-Levels frame is in it. The game did not load the Ideology DLC. The game copy has no Ideology data, the Player.log lists four active mods, and the log never mentions Ideology. The run folder's `Config\ModsConfig.xml` lists the DLCs, but the game did not load them. The cause is still open. The base game ran the ideology code without the DLC active. Neither `ZLevels/Source` nor `tools/RuntimeValidation` calls ideology code or creates a faction. The same message appears in one other run folder on this machine, `20261106-152622`, a thief scenario. It appears in no other `Player.log` in any run folder on this machine. Three reruns of the same scenario on `97dea61` passed (`213832`, `213951`, `214115`). The gate was not changed. It fails on any ERROR line other than a duplicate-mod message that names none of `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. The clean runs checked have one such line, from `Aoba.DeadManSwitch.Core`, and the gate ignores it.
 
 ### Rimatomics++ record
 
@@ -2460,15 +2498,16 @@ The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `Ideo
 - Eight later runs on dirty trees at `d86f83c` passed: `172121`, `172534`, `172813`, `175707`, `175932`, `180147`, `180348`, and `180613`.
 - Eight runs on clean trees passed with no FAIL rows: `200627` on `a587c18`, five on `6c22ffc` (`204853` to `205744`), `212004` on `67238f7`, and `214445` on `97dea61`.
 
-The cause of `170043` is not established. The stair records that `a587c18` added log the surface stairs at stage 9 and around the power placement. Its `Player.log` has 25 engine errors that name an out-of-bounds cell at `-1000`, and 25 stack traces through `OwnFloorFirstSearch.RunVanillaSearch`. The stage 9 check then failed with `Sequence contains no elements`. None of the eight clean runs has either pattern.
+The cause of `170043` is not established. The stair records that `a587c18` added log the surface stairs at stage 9 and around the power placement. Its `Player.log` has 25 engine errors that name an out-of-bounds cell at `-1000`, and 25 stack traces through `OwnFloorFirstSearch.RunVanillaSearch`. The validation code raised `Sequence contains no elements` at stage 9, in `RuntimeValidation.GameComponentUpdate`. None of the eight clean runs has either pattern.
 
 ### Limits
 
 - The own-floor gate's effect on the storage path is unproven. The storage rows pass with the gate removed (run `204222`).
 - Removing the gate changes one later row, the marked item after the pause. The cause is not established.
 - Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` at lines 158 to 162 resets `VanillaCallRunning` and `GiverFilter`, and nothing else. If the search throws, `mapDest` and `currentLookedIntoMap` stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet.
+- No CI runs on the PR. The repo has no workflow files, and the base branch has no branch protection. Earlier PRs into `zlevels-1.7` have no check runs on their heads either. The one check suite on the pushed head is a Cloudflare Pages integration that stayed queued, with no runs.
 - Run `170043` (`RimatomicsPlusPlus`, dirty at `d86f83c`) failed at stage 9. Its cause is not established. Follow-up: find the search that starts from an out-of-bounds cell, and check whether the harness sends it. No later clean run shows the pattern.
-- The validation gate fails on any ERROR line in a run's `Player.log` except duplicate-mod messages. Run `213111` failed on a game message (see its section above). The gate was not changed.
+- The validation gate fails on any ERROR line in a run's `Player.log` except duplicate-mod messages that do not name `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. Run `213111` failed on a game message (see its section above). The gate was not changed.
 - The published DLLs were not loaded into a game. The runs loaded staged copies, and the staged `ZLevels.dll` has the same hash.
 - The run folders under `.artifacts/runs` are not in git. `.gitignore` lists `.artifacts/`, so the runs stay on the machine that made them.
 - `FloorsTab` loads Royalty from a read-only copy of the user's mod list, through `-ModsConfigSource`. The user's list is not changed.
@@ -2483,7 +2522,9 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - Gate removed, control on a dirty tree: `20261108-204222`.
 - Clean runs on `6c22ffc`: `20261108-204451`, `204656`, `204853`, `205053`, `205304`, `205524`, and `205744`.
 - Random red from a geyser on the map: `20261108-210917`. Every row passed, and the run log gate failed.
+- Earlier red from a geyser on the map: `20261108-131819` (identity `9f036f0`, dirty). It logged eight geyser errors, and the log gate failed.
 - Geyser check, red before the fix and green after it: `20261108-211317` and `20261108-211455`.
 - Clean runs on the head `67238f7`: `20261108-211637` (core), `211839` (IdleSearchPause), and `212004` (RimatomicsPlusPlus).
+- Clean runs on `36d3221`: `20261108-220939` and `221119` (IdleSearchPause), `221249` (core), and `221449` (RimatomicsPlusPlus).
 - Clean runs on `97dea61`: `20261108-212742` (IdleSearchPause), `212907` (EventsOtherFloor), `213832`, `213951`, and `214115` (MoodOtherFloor), `214244` (core), and `214445` (RimatomicsPlusPlus). Run `213111` (MoodOtherFloor) failed the log gate on a game message.
-- Controls: `20261108-153329` (identity `ac693f5`, dirty, the gate present) and `20261108-153516` (identity `ac693f5`, dirty, the gate removed).
+- Controls: `20261108-153329` (identity `ac693f5`, dirty, the gate present) and `20261108-153516` (identity `ac693f5`, dirty, from the `gate-removal` folder, with a different built hash).
