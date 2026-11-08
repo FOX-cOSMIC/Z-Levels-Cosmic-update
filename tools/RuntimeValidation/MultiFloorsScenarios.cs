@@ -930,7 +930,40 @@ namespace ZLevelsValidation
                 Job lockedPaused = SearchWorkJob(locked);
                 bool pausedLockOk = lockedFirst == null && lockedPaused == null;
                 Record("a paused search keeps a floor lock", pausedLockOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(lockedPaused) + " while the colonist is locked below");
-                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk ? "PASS" : "FAIL: a row above failed");
+                // Row 6, a paused search and storage on another floor. The colonist is on the level below, with a book and no storage there, so its first
+                // search finds nothing and the pause starts. Then a bookcase on the surface, at a higher priority, and a stockpile on the level below are
+                // built. The paused search must not send the colonist up to the bookcase, because the pause checks the own floor only.
+                belowSurface.fogGrid.ClearAllFog();
+                // The level below is sealed rock until it is carved, so the colonist, the book and the stockpile get a clear disc first.
+                IntVec3 lowerSpot = new IntVec3(belowSurface.Size.x / 2, 0, belowSurface.Size.z / 2);
+                CarveAround(belowSurface, lowerSpot, 12);
+                Thing novel = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("Novel"));
+                novel.stackCount = 1;
+                GenSpawn.Spawn(novel, FindReachableCellNear(belowSurface, lowerSpot + new IntVec3(2, 0, 2), noAvoid), belowSurface);
+                Pawn bookHauler = SpawnCapableColonistNear(belowSurface, lowerSpot + new IntVec3(3, 0, 3), noAvoid, WorkTypeDefOf.Hauling);
+                SetWork(bookHauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, false);
+                Job bookFirst = SearchWorkJob(bookHauler);
+                ThingDef bookcaseDef = DefDatabase<ThingDef>.GetNamed("Bookcase");
+                Building_Bookcase bookcase = (Building_Bookcase)ThingMaker.MakeThing(bookcaseDef, GenStuff.DefaultStuffFor(bookcaseDef));
+                bookcase.SetFaction(Faction.OfPlayer);
+                IntVec3 bookcaseCell = pauseBlock + new IntVec3(1, 0, 7);
+                ClearCell(surface, bookcaseCell);
+                GenSpawn.Spawn(bookcase, bookcaseCell, surface, Rot4.North, WipeMode.VanishOrMoveAside);
+                bookcase.GetStoreSettings().Priority = StoragePriority.Important;
+                Zone_Stockpile lowerZone = MakeSupplyZone(belowSurface, lowerSpot + new IntVec3(-1, 0, -1));
+                lowerZone.settings.Priority = StoragePriority.Normal;
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Job bookPaused = SearchWorkJob(bookHauler);
+                tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, true);
+                bool onSurface = bookPaused != null && bookPaused.targetB.Thing != null && bookPaused.targetB.Thing.Map == surface;
+                Record("the book search before the pause", "INFO: " + DescribeOwnFloorJob(bookFirst));
+                Record("the stockpile below", "INFO: " + lowerZone.CellCount + " cells, accepts the book " + lowerZone.settings.AllowedToAccept(novel));
+                Record("the bookcase on the surface", "INFO: accepts the book " + bookcase.Accepts(novel) + ", priority " + bookcase.GetStoreSettings().Priority + ", on " + bookcase.Map);
+                Record("the paused search job", "INFO: " + DescribeOwnFloorJob(bookPaused) + ", on the surface " + onSurface);
+                bool pausedStorageOk = bookFirst == null && !onSurface;
+                Record("a paused search does not send a haul to storage on another floor", pausedStorageOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(bookPaused) + ", with its destination on the surface");
+                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
             {
@@ -1202,7 +1235,38 @@ namespace ZLevelsValidation
                 Building_Stairs opened = StairRouteCache.Best(lower, pocket, true);
                 bool openedFound = opened != null;
                 Record("a walled cell has no route, and a route opened later is found", walledNone && openedFound ? "PASS" : "FAIL: the walled cell gave " + (walled == null ? "no route" : walled.ToString()) + ", and after the opening " + (opened == null ? "still no route" : opened.ToString()));
-                bool all = shortestWalk && reachable && checks == 0 && walledNone && openedFound;
+                // Row 5, three floors (S2). The colonist is on the lower floor, and its only work is on the upper floor, two floors up. The way there is
+                // the surface: the colonist walks to the surface stairs, and then up the stairs on the surface. The search must reach the upper floor
+                // through the surface, as the base search did, so the job it finds is the haul on the upper floor.
+                Map upperFloor = tracker.CreateUpperLevel(surface, surface.Center);
+                upperFloor.fogGrid.ClearAllFog();
+                IntVec3 climb = center + new IntVec3(6, 0, -6);
+                foreach (Map floor in new[] { surface, upperFloor })
+                {
+                    for (int x = -3; x <= 3; x++)
+                    {
+                        for (int z = -3; z <= 3; z++)
+                        {
+                            ClearCell(floor, climb + new IntVec3(x, 0, z));
+                            floor.terrainGrid.SetTerrain(climb + new IntVec3(x, 0, z), TerrainDefOf.Concrete);
+                        }
+                    }
+                }
+                SpawnStairPair(tracker, upperFloor, surface, climb);
+                tracker.GameComponentTick();
+                IntVec3 upperStock = climb + new IntVec3(-3, 0, 2);
+                ClearCell(upperFloor, upperStock);
+                Thing upperSteel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                upperSteel.stackCount = 10;
+                GenSpawn.Spawn(upperSteel, upperStock, upperFloor);
+                MakeSupplyZone(upperFloor, climb + new IntVec3(3, 0, 3));
+                Pawn climber = SpawnCapableColonistNear(lower, start, new List<IntVec3>(), WorkTypeDefOf.Hauling);
+                SetWork(climber, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                Job climbFirst = SearchWorkJob(climber);
+                Job climbWork = MainWorkJob(tracker, climber, climbFirst);
+                bool upperOk = climbWork != null && climbWork.targetA.Thing != null && climbWork.targetA.Thing.Map == upperFloor;
+                Record("the search reaches work on the top floor through the surface", upperOk ? "PASS" : "FAIL: the search gave " + DescribeOwnFloorJob(climbWork) + " for a colonist on " + climber.Map + ", not the steel on the top floor");
+                bool all = shortestWalk && reachable && checks == 0 && walledNone && openedFound && upperOk;
                 Record("stair routes", all ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
