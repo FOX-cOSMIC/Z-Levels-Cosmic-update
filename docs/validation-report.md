@@ -2254,7 +2254,7 @@ Decision D9 is answered as option a. The profile proposes no mod change. The nex
 
 ## Final proof and review round 6 (2026-11-08)
 
-Round 5 of the sol-loop review reviewed `ac693f5` with uncommitted changes. Round 6 reviews every commit after `ac693f5`. This section records the commits, the proof, the review outcome, and what is still open.
+Round 5 of the sol-loop review reviewed `ac693f5` with uncommitted changes. Round 6 reviewed the commits from `ac693f5` to `d188811`. A Claude code-review subagent then reviewed the fix commits, see "Review round 6". This section records the commits, the proof, the review outcome, and what is still open.
 
 ### Commits since round 5
 
@@ -2268,8 +2268,11 @@ Regenerate this list with `git log --oneline ac693f5..HEAD`.
 - `d188811` opens the surface and lower centres in MoodOtherFloor and EventsOtherFloor.
 - `6c22ffc` changes row 6 of the idle scenario. See "Row 6 and the first search".
 - `67238f7` makes `ClearCell` remove a thing that is not destroyable, instead of destroying it. It also adds a check for that case at the start of the idle scenario. See "A steam geyser in a cleared area".
+- `678fb5d` records the round 6 section and the roadmap decisions.
+- `8f4b498` records the steam geyser failure and the head runs.
+- `97dea61` corrects the row 6 comments, releases the hold-back in a `finally` block, and logs the first search's destination. See "Row 6 and the first search".
 
-Apart from one docs line, the changes sit in the publish scripts, the validation harness, and the published DLLs. Nothing under `ZLevels/Source` changed since `ac693f5`.
+The changes sit in the publish scripts, the validation harness, the docs, and the published DLLs. Nothing under `ZLevels/Source` changed since `ac693f5`.
 
 ### Add-on layout
 
@@ -2288,9 +2291,9 @@ The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17
 | `AddonLoad` | `155555` | The add-on sat in `ZLevels/1.7/Assemblies` | `165207`, and `192051` in the final regression | `2389ec5`, `11e09d6` |
 | `SearchTiming` | `160158` | `2be7541` made the attack patch a finalizer, and the toggle still expected a postfix | `165330`, and `192751` in the final regression | `a587c18` |
 | `FloorsTab` | `173829`, `174043`, `174924` | The search origin was a rock cell, so the search found no reachable cell | `181143`, `181409`, `181634`, `181854`, and `195025` in the final regression | `a587c18` |
-| `MoodOtherFloor` | `161530`, `173548` | The surface origin was a roofed rock cell | `194222` in the final regression, and `201747`, `201912`, `202036` on `d188811` | `a587c18`, `d188811` |
-| `EventsOtherFloor` | `194347` | The surface centre was roofed, with no reachable cell near it | `201122`, `201327`, `201537` on `d188811` | `d188811` |
-| Row 6 of `IdleSearchPause` | `203636`, with the reviewer's fix applied as written | The first search found a haul to a surface stockpile, so the pause never started | `204656` on `6c22ffc` | `6c22ffc` |
+| `MoodOtherFloor` | `161530`, `173548` | No cell was reachable for a lover on each floor. In `173548`, the surface origin was roofed Concrete, with one open cell within 6 and none reachable. The lower origin was roofed rock (Marble), with 112 reachable open cells. | `194222` in the final regression. `201747`, `201912`, and `202036` on `a587c18`, with the `d188811` change uncommitted (identity dirty). Clean reruns on `97dea61`: `213832`, `213951`, and `214115`. | `a587c18`, `d188811` |
+| `EventsOtherFloor` | `194347` | No reachable cell near the surface origin. The origin was roofed Concrete, with 31 open cells within 6 and none reachable. | `201122`, `201327`, and `201537` on `a587c18`, with the `d188811` change uncommitted (identity dirty). Clean run `212907` on `97dea61`. | `d188811` |
+| Row 6 of `IdleSearchPause` | `203636` (commit `5430cf4`), with the reviewer's fix applied as written | The first search found a haul for the book on Map-1, so the pause never started | `204656` on `6c22ffc`. Clean run `212742` on `97dea61`. | `6c22ffc`, `97dea61` |
 
 ### A steam geyser in a cleared area
 
@@ -2304,13 +2307,15 @@ Only cells that hold a non-destroyable thing take the new path. Such a cell alwa
 
 ### Row 6 and the first search
 
-Row 6 checks that a colonist on the lower floor does not take a book up to the surface during an idle pause. The first search must find nothing, so that the pause starts. The surface storage is built after that, and then the paused search runs.
+Row 6 checks that a colonist on the lower floor does not take a book up to the surface during an idle pause. The first search must find nothing, so that the pause starts. The bookcase on the surface and the stockpile on the level below are built after that search, and then the paused search runs.
 
-The round 6 review said the first search ran before the stair pair existed, so it never ran on connected floors. The reviewer asked for the pair to be built before that search. Run `203636` tests that change exactly as written. With the floors connected, the first search found a haul to a surface stockpile (`ZL_HaulThingToDest`). The pause never started, and three rows failed.
+The round 6 review found that the first search ran before the stair pair existed, so it never ran on connected floors. The reviewer asked for the pair to be built before that search. Run `203636`, on commit `5430cf4`, made that change exactly as written. With the floors connected, the first search found a haul for the book (`ZL_HaulThingToDest`, on Map-1). The pause never started, and three rows and the aggregate row failed. Run `203636` did not print where that haul went, because the destination row was added later, in `97dea61`. Its paused job went to the surface, as its failing rows show.
 
-Commit `6c22ffc` builds the pair first. It also holds the surface stockpiles back from the book during that one search, then allows them again before the paused search. In run `204656`, the first search finds nothing, the pause starts, and the paused job goes to the lower stockpile at cell `(125, 0, 124)`.
+Commit `6c22ffc` builds the pair first. It also holds the surface stockpiles back from the book during that one search, then allows them again before the paused search. In run `204656`, the first search finds nothing, the pause starts, and the paused job is a haul on Map-1, the lower floor, not the surface.
 
 Run `204040` ran the same logic before the comments changed. It passes on a dirty tree.
+
+Commit `97dea61` corrects the row 6 comments. It releases the hold-back in a `finally` block, so an exception cannot leave the stockpiles refusing the book. It also logs two facts: how many surface stockpiles accept the book after the release, and where the first search's job goes. Run `212601`, on the working tree before that commit, has no FAIL rows. Run `212742`, on `97dea61`, passes.
 
 ### Review round 6
 
@@ -2318,27 +2323,29 @@ Round 6 ran `gpt-6.1-terra` at `xhigh` effort through T3. It reviewed `git diff 
 
 | Id | Severity | Outcome |
 |---|---|---|
-| S14 | should, open since round 5 | Resolved as unproven. The reviewer accepts reporting the storage path's gate as unproven. See Limits. |
-| S17 | blocker | Fixed in `6c22ffc`, with a different change from the one the reviewer proposed. |
-| S18 | nit | Fixed in `6c22ffc`. The row comments no longer say the storage checks prove the gate. |
-| Q3 | minor, open since round 4 | Deferred. See Limits. |
+| S14 | should, open since round 5 | Resolved as unproven. The reviewer wrote: "Reporting the storage gate as unproven closes this finding." See Limits. |
+| S17 | blocker | Fixed in `6c22ffc`, with a different change from the one the reviewer proposed. The reviewer's change, built as written in `5430cf4`, failed run `203636`: the pause never started. |
+| S18 | nit | Fixed in `6c22ffc`. The row comments were corrected again in `97dea61`. |
+| Q3 | minor, still open after round 6 | The reviewer wrote: "It remains a minor issue because it requires a search to throw and the stale state to be used afterward." Deferred. See Limits. |
 
 Round 6 was the last round the approved budget allowed. The S17 change has not been reviewed. A seventh round needs Lucas's approval. It is decision D11 in `docs/roadmap.md`.
 
+A Claude code-review subagent then reviewed the fix commits and returned CHANGES. Its findings were checked against the code and the runs. The fixes are in `97dea61` and in the commit that records these corrections. One finding was declined: a history rewrite would break the run identities this section cites.
+
 ### Gate proof
 
-The own-floor gate is in `ZLevels/Source/ZLevels/ZLevels/FloorPolicy.cs`, line 101. Run `204656` runs with the gate. Run `204222` runs with the gate replaced by `if (false && ...)`. That change was temporary, and the file was restored to `HEAD` afterwards. Apart from that change, and the comments fixed afterwards, the code is the same as `6c22ffc`.
+The own-floor gate is in `ZLevels/Source/ZLevels/ZLevels/FloorPolicy.cs`, line 101. Run `204656` runs with the gate. Run `204222` (identity `d188811`, dirty) runs with the gate replaced by `if (false && ...)`. That change was temporary, and the file was restored to `HEAD` afterwards. Apart from that change, and the comments fixed afterwards, the code is the same as `6c22ffc`.
 
 In run `204222`, the storage rows still pass, and the paused job still goes to the lower stockpile. One later row fails: "the same marked item is hauled once the pause is over". The aggregate row fails with it.
 
-So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls, `153329` and `153516`, ran before row 6 changed. They show the same result for the storage rows.
+So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls ran before row 6 changed. `153329` (identity `ac693f5`, dirty, built `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`, the gate present) and `153516` (identity `ac693f5`, dirty, built `C2EAA23D16E0A6D7F555FF29A0E9113C7B5FB0971D195A25D4580BE89EAD6787`, the gate removed) show the same result for the storage rows.
 
 ### Final regression on `a587c18`
 
 On `a587c18`, with a clean tree, 63 runs were made. Every wrapper log reports `identity commit a587c18` and `identity dirty: False`. Sixty-one print `Runtime validation passed`. The other two are expected.
 
 - `CoolingNoColumns`, run `185701`, has 15 FAIL rows. It is a negative control, so the cooling rows fail without the cooling columns. Its positive control, `uncooled core overheats`, passes in the same run.
-- `EventsOtherFloor`, run `194347`, has one FAIL row. Its surface origin was roofed, with no reachable cell near it. Commit `d188811` opens the centre. Reruns on `d188811` pass: `201122`, `201327`, and `201537`.
+- `EventsOtherFloor`, run `194347`, has one FAIL row. Its surface origin was roofed, with no reachable cell near it. Commit `d188811` opens the centre. Reruns of the same scenario pass: `201122`, `201327`, and `201537`. They ran on `a587c18` with the `d188811` change uncommitted (identity dirty True). Commit `d188811` holds that change.
 
 Each row below takes the last run ID in the switch's wrapper log. Its result is the pass line, or the FAIL row count in that run's `validation-results.txt`. The logs sit in `%TEMP%\claude-scratch\multifloors-pr\logs\final`, outside the repo.
 
@@ -2408,7 +2415,7 @@ Each row below takes the last run ID in the switch's wrapper log. Its result is 
 | `WorkSearchProfile` | `20261108-192920` | PASS |
 | `core` | `20261108-182339` | PASS |
 
-### Clean reruns on `6c22ffc`, then on the head `67238f7`
+### Clean reruns on `6c22ffc`, `67238f7`, and `97dea61`
 
 Commit `6c22ffc` changes only `tools/RuntimeValidation/MultiFloorsScenarios.cs`, inside the idle scenario (`RunIdleSearchPauseCheck`). The core run, the idle scenario, and `RimatomicsPlusPlus` ran again on `6c22ffc`. The other 60 switches did not run again.
 
@@ -2426,26 +2433,47 @@ After the geyser check, the same switches ran on the head, `67238f7`:
 | `20261108-211839` | IdleSearchPause, including the geyser row | `67238f7`, clean | 0 | PASS |
 | `20261108-212004` | RimatomicsPlusPlus | `67238f7`, clean | 0 | PASS |
 
+Commit `97dea61` changes row 6 again. These runs are on that commit, the head:
+
+| Run | Switch | Identity | FAIL rows | Result |
+|---|---|---|---|---|
+| `20261108-212742` | IdleSearchPause | `97dea61`, clean | 0 | PASS |
+| `20261108-212907` | EventsOtherFloor | `97dea61`, clean | 0 | PASS |
+| `20261108-213111` | MoodOtherFloor | `97dea61`, clean | 0 | Four rows pass. The log gate fails on a game message, see below. |
+| `20261108-213832`, `213951`, `214115` | MoodOtherFloor, reruns | `97dea61`, clean | 0 each | PASS |
+| `20261108-214244` | core | `97dea61`, clean | 0 | PASS |
+| `20261108-214445` | RimatomicsPlusPlus | `97dea61`, clean | 0 | PASS |
+
+### The game's ideology message in run 213111
+
+Run `20261108-213111` passed all four rows of MoodOtherFloor on a clean tree at `97dea61`. The log gate failed on one line the game wrote:
+
+`ERROR [Verse] Faction Xosxosgal Coalition contains ideo Corunan which was removed!`
+
+The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `IdeoManager.IdeoManagerTick`. No Z-Levels frame is in it. The run's mod list includes the Ideology DLC. Neither `ZLevels/Source` nor `tools/RuntimeValidation` calls ideology code or creates a faction. The same message appears in one other run folder on this machine, `20261106-152622`, a thief scenario. It appears in no other `Player.log` among the 1,455 run folders here. Three reruns of the same scenario on `97dea61` passed (`213832`, `213951`, `214115`). The gate was not changed. It fails on any ERROR line other than a duplicate-mod message. The clean runs checked have one such line, from `Aoba.DeadManSwitch.Core`, and the gate ignores it.
+
 ### Rimatomics++ record
 
-`RimatomicsPlusPlus` has 15 runs in this record.
+`RimatomicsPlusPlus` has 17 runs in this record.
 
 - Run `170043` failed at stage 9 with `System.InvalidOperationException: Sequence contains no elements`. Its tree was dirty at `d86f83c`.
 - Eight later runs on dirty trees at `d86f83c` passed: `172121`, `172534`, `172813`, `175707`, `175932`, `180147`, `180348`, and `180613`.
-- Six runs on clean trees passed with no FAIL rows: `200627` on `a587c18`, and five on `6c22ffc`.
+- Eight runs on clean trees passed with no FAIL rows: `200627` on `a587c18`, five on `6c22ffc` (`204853` to `205744`), `212004` on `67238f7`, and `214445` on `97dea61`.
 
-The cause of `170043` is not established. The stair records that `a587c18` added log the surface stairs at stage 9 and around the power placement.
+The cause of `170043` is not established. The stair records that `a587c18` added log the surface stairs at stage 9 and around the power placement. Its `Player.log` has 25 engine errors that name an out-of-bounds cell at `-1000`, and 25 stack traces through `OwnFloorFirstSearch.RunVanillaSearch`. The stage 9 check then failed with `Sequence contains no elements`. None of the eight clean runs has either pattern.
 
 ### Limits
 
 - The own-floor gate's effect on the storage path is unproven. The storage rows pass with the gate removed (run `204222`).
 - Removing the gate changes one later row, the marked item after the pause. The cause is not established.
-- Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` restores only the search filter. If the search throws, both fields stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet.
+- Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` at lines 158 to 162 resets `VanillaCallRunning` and `GiverFilter`, and nothing else. If the search throws, `mapDest` and `currentLookedIntoMap` stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet.
+- Run `170043` (`RimatomicsPlusPlus`, dirty at `d86f83c`) failed at stage 9. Its cause is not established. Follow-up: find the search that starts from an out-of-bounds cell, and check whether the harness sends it. No later clean run shows the pattern.
+- The validation gate fails on any ERROR line in a run's `Player.log` except duplicate-mod messages. Run `213111` failed on a game message (see its section above). The gate was not changed.
 - The published DLLs were not loaded into a game. The runs loaded staged copies, and the staged `ZLevels.dll` has the same hash.
 - The run folders under `.artifacts/runs` are not in git. `.gitignore` lists `.artifacts/`, so the runs stay on the machine that made them.
 - `FloorsTab` loads Royalty from a read-only copy of the user's mod list, through `-ModsConfigSource`. The user's list is not changed.
 - `EventScenarios.cs` line 452 calls `TakeCellNear(surface, surface.Center, ...)`. The surface centre can be roofed, as it was in EventsOtherFloor. No run has failed there, and the call is unchanged.
-- The full regression ran on `a587c18`. Since then the harness changed in `6c22ffc` and `67238f7`. Core, IdleSearchPause, and RimatomicsPlusPlus ran on the later commits. The other 60 switches did not run again.
+- The full regression ran on `a587c18`. Since then the harness changed in `6c22ffc`, `67238f7`, and `97dea61`. Core, IdleSearchPause, RimatomicsPlusPlus, EventsOtherFloor, and MoodOtherFloor ran on the later commits. The other switches did not run again.
 - Multiplayer: untested.
 
 ### Run folders
@@ -2457,3 +2485,5 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - Random red from a geyser on the map: `20261108-210917`. Every row passed, and the run log gate failed.
 - Geyser check, red before the fix and green after it: `20261108-211317` and `20261108-211455`.
 - Clean runs on the head `67238f7`: `20261108-211637` (core), `211839` (IdleSearchPause), and `212004` (RimatomicsPlusPlus).
+- Clean runs on `97dea61`: `20261108-212742` (IdleSearchPause), `212907` (EventsOtherFloor), `213832`, `213951`, and `214115` (MoodOtherFloor), `214244` (core), and `214445` (RimatomicsPlusPlus). Run `213111` (MoodOtherFloor) failed the log gate on a game message.
+- Controls: `20261108-153329` (identity `ac693f5`, dirty, the gate present) and `20261108-153516` (identity `ac693f5`, dirty, the gate removed).
