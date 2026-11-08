@@ -77,6 +77,8 @@ namespace ZLevels
             bool cantGoUP = false;
             var zTracker = ZTracker;
             var jobTracker = thing is Pawn p ? zTracker.jobTracker.TryGetValue(p, out var value) ? value : null : null;
+            // The colonist's arrival cell on each map it has reached in this search. A walk to the stairs of a map starts at its arrival cell.
+            var arrivals = new Dictionary<Map, IntVec3> { { oldMap, oldPosition } };
             foreach (var otherMap in zTracker.GetAllMapsInClosestOrder(oldMap))
             {
                 if (!dontCheckForStairs)
@@ -130,14 +132,26 @@ namespace ZLevels
                                 }
                                 else
                                 {
-                                    // The stairs stand on a floor the colonist has already reached in this search, so its walk starts where it stands now. The base
-                                    // search checked these stairs from there, nearest first. Without this, a search from the lowest of three floors stops at the middle one.
-                                    foreach (var stair in stairs.OrderBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)))
+                                    // The stairs stand on a floor the colonist has already reached in this search. Its walk starts at the cell where it arrived
+                                    // there, not where it stands now: the iterator may have yielded a floor in the other direction since. The base search checked
+                                    // these stairs nearest first, from the arrival, so a search from the lowest of three floors reaches the top one.
+                                    Map stairsMap = stairs[0].Map;
+                                    if (arrivals.TryGetValue(stairsMap, out IntVec3 arrival))
                                     {
-                                        if (((Pawn)thing).CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly))
+                                        Map restoreMap = thing.Map;
+                                        IntVec3 restoreCell = thing.Position;
+                                        TeleportThing(thing, stairsMap, arrival);
+                                        foreach (var stair in stairs.OrderBy(x => IntVec3Utility.DistanceTo(arrival, x.Position)))
                                         {
-                                            newPosition = stair.Position;
-                                            break;
+                                            if (((Pawn)thing).CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly))
+                                            {
+                                                newPosition = stair.Position;
+                                                break;
+                                            }
+                                        }
+                                        if (!newPosition.IsValid)
+                                        {
+                                            TeleportThing(thing, restoreMap, restoreCell);
                                         }
                                     }
                                 }
@@ -146,6 +160,7 @@ namespace ZLevels
                             if (newPosition.IsValid)
                             {
                                 TeleportThing(thing, otherMap, newPosition);
+                                arrivals[otherMap] = newPosition;
                                 FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                                 //ZLogger.Message($"1 CHECK: {thing} is going to {zTracker.GetMapInfo(otherMap)}");
                                 currentLookedIntoMap = otherMap;
