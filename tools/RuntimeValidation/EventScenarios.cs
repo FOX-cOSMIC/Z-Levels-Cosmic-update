@@ -149,6 +149,7 @@ namespace ZLevelsValidation
                 Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
                 RequireFloors(tracker, surface, 2);
                 CarveAround(lower, lower.Center, 6f);
+                OpenSearchOrigin(lower, lower.Center);
                 // The surface origin sits ten cells from the stairs, as the floors tab's does. A rock centre under a roof has no reachable cell,
                 // and carving keeps the centre, so the origin is opened as well.
                 IntVec3 surfaceOrigin = OnMapCell(surface, stairs.Position + new IntVec3(10, 0, 0));
@@ -253,6 +254,9 @@ namespace ZLevelsValidation
             evGuest = SpawnPawnAt(evLower, TakeCellNear(evLower, evLower.Center + new IntVec3(-3, 0, 3), used));
             evBride = SpawnPawnAt(evLower, TakeCellNear(evLower, evLower.Center + new IntVec3(3, 0, -3), used));
             evGroom = SpawnPawnAt(evLower, TakeCellNear(evLower, evLower.Center + new IntVec3(3, 0, 3), used));
+            // The surface centre can be roofed rock with no reachable cell (run 20261108-194347). Carving keeps the centre, so it is opened too.
+            CarveAround(evSurface, evSurface.Center, 6f);
+            OpenSearchOrigin(evSurface, evSurface.Center);
             evSpectator = SpawnPawnAt(evSurface, TakeCellNear(evSurface, evSurface.Center, new List<IntVec3>()));
             evBride.relations.AddDirectRelation(PawnRelationDefOf.Lover, evGroom);
             evParty = LordMaker.MakeNewLord(Faction.OfPlayer, new LordJob_Joinable_Party(partySpot, evOrganizer, GatheringDefOf.Party), evLower,

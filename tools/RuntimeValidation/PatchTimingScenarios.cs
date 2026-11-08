@@ -23,9 +23,9 @@ namespace ZLevelsValidation
         // Each toggle is measured this many times. Every removal has a baseline before and after it.
         private const int PatchTimingRounds = 3;
 
-        // One method that a mod patch added to a game method.
         private enum PatchKind { Prefix, Postfix, Finalizer }
 
+        // One method that a mod patch added to a game method.
         private struct PatchPiece
         {
             public MethodBase Original;
