@@ -5091,6 +5091,20 @@ namespace ZLevelsValidation
                 {
                     Record("combat containment: TryFindNewTarget", "FAIL: " + DescribeOrTypeName(exception));
                 }
+                // A fault inside the attack search must not leave its flag on. The flag makes the search look on other levels, so a flag left on by a
+                // fault would search them in later, unrelated searches. A null searcher makes the vanilla search throw, and the flag must be off after it.
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+                bool searchFaulted = false;
+                try
+                {
+                    AttackTargetFinder.BestShootTargetFromCurrentPosition(null, TargetScanFlags.NeedLOSToAll, null);
+                }
+                catch (Exception)
+                {
+                    searchFaulted = true;
+                }
+                bool flagOff = !CombatPatches_BestAttackTarget_Patch.multiMapSearch;
+                Record("combat containment: a fault in the attack search leaves the search flag off", searchFaulted && flagOff ? "PASS: the search threw and the flag is off" : "FAIL: the search threw " + searchFaulted + " and the flag is " + (flagOff ? "off" : "on"));
                 // The stairs are on the lower level, at the same tile as the turret. A line to them is refused, and nothing is moved to take it.
                 Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
                 Map ownMap = stairs.Map;

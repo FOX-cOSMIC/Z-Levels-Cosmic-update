@@ -896,7 +896,41 @@ namespace ZLevelsValidation
                 Record("the idle colonist finds no work", noWork ? "PASS" : "FAIL: a search found work for a colonist with every work type off");
                 Record("the idle colonist is searched", searched ? "PASS" : "FAIL: no search ran, so a count of 0 proves nothing");
                 Record("an idle colonist searches at most 3 times in 1500 ticks", atMostThree ? "PASS: " + searches + " searches ran" : "FAIL: " + searches + " searches ran in 1500 ticks");
-                Record("idle search pause", noWork && searched && atMostThree ? "PASS" : "FAIL: a row above failed");
+                // Rows 4 and 5. The pause keeps the own floor's settings. Each colonist does one search that finds nothing, which starts the pause, and
+                // then a paused search. Row 4: the surface does no hauling. Row 5: the colonist is locked to the level below.
+                Map belowSurface = tracker.GetLowerLevel(surface.Tile, surface) ?? throw new InvalidOperationException("no level below the surface");
+                IntVec3 pauseBlock = FindCentralOpenBlock(surface, 9, 9);
+                if (!pauseBlock.IsValid)
+                {
+                    throw new InvalidOperationException("no open 9 by 9 block on the surface away from the edges");
+                }
+                MakeSupplyZone(surface, pauseBlock + new IntVec3(4, 0, 4));
+                ClearCell(surface, pauseBlock);
+                Thing pauseSteel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                pauseSteel.stackCount = 10;
+                GenSpawn.Spawn(pauseSteel, pauseBlock, surface);
+                int surfaceIndex = tracker.GetZIndexFor(surface);
+                int belowIndex = tracker.GetZIndexFor(belowSurface);
+                List<IntVec3> noAvoid = new List<IntVec3>();
+                Pawn hauler = SpawnCapableColonistNear(surface, pauseBlock + new IntVec3(6, 0, 6), noAvoid, WorkTypeDefOf.Hauling);
+                SetWork(hauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, false);
+                Job haulerFirst = SearchWorkJob(hauler);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Job haulerPaused = SearchWorkJob(hauler);
+                tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, true);
+                bool pausedHaulOk = haulerFirst == null && haulerPaused == null;
+                Record("a paused search keeps the floor's work settings", pausedHaulOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(haulerPaused) + " on a floor that does not do hauling");
+
+                Pawn locked = SpawnCapableColonistNear(surface, pauseBlock + new IntVec3(2, 0, 6), noAvoid, WorkTypeDefOf.Hauling);
+                SetWork(locked, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                tracker.floorPolicy.SetLock(locked, belowIndex, Find.TickManager.TicksGame + 100000);
+                Job lockedFirst = SearchWorkJob(locked);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Job lockedPaused = SearchWorkJob(locked);
+                bool pausedLockOk = lockedFirst == null && lockedPaused == null;
+                Record("a paused search keeps a floor lock", pausedLockOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(lockedPaused) + " while the colonist is locked below");
+                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
             {
@@ -1151,7 +1185,24 @@ namespace ZLevelsValidation
                 int checks = StairRouteCache.WalkChecks - checksBefore;
                 Record("a second decision runs no walk check", checks == 0 ? "PASS" : "FAIL: " + checks + " walk checks in the second decision");
 
-                bool all = shortestWalk && reachable && checks == 0;
+                // Row 3. A cell walled in on four sides has no reachable stair, so its decision is no route. Opening one side lets a walk reach a stair,
+                // and a decision saved before the opening must expire. Otherwise the cell keeps no route for good.
+                IntVec3 pocket = center + new IntVec3(6, 0, 0);
+                foreach (IntVec3 side in new[] { new IntVec3(1, 0, 0), new IntVec3(-1, 0, 0), new IntVec3(0, 0, 1), new IntVec3(0, 0, -1) })
+                {
+                    SpawnWallOn(lower, pocket + side);
+                }
+                Building_Stairs walled = StairRouteCache.Best(lower, pocket, true);
+                bool walledNone = walled == null;
+                foreach (Thing wall in (pocket + new IntVec3(1, 0, 0)).GetThingList(lower).Where(thing => thing.def == ThingDefOf.Wall).ToList())
+                {
+                    wall.Destroy(DestroyMode.Vanish);
+                }
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 600);
+                Building_Stairs opened = StairRouteCache.Best(lower, pocket, true);
+                bool openedFound = opened != null;
+                Record("a walled cell has no route, and a route opened later is found", walledNone && openedFound ? "PASS" : "FAIL: the walled cell gave " + (walled == null ? "no route" : walled.ToString()) + ", and after the opening " + (opened == null ? "still no route" : opened.ToString()));
+                bool all = shortestWalk && reachable && checks == 0 && walledNone && openedFound;
                 Record("stair routes", all ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
@@ -2604,6 +2655,14 @@ namespace ZLevelsValidation
                 bool haulerOk = IsSurfaceJob(haulerJob, surface);
                 Record("priority-3 work with nothing upstairs is taken", haulerOk ? "PASS" : "FAIL: the job is " + DescribeOwnFloorJob(haulerJob));
 
+                // Row 5. High-priority mining has nothing to do, and the colonist's priority-3 haul is at home. The search that looks upstairs for the
+                // mining must hand the colonist back to its own floor before the lower-priority search runs there.
+                Pawn displaced = SpawnCapableColonistNear(surface, block + new IntVec3(6, 0, 4), avoid, WorkTypeDefOf.Hauling, WorkTypeDefOf.Mining);
+                SetWork(displaced, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 1);
+                Job displacedJob = SearchWorkJob(displaced);
+                bool displacedOk = IsSurfaceJob(displacedJob, surface);
+                Record("high-priority work upstairs is empty, and the haul at home is taken", displacedOk ? "PASS" : "FAIL: the job is " + DescribeOwnFloorJob(displacedJob));
+
                 // Row 4. The threshold setting, read by name, is 2 on a new settings object.
                 Type settingsType = Type.GetType("ZLevels.ZLevelsSettings, ZLevels");
                 FieldInfo threshold = settingsType == null ? null : settingsType.GetField("WorkGiverHighPriorityThreshold", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -2611,7 +2670,7 @@ namespace ZLevelsValidation
                 bool defaultTwo = value is int && (int)value == 2;
                 Record("threshold setting is 2 by default", defaultTwo ? "PASS" : "FAIL: the setting is " + (value == null ? "missing" : value.ToString()));
 
-                bool all = plainOk && diggerOk && haulerOk && defaultTwo;
+                bool all = plainOk && diggerOk && haulerOk && displacedOk && defaultTwo;
                 Record(label, all ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
