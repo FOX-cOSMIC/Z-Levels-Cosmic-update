@@ -2267,6 +2267,7 @@ Regenerate this list with `git log --oneline ac693f5..HEAD`.
 - `a587c18` changes the harness. SearchTiming uses finalizer toggles, the FloorsTab origin is opened with a clearing radius of 9, and the stair records are added.
 - `d188811` opens the surface and lower centres in MoodOtherFloor and EventsOtherFloor.
 - `6c22ffc` changes row 6 of the idle scenario. See "Row 6 and the first search".
+- `67238f7` makes `ClearCell` remove a thing that is not destroyable, instead of destroying it. It also adds a check for that case at the start of the idle scenario. See "A steam geyser in a cleared area".
 
 Apart from one docs line, the changes sit in the publish scripts, the validation harness, and the published DLLs. Nothing under `ZLevels/Source` changed since `ac693f5`.
 
@@ -2290,6 +2291,16 @@ The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17
 | `MoodOtherFloor` | `161530`, `173548` | The surface origin was a roofed rock cell | `194222` in the final regression, and `201747`, `201912`, `202036` on `d188811` | `a587c18`, `d188811` |
 | `EventsOtherFloor` | `194347` | The surface centre was roofed, with no reachable cell near it | `201122`, `201327`, `201537` on `d188811` | `d188811` |
 | Row 6 of `IdleSearchPause` | `203636`, with the reviewer's fix applied as written | The first search found a haul to a surface stockpile, so the pause never started | `204656` on `6c22ffc` | `6c22ffc` |
+
+### A steam geyser in a cleared area
+
+Run `20261108-210917` ran the idle scenario on `678fb5d`. Every row passed, but the run log gate failed. The game logged `Tried to destroy non-destroyable thing SteamGeyser85991`, because a steam geyser lay in the area that row 6 clears. Each run starts a new random game, so a geyser is on the map in some runs only.
+
+`ClearCell` destroyed every non-pawn thing on a cell. `Thing.Destroy` refuses a thing whose def is not destroyable. It logs that error and returns, so the geyser stayed on its cell. The runs in this record that passed the log gate never cleared a geyser.
+
+The idle scenario now has a check for this. It puts a steam geyser in a cleared disc, then clears its cell. Run `20261108-211317` failed that check before the fix. The row reads "the geyser is still on the map", and the log shows the same error. Commit `67238f7` makes `ClearCell` remove a thing that is not destroyable with `DeSpawn`. Run `20261108-211455` passed the check and logged no error.
+
+Only cells that hold a non-destroyable thing take the new path. Such a cell always logged an error and failed the run, so no green run changes.
 
 ### Row 6 and the first search
 
@@ -2397,7 +2408,7 @@ Each row below takes the last run ID in the switch's wrapper log. Its result is 
 | `WorkSearchProfile` | `20261108-192920` | PASS |
 | `core` | `20261108-182339` | PASS |
 
-### Clean reruns on `6c22ffc`
+### Clean reruns on `6c22ffc`, then on the head `67238f7`
 
 Commit `6c22ffc` changes only `tools/RuntimeValidation/MultiFloorsScenarios.cs`, inside the idle scenario (`RunIdleSearchPauseCheck`). The core run, the idle scenario, and `RimatomicsPlusPlus` ran again on `6c22ffc`. The other 60 switches did not run again.
 
@@ -2406,6 +2417,14 @@ Commit `6c22ffc` changes only `tools/RuntimeValidation/MultiFloorsScenarios.cs`,
 | `20261108-204451` | core | `6c22ffc`, clean | 0 | PASS |
 | `20261108-204656` | IdleSearchPause | `6c22ffc`, clean | 0 | PASS |
 | `20261108-204853`, `205053`, `205304`, `205524`, `205744` | RimatomicsPlusPlus, five runs | `6c22ffc`, clean | 0 each | PASS |
+
+After the geyser check, the same switches ran on the head, `67238f7`:
+
+| Run | Switch | Identity | FAIL rows | Result |
+|---|---|---|---|---|
+| `20261108-211637` | core | `67238f7`, clean | 0 | PASS |
+| `20261108-211839` | IdleSearchPause, including the geyser row | `67238f7`, clean | 0 | PASS |
+| `20261108-212004` | RimatomicsPlusPlus | `67238f7`, clean | 0 | PASS |
 
 ### Rimatomics++ record
 
@@ -2426,6 +2445,7 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - The run folders under `.artifacts/runs` are not in git. `.gitignore` lists `.artifacts/`, so the runs stay on the machine that made them.
 - `FloorsTab` loads Royalty from a read-only copy of the user's mod list, through `-ModsConfigSource`. The user's list is not changed.
 - `EventScenarios.cs` line 452 calls `TakeCellNear(surface, surface.Center, ...)`. The surface centre can be roofed, as it was in EventsOtherFloor. No run has failed there, and the call is unchanged.
+- The full regression ran on `a587c18`. Since then the harness changed in `6c22ffc` and `67238f7`. Core, IdleSearchPause, and RimatomicsPlusPlus ran on the later commits. The other 60 switches did not run again.
 - Multiplayer: untested.
 
 ### Run folders
@@ -2434,3 +2454,6 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - Held-back fix on a dirty tree: `20261108-204040`.
 - Gate removed, control on a dirty tree: `20261108-204222`.
 - Clean runs on `6c22ffc`: `20261108-204451`, `204656`, `204853`, `205053`, `205304`, `205524`, and `205744`.
+- Random red from a geyser on the map: `20261108-210917`. Every row passed, and the run log gate failed.
+- Geyser check, red before the fix and green after it: `20261108-211317` and `20261108-211455`.
+- Clean runs on the head `67238f7`: `20261108-211637` (core), `211839` (IdleSearchPause), and `212004` (RimatomicsPlusPlus).
