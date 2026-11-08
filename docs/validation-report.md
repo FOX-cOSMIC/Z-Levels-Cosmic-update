@@ -2299,7 +2299,7 @@ The published `ZLevels.dll` has the SHA-256 `167EFE397E0D86AEF9A69D9CD617AF10A17
 
 ### A steam geyser in a cleared area
 
-Run `20261108-210917` ran the idle scenario on `678fb5d`. Every row passed, but the run log gate failed. The game logged `Tried to destroy non-destroyable thing SteamGeyser85991`, because a steam geyser lay in the area that row 6 clears. A geyser was on the map in some runs and not in others. The cause is not established, and the run folders show no seed.
+Run `20261108-210917` ran the idle scenario on `678fb5d`. Every row passed, but the run log gate failed. The game logged `Tried to destroy non-destroyable thing SteamGeyser85991`, because a steam geyser lay in the area that row 6 clears. A geyser was on the map in some runs and not in others. The cause is not established. The geyser runs log no map seed.
 
 `ClearCell` destroyed every non-pawn thing on a cell. `Thing.Destroy` refuses a thing whose def is not destroyable. It logs that error and returns, so the geyser stayed on its cell. The runs in this record that passed the log gate never cleared a geyser. Run `20261108-131819` (identity `9f036f0`, dirty, before the `ClearCell` change) logged eight of the same errors and failed the log gate.
 
@@ -2342,16 +2342,16 @@ The Claude code-review subagent reviewed `6e6bc23`. It returned CHANGES with ele
 |---|---|---|
 | F1: "The S17 change has not been reviewed" contradicted this record. | Important | Fixed. The sol-loop reviewer has not seen the S17 change. The subagent has. |
 | F2: The run's mod list was said to include the Ideology DLC. | Important | Fixed. The game did not load the DLC. See the section on run 213111. |
-| F3: The run folder count was wrong. | Minor | Fixed. The claim covers any run folder on this machine. |
-| F4: The gate removal for `153516` was stated as fact. | Minor | Fixed. It is labelled as inferred. No log records the edit. |
+| F3: The run folder count was wrong. | Minor | Fixed. The claim covers any run folder under `C:\Users\G4M3R`. |
+| F4: The gate removal for `153516` was stated as fact. | Minor | Fixed. `logs/gate-removal/chain.txt` records the edit and the restore. |
 | F5: Run `131819` was missing from the geyser record. | Minor | Fixed. It is in the geyser section and in the run folders. |
-| F6: A new random game was given as the cause of the geyser. | Minor | Fixed. The cause is labelled as not established. |
+| F6: A new random game was given as the cause of the geyser. | Minor | Fixed. The cause is labelled as not established. The geyser runs log no map seed. |
 | F7: The gate's duplicate-mod exemption omitted four package IDs. | Minor | Fixed. The four IDs are named. |
 | F8: Commit messages say "no log errors" in runs that have the duplicate-mod line. | Minor | Declined for the commit messages. A history rewrite would break the run identities cited here. |
 | F9: The hold-back loop sat outside the `try`. | Minor | Fixed in `36d3221`. No run reaches this exception path. |
 | F10: The idle aggregate row read PASS while the geyser row failed, as in run `211317`. | Minor | Fixed in `36d3221`. The aggregate now requires the geyser check. |
 | F11: The stage 9 exception was not attributed to the validation code. | Minor | Fixed. The text names `RuntimeValidation.GameComponentUpdate`. |
-| Item 11: The subject of commit `6c22ffc` names the reverted change. | Minor | Declined. A history rewrite would break the run identities. The PR title names the feature. |
+| Item 11: The subject of commit `6c22ffc` names the stair-pair change, not the hold-back that the commit adds. | Minor | Declined. A history rewrite would break the run identities. The PR title names the feature. |
 
 Two items stay open, because no log answers them: the game's new-game seed, and why the base game removes an ideo without the Ideology DLC. Both are in the Limits.
 
@@ -2376,7 +2376,7 @@ The own-floor gate is in `ZLevels/Source/ZLevels/ZLevels/FloorPolicy.cs`, line 1
 
 In run `204222`, the storage rows still pass, and the paused job still goes to the lower stockpile. One later row fails: "the same marked item is hauled once the pause is over". The aggregate row fails with it.
 
-So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls ran before row 6 changed. `153329` (identity `ac693f5`, dirty, built `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`, the gate present) and `153516` (identity `ac693f5`, dirty, built `C2EAA23D16E0A6D7F555FF29A0E9113C7B5FB0971D195A25D4580BE89EAD6787`, the gate removed) show the same result for the storage rows. The gate removal for `153516` is inferred from its `gate-removal` log folder and its different built hash. No log records the edit itself.
+So the storage rows cannot show the gate's own effect on storage. Removing the gate does change one later row, for marked items. The cause of that change is not established. The round 5 controls ran before row 6 changed. `153329` (identity `ac693f5`, dirty, built `167EFE397E0D86AEF9A69D9CD617AF10A17786261509E3D89612DFDD5C6739F0`, the gate present) and `153516` (identity `ac693f5`, dirty, built `C2EAA23D16E0A6D7F555FF29A0E9113C7B5FB0971D195A25D4580BE89EAD6787`, the gate removed) show the same result for the storage rows. The gate removal for `153516` is recorded in `logs/gate-removal/chain.txt`. That file shows `if (false && OwnFloorFirstSearch.OwnFloorOnlyFor(pawn))` at line 101 of `FloorPolicy.cs`, and a source diff taken after the restore.
 
 ### Final regression on `a587c18`
 
@@ -2488,7 +2488,7 @@ Run `20261108-213111` passed all four rows of MoodOtherFloor on a clean tree at 
 
 `ERROR [Verse] Faction Xosxosgal Coalition contains ideo Corunan which was removed!`
 
-The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `IdeoManager.IdeoManagerTick`. No Z-Levels frame is in it. The game did not load the Ideology DLC. The game copy has no Ideology data, the Player.log lists four active mods, and the log never mentions Ideology. The run folder's `Config\ModsConfig.xml` lists the DLCs, but the game did not load them. The cause is still open. The base game ran the ideology code without the DLC active. Neither `ZLevels/Source` nor `tools/RuntimeValidation` calls ideology code or creates a faction. The same message appears in one other run folder on this machine, `20261106-152622`, a thief scenario. It appears in no other `Player.log` in any run folder on this machine. Three reruns of the same scenario on `97dea61` passed (`213832`, `213951`, `214115`). The gate was not changed. It fails on any ERROR line other than a duplicate-mod message that names none of `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. The clean runs checked have one such line, from `Aoba.DeadManSwitch.Core`, and the gate ignores it.
+The stack names game code only: `RimWorld.IdeoManager.Remove`, called from `IdeoManager.IdeoManagerTick`. No Z-Levels frame is in it. The game did not load the Ideology DLC. The game copy has no Ideology data, the Player.log lists four active mods, and the log never mentions Ideology. The run folder's `Config\ModsConfig.xml` lists the Ideology DLC under `knownExpansions`, but its `activeMods` has four entries, and the game did not load the DLC. The cause is still open. The base game ran the ideology code without the DLC active. Neither `ZLevels/Source` nor `tools/RuntimeValidation` calls ideology code or creates a faction. The same message appears in one other run folder under `C:\Users\G4M3R`, `20261106-152622`, a thief scenario. It appears in no other `Player.log` in any run folder under `C:\Users\G4M3R`. Three reruns of the same scenario on `97dea61` passed (`213832`, `213951`, `214115`). The gate was not changed. It fails on any ERROR line other than a duplicate-mod message that names none of `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. The clean runs checked have one such line, from `Aoba.DeadManSwitch.Core`, and the gate ignores it.
 
 ### Rimatomics++ record
 
@@ -2505,9 +2505,11 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - The own-floor gate's effect on the storage path is unproven. The storage rows pass with the gate removed (run `204222`).
 - Removing the gate changes one later row, the marked item after the pause. The cause is not established.
 - Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` at lines 158 to 162 resets `VanillaCallRunning` and `GiverFilter`, and nothing else. If the search throws, `mapDest` and `currentLookedIntoMap` stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet.
-- No CI runs on the PR. The repo has no workflow files, and the base branch has no branch protection. Earlier PRs into `zlevels-1.7` have no check runs on their heads either. The one check suite on the pushed head is a Cloudflare Pages integration that stayed queued, with no runs.
+- No CI runs on the PR. On 2026-11-08, `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/commits/6e6bc2334a2965f6f6c5b34e76b61e158c3cbf9b/check-runs` returned 0 check runs for `6e6bc23`. `gh api` on the same commit's `check-suites` returned one suite from the app `cloudflare-workers-and-pages`, queued, with no runs. `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/branches/zlevels-1.7/protection` returned 404. `git ls-tree` found no `.github` files on `origin/multifloors-ideas` or `origin/zlevels-1.7`. Earlier PRs into `zlevels-1.7` returned 0 check runs on their heads.
+- The geyser runs log no map seed, so the cause of the geyser is not established. The base game's own seed behaviour was not checked.
+- The cause of the ideo removal in run `213111` is open. The base game ran the ideology code without the Ideology DLC active. No Z-Levels code is in the stack.
 - Run `170043` (`RimatomicsPlusPlus`, dirty at `d86f83c`) failed at stage 9. Its cause is not established. Follow-up: find the search that starts from an out-of-bounds cell, and check whether the harness sends it. No later clean run shows the pattern.
-- The validation gate fails on any ERROR line in a run's `Player.log` except duplicate-mod messages that do not name `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. Run `213111` failed on a game message (see its section above). The gate was not changed.
+- In a run without `-ModsConfigSource`, the validation gate fails on any ERROR line in a run's `Player.log` except duplicate-mod messages that do not name `ZLevels1.1`, `local.zlevels.validation`, `brrainz.harmony`, or `ludeon.rimworld`. Run `213111` failed on a game message (see its section above). The gate was not changed.
 - The published DLLs were not loaded into a game. The runs loaded staged copies, and the staged `ZLevels.dll` has the same hash.
 - The run folders under `.artifacts/runs` are not in git. `.gitignore` lists `.artifacts/`, so the runs stay on the machine that made them.
 - `FloorsTab` loads Royalty from a read-only copy of the user's mod list, through `-ModsConfigSource`. The user's list is not changed.

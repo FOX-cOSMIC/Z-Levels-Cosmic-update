@@ -87,7 +87,7 @@ Waiting:
   - Q3: deferred as a minor. Reason: the fix changes product code, needs a full regression, and no scenario makes the search throw. Reversal: wrap the body of `RunVanillaSearch` in a try block, and restore `mapDest` and `currentLookedIntoMap` in a finally block.
   - Validation gate: unchanged. Run `213111` failed on a game message (an ideology removal, with no Z-Levels frame), and it stays recorded as failed. Reason: three reruns of the same scenario on the same commit passed, and the gate is strict by design. Reversal: add an exact-match exemption for that message to the `$relevantErrors` filter in `tools/Invoke-RuntimeValidation.ps1`.
   - Review fixes on `36d3221`: the hold-back loop moved inside the `try`, and the idle aggregate row requires the geyser check. Reason: two findings of the review subagent (F9 and F10), each a claim that the docs or the aggregate depended on. Reversal: revert `36d3221`. The idle scenario then keeps its earlier behaviour.
-  - Commit messages: not rewritten. Reason: the reports cite the commit hashes, and a history rewrite would break them. Their "no log errors" wording refers to the gate, which ignores the duplicate-mod line. Reversal: none needed.
+  - Commit messages: not rewritten. Reason: the reports cite the commit hashes, and a history rewrite would break them. The commit 97dea61 says "no log errors". Run 20261108-212601 logged one ERROR line, the duplicate-mod message, which the gate ignores. Reversal: none needed.
 
 ## Later
 
