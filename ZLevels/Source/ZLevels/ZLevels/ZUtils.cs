@@ -128,6 +128,19 @@ namespace ZLevels
                                         newPosition = route.Position;
                                     }
                                 }
+                                else
+                                {
+                                    // The stairs stand on a floor the colonist has already reached in this search, so its walk starts where it stands now. The base
+                                    // search checked these stairs from there, nearest first. Without this, a search from the lowest of three floors stops at the middle one.
+                                    foreach (var stair in stairs.OrderBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)))
+                                    {
+                                        if (((Pawn)thing).CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly))
+                                        {
+                                            newPosition = stair.Position;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
 
                             if (newPosition.IsValid)
