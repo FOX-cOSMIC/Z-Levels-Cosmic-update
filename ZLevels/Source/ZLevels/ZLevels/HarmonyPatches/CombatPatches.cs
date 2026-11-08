@@ -35,54 +35,34 @@ namespace ZLevels
     [HarmonyPatch(typeof(AttackTargetFinder), "BestShootTargetFromCurrentPosition")]
     public static class BestShootTargetFromCurrentPosition_Patch
     {
-        private static void Prefix()
+        // Each search saves the flag and restores it, so a search nested in another returns the flag to its caller's value. The finalizer
+        // runs when the vanilla search throws too. A postfix would be skipped in that case and leave the flag on.
+        private static void Prefix(out bool __state)
         {
-            try
-            {
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("BestShootTargetFromCurrentPosition.Prefix", exception);
-            }
+            __state = CombatPatches_BestAttackTarget_Patch.multiMapSearch;
+            CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
         }
-        private static void Postfix()
+
+        private static void Finalizer(bool __state)
         {
-            try
-            {
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("BestShootTargetFromCurrentPosition.Postfix", exception);
-            }
+            CombatPatches_BestAttackTarget_Patch.multiMapSearch = __state;
         }
     }
     
     [HarmonyPatch(typeof(JobGiver_AIFightEnemy), "FindAttackTarget")]
     public class FindAttackTarget_Patch
     {
-        private static void Prefix()
+        // Each search saves the flag and restores it, so a search nested in another returns the flag to its caller's value. The finalizer
+        // runs when the vanilla search throws too. A postfix would be skipped in that case and leave the flag on.
+        private static void Prefix(out bool __state)
         {
-            try
-            {
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("FindAttackTarget.Prefix", exception);
-            }
+            __state = CombatPatches_BestAttackTarget_Patch.multiMapSearch;
+            CombatPatches_BestAttackTarget_Patch.multiMapSearch = true;
         }
-        private static void Postfix()
+
+        private static void Finalizer(bool __state)
         {
-            try
-            {
-                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("FindAttackTarget.Postfix", exception);
-            }
+            CombatPatches_BestAttackTarget_Patch.multiMapSearch = __state;
         }
     }
     
@@ -110,13 +90,6 @@ namespace ZLevels
                         {
                             if (map != oldMap)
                             {
-                                if (ZUtils.ZTracker.GetZIndexFor(map) < ZUtils.ZTracker.GetZIndexFor(oldMap))
-                                {
-                                    CanBeSeenOverFast_Patch.checkLevels = true;
-                                    CanBeSeenOverFast_Patch.upperMap = oldMap;
-                                    CanBeSeenOverFast_Patch.lowerMap = map;
-                                    CanBeSeenOverFast_Patch.caster = searcher.Thing;
-                                }
                                 var target = AttackTargetFinder.BestAttackTarget(searcher, flags, validator, minDist,
                                         maxDist, locus, maxTravelRadiusFromLocus, canBashDoors, canTakeTargetsCloserThanEffectiveMinRange, canBashFences, onlyRanged);
                                 //ZLogger.Message(searcher.Thing + " - 1: " + ZUtils.ZTracker.GetMapInfo(searcher.Thing.Map) + " - result: " + target);
@@ -133,10 +106,6 @@ namespace ZLevels
                     {
                         // The loop moves the searcher from map to map. It goes back on every exit, including a fault inside the loop.
                         recursiveTrap = false;
-                        CanBeSeenOverFast_Patch.checkLevels = false;
-                        CanBeSeenOverFast_Patch.upperMap = null;
-                        CanBeSeenOverFast_Patch.lowerMap = null;
-                        CanBeSeenOverFast_Patch.caster = null;
                         //ZLogger.Message("1 Trying to get " + searcher.Thing + " back to " + oldMap + " - " + oldPosition);
                         ZUtils.TeleportThing(searcher.Thing, oldMap, oldPosition);
                     }
@@ -152,54 +121,6 @@ namespace ZLevels
         }
     }
     
-    [HarmonyPatch(typeof(GenGrid), "CanBeSeenOverFast")]
-    public static class CanBeSeenOverFast_Patch
-    {
-        public static bool checkLevels = false;
-    
-        public static Map upperMap = null;
-    
-        public static Map lowerMap = null;
-    
-        public static Thing caster = null;
-        public static bool Prefix(IntVec3 c, Map map, ref bool __result)
-        {
-            try
-            {
-                if (checkLevels)
-                {
-                    __result = true;
-                    return false;
-                }
-                if (checkLevels && c.GetTerrain(upperMap) == ZLevelsDefOf.ZL_OutsideTerrain)
-                {
-                    ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                    ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-                    __result = true;
-                    return false;
-                }
-                else if (checkLevels && c != caster.positionInt)
-                {
-                    ZLogger.Message(caster + " - " + c + " - Return false: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                    ZLogger.Message(caster + " - " + c + " - Return false: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-                }
-                else if (checkLevels && c == caster.positionInt)
-                {
-                    ZLogger.Message(c + " - Return true: upper - " + c.GetFirstBuilding(upperMap) + " - " + c.GetTerrain(upperMap));
-                    ZLogger.Message(c + " - Return true: lower - " + c.GetFirstBuilding(lowerMap) + " - " + c.GetTerrain(lowerMap));
-                    __result = true;
-                    return false;
-                }
-                return true;
-            }
-            catch (Exception exception)
-            {
-                // The vanilla check runs, so this Prefix returns true. __result is left for the vanilla check to write.
-                CombatFaults.Log("GenGrid.CanBeSeenOverFast.Prefix", exception);
-                return true;
-            }
-        }
-    }
     
     [HarmonyPatch(typeof(Verb_LaunchProjectile), "TryCastShot")]
     public static class TryCastShot_Patch
