@@ -509,6 +509,12 @@ namespace ZLevelsValidation
                     RunSearchTimingCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsworksearchprofile"))
+                {
+                    finished = true;
+                    RunWorkSearchProfile();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstairplacement"))
                 {
                     finished = true;
