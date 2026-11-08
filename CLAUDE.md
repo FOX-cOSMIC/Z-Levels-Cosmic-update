@@ -1,6 +1,6 @@
 # Z-Levels for RimWorld 1.7
 
-Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4998 rev1299. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public GitHub fork of RamRod6198/Z-Levels).
+Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.5000 rev1275. One checkout: this folder, branch `master`. Remote `origin` is https://github.com/FOX-cOSMIC/Z-Levels-Cosmic-update (public GitHub fork of RamRod6198/Z-Levels).
 
 ## Documents
 
@@ -9,7 +9,7 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.4998 re
 
 ## Constraints
 
-- Target RimWorld 1.7.4998 rev1299 on the Steam unstable branch (authorized permanently). Not 1.6.
+- Target RimWorld 1.7.5000 rev1275 on the Steam unstable branch (chosen 2026-11-08, ADR-0010). Not 1.6.
 - Keep the namespace, the types XML uses, and the subsystem boundaries. Package id is `foxcosmic.zlevels17` (changed from `ZLevels1.1` on 2026-11-04 so the Steam item does not collide with upstream's Workshop item; `About.xml` marks `ZLevels1.1` incompatible).
 - The 1.1 and 1.3 folders were retired on 2026-11-05 (ADR-0009). Their history stays in git. Only `ZLevels/1.7` ships. `ZLevels/LoadFolders.xml` loads `Common` and `1.7`.
 - Ship no game DLLs and no second Harmony. `0MultiplayerAPI.dll` ships in `ZLevels/1.7/Assemblies`.

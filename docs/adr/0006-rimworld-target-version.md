@@ -4,4 +4,4 @@ The version is set once, in `Directory.Build.props`, as `RimWorldVersion`. The b
 
 The game updated after the version was pinned, and the old build did not notice. A build against the wrong game can compile and then fail in play. A stop at build time names the mismatch on the first run. To build against another install on purpose, set `RimWorldDirectory` to a matching install.
 
-Decided 2026-11-05. This answers D2.
+Decided 2026-11-05. This answers D2. Its value, 1.7.4998 rev1299, was replaced on 2026-11-08 by ADR-0010. The mechanism above still applies.
