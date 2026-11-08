@@ -923,6 +923,15 @@ namespace ZLevelsValidation
                 // Rows 4 and 5. The pause keeps the own floor's settings. Each colonist does one search that finds nothing, which starts the pause, and
                 // then a paused search. Row 4: the surface does no hauling. Row 5: the colonist is locked to the level below.
                 Map belowSurface = tracker.GetLowerLevel(surface.Tile, surface) ?? throw new InvalidOperationException("no level below the surface");
+                // ClearCell must clear a natural steam geyser. Destroy refuses a geyser and logs an error, and the geyser stays on its cell. The run
+                // log gate fails the run on that error. This check puts a geyser in a cleared disc, then clears its cell.
+                IntVec3 geyserCell = OnMapCell(surface, new IntVec3(surface.Size.x / 2 - 20, 0, surface.Size.z / 2 + 20));
+                CarveAround(surface, geyserCell, 3);
+                ClearCell(surface, geyserCell);
+                Thing geyser = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("SteamGeyser"));
+                GenSpawn.Spawn(geyser, geyserCell, surface);
+                ClearCell(surface, geyserCell);
+                Record("ClearCell clears a steam geyser from its cell", geyser.Spawned ? "FAIL: the geyser is still on the map" : "PASS");
                 IntVec3 pauseBlock = FindCentralOpenBlock(surface, 9, 9);
                 if (!pauseBlock.IsValid)
                 {

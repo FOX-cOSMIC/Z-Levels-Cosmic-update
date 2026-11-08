@@ -2471,7 +2471,13 @@ namespace ZLevelsValidation
         private static void ClearCell(Map map, IntVec3 cell)
         {
             foreach (var thing in cell.GetThingList(map).ToList())
-                if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
+            {
+                if (thing is Pawn) continue;
+                // Destroy refuses a thing whose def is not destroyable, such as a natural steam geyser, and logs an error. Remove that thing from the
+                // map instead, so that the cell is clear.
+                if (thing.def.destroyable) thing.Destroy(DestroyMode.Vanish);
+                else thing.DeSpawn(DestroyMode.Vanish);
+            }
         }
 
         // The unforced haul test forbids the colony's other wood, so it cannot be used. The campfire rebuild needs the rest of its logs
