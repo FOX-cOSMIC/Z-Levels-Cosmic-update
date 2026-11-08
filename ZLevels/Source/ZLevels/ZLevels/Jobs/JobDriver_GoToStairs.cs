@@ -14,7 +14,19 @@ namespace ZLevels
         }
         public override IEnumerable<Toil> MakeNewToils()
         {
-            yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.OnCell);
+            Toil walk = Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.OnCell);
+            walk.FailOn(_ =>
+            {
+                // A walk to stairs that cannot be reached drops the saved route to them, so the next decision picks again (idea "saved stair
+                // routes" on docs/mod-comparison/ideas.html).
+                if (!pawn.pather.Moving && TargetA.Thing is Building_Stairs stairs && !pawn.CanReach(stairs, PathEndMode.OnCell, Danger.Deadly))
+                {
+                    StairRouteCache.MarkFailed(stairs.Map, stairs);
+                    return true;
+                }
+                return false;
+            });
+            yield return walk;
             Toil useStairs = Toils_General.Wait(60, 0);
             ToilEffects.WithProgressBarToilDelay(useStairs, TargetIndex.A, false, -0.5f);
             ToilFailConditions.FailOnDespawnedNullOrForbidden<Toil>(useStairs, TargetIndex.A);

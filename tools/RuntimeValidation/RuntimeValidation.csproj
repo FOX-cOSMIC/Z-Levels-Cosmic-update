@@ -4,11 +4,14 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <RimWorldDirectory Condition="'$(RimWorldDirectory)' == ''">C:/SteamLibrary/steamapps/common/RimWorld</RimWorldDirectory>
+    <HarmonyAssembly Condition="'$(HarmonyAssembly)' == ''">$(RimWorldDirectory)/../../workshop/content/294100/2009463077/1.7/Assemblies/0Harmony.dll</HarmonyAssembly>
   </PropertyGroup>
   <Import Project="$([MSBuild]::GetPathOfFileAbove('RimWorld.targets', '$(MSBuildThisFileDirectory)'))" />
   <ItemGroup>
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj" Private="false" />
     <ProjectReference Include="../../ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj" Private="false" />
     <PackageReference Include="Krafs.Rimworld.Ref" Version="$(RimWorldPackageVersion)" PrivateAssets="all" />
+    <Reference Include="0Harmony" HintPath="$(HarmonyAssembly)" Private="false" />
   </ItemGroup>
 </Project>

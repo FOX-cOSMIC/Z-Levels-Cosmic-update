@@ -822,3 +822,1354 @@ Each run was made in a clean worktree, with the game's mod links pointed at that
 - Earlier cross-level cooling runs: `.artifacts/runs/20261103-124931/`, `.artifacts/runs/20261103-125122/`, `.artifacts/runs/20261103-125300/`, and `.artifacts/runs/20261103-130813/`.
 - Task 7 regression runs: `.artifacts/runs/20261103-134920/`, `.artifacts/runs/20261103-134331/`, `.artifacts/runs/20261103-135031/`, and `.artifacts/runs/20261103-135227/`.
 - Partial mod-list run without RimworldReadableNumbers: `.artifacts/runs/20261103-135706/`.
+
+## Commit method for shared files (2026-11-05)
+
+Another session's uncommitted vault work sits in `tools/RuntimeValidation/RuntimeValidation.cs` and `tools/Invoke-RuntimeValidation.ps1`. `git commit -- <file>` takes the whole working-tree file, so it would commit that work too. A shared file is committed in three steps:
+
+1. Write the committed text with only this task's edit: `git show HEAD:<file> | sed '<this task's edit>' > <scratch file>`.
+2. Store that text as a blob and point the index at it: `git hash-object -w <scratch file>` prints the blob, and `git update-index --cacheinfo 100644,<blob>,<file>` sets the index entry.
+3. Check `git diff --cached --stat` lists only this task's lines and files, then run `git commit -F <message file>` with no path arguments.
+
+After the commit the working copy still holds the other session's changes, so git status keeps the file as modified. That is expected. Committed text is LF, which `git show HEAD:<file> | tr -cd '\r' | wc -c` confirms.
+
+## Search timing baseline
+
+Recorded 2026-11-06 for Task 19 of the multi-floor ideas plan. Phase B changes are measured against these numbers, so the method is part of the record.
+
+### What the scenario times
+
+Run it with `tools/Invoke-RuntimeValidation.ps1 -SearchTiming`. Its required row is `search timing recorded`.
+
+- Ten colonists each run the work search 50 times, which makes 500 calls per setup. Each call is `TryIssueJobPackage` on the colonist's normal `JobGiver_Work`, reached through `SearchWorkJob`.
+- Three setups run in order in one game. One floor is the surface alone. Two floors add the lower floor. Three floors add the upper floor as well.
+- Each setup first makes one untimed search per colonist. Then the clock moves 601 ticks before every timed call, one tick past `FloorPolicy.IdlePauseTicks`. Without that step, the idle pause makes the vanilla search answer, and the timing measures that search instead.
+- The 500 timed calls form 50 rounds of ten calls. The rows give the first round, the median round, the slowest round, and the garbage collections inside the timed window.
+- A map tick is `Map.MapPreTick` followed by `Map.MapPostTick`. Those are the two per-map calls that `TickManager.DoSingleTick` makes. Version 1.7.4998 has no `Map.MapTick` method. Things on a map tick through the global tick lists, so their cost is outside these numbers.
+- The map ticks run after all three search setups. The ticks spawn animals and plants, and a spawn would change a later search.
+
+### Repeats
+
+Three runs used the same code: `20261106-082234`, `20261106-082409` and `20261106-082518`. Each run starts a new random game, and each setup is timed in that game.
+
+The colonists come from a fixed random state, and the lower floor is generated in that state too. The lower floor still depends on the random surface, so its walkable cells vary. The enabled work types total 120 in `20261106-082234` and 118 in the other two runs.
+
+Every timed call found no job in every run. The search cost per setup:
+
+| Run | Setup | Mean us per call | Median round in ms | Slowest round in ms | Cross-floor searches | Garbage collections gen0/gen1/gen2 |
+|---|---|---|---|---|---|---|
+| 20261106-082234 | One floor | 359.5 | 3.3 | 5.1 | 0 | 0/0/0 |
+| 20261106-082234 | Two floors | 587.7 | 5.5 | 13.1 | 34200 | 2/2/1 |
+| 20261106-082234 | Three floors | 564.5 | 5.4 | 8.2 | 34200 | 0/0/0 |
+| 20261106-082409 | One floor | 412.7 | 3.7 | 6.0 | 0 | 0/0/0 |
+| 20261106-082409 | Two floors | 747.4 | 7.6 | 32.7 | 34500 | 1/1/0 |
+| 20261106-082409 | Three floors | 443.3 | 3.6 | 25.4 | 34500 | 1/1/0 |
+| 20261106-082518 | One floor | 405.6 | 3.5 | 16.3 | 0 | 1/1/0 |
+| 20261106-082518 | Two floors | 526.0 | 4.5 | 24.9 | 34500 | 1/1/0 |
+| 20261106-082518 | Three floors | 492.2 | 3.8 | 32.2 | 34500 | 2/2/1 |
+
+Each map tick row covers 300 ticks:
+
+| Run | Lower floor, us per tick | Upper floor, us per tick | Surface, reference, us per tick |
+|---|---|---|---|
+| 20261106-082234 | 51.2 | 75.4 | 291.1 |
+| 20261106-082409 | 50.0 | 76.8 | 264.7 |
+| 20261106-082518 | 54.8 | 106.0 | 51.3 |
+
+The surface before the floors were built, in each repeat:
+
+| Run | Walkable cells | Roofed cells | Things | Lower floor walkable cells | Enabled work types |
+|---|---|---|---|---|---|
+| 20261106-082234 | 55149 | 5736 | 34215 | 690 | 120 |
+| 20261106-082409 | 59659 | 1972 | 43754 | 255 | 118 |
+| 20261106-082518 | 59427 | 2253 | 16092 | 20 | 118 |
+
+The upper floor changed none of these surface counts in any run. The lower floor removed at most one thing from the surface.
+
+### Reading the numbers
+
+One floor was the cheapest setup in all three repeats. Two floors cost 30 to 81 percent more per call than one floor. Three floors cost 7 to 57 percent more.
+
+Three floors ran faster than two floors in five of the six runs, by 4 to 58 percent. In `20261106-082036` the two were level, and three floors was 1 percent slower.
+
+The cause of the gap is not known. Three things were checked, and none of them explains it. The upper floor changed no surface counts. Garbage collection did not favor the faster setup: in `20261106-082518` the three-floor window had more collections than the two-floor window, and it ran faster. The round medians in `20261106-082409` are 7.6 ms for two floors and 3.6 ms for three floors, so the gap is not one slow round. One candidate is not tested: the two-floor setup is timed before the upper floor exists. A follow-up would time the two-floor setup again after the upper floor exists, or give each setup its own run.
+
+### Limits
+
+- The surface is random in every run, because the runner starts a new random game. Its counts differ from run to run, as the table shows. Costs that depend on the surface vary with it, including the surface reference tick.
+- The lower floor depends on the random surface, so its walkable cells ran from 20 to 690 in the repeats.
+- The seed fixes the colonists' random draws, but the enabled work types still differ by two between the first repeat and the other two.
+- Every timed call found no job. These numbers measure idle searches. A search that finds work is not measured.
+- Runs `20261106-081614`, `20261106-081820` and `20261106-082036` are exploratory. Their colonists and lower floors were not seeded, so they differ from the repeats and from one another. They also record different rows. Run `20261106-081614` has no round, collection or surface rows. Run `20261106-081820` has no surface rows. Run `20261106-082036` has all of them.
+- The runner builds the working tree, which held uncommitted vault work from another session. The timed build therefore differs from commit `dfd2686` by that work.
+- Each run has one `Player.log` error line. It is the duplicate package warning for `Aoba.DeadManSwitch.Core` in the installed mod list. It is not a Z-Levels error.
+
+### Exploratory runs
+
+These runs are not repeats of the final method.
+
+- `20261106-081614`: one floor 378.3 us per call, two floors 685.0, three floors 314.7. Cross-floor searches 34600 in both multi-floor setups. Lower floor 6563 walkable cells.
+- `20261106-081820`: one floor 566.6 us per call, two floors 487.7, three floors 207.1. Cross-floor searches 34600 in both multi-floor setups. Lower floor 97 walkable cells.
+- `20261106-082036`: one floor 308.5 us per call, two floors 521.5, three floors 528.5. Cross-floor searches 28950 in both multi-floor setups. Lower floor 5671 walkable cells.
+
+### Run folders
+
+- Repeats: `.artifacts/runs/20261106-082234/`, `.artifacts/runs/20261106-082409/` and `.artifacts/runs/20261106-082518/`.
+- Exploratory: `.artifacts/runs/20261106-081614/`, `.artifacts/runs/20261106-081820/` and `.artifacts/runs/20261106-082036/`.
+
+Each folder holds `validation-results.txt`, which has the rows, and `Player.log`.
+
+## Lighter update on extra floors
+
+Recorded 2026-11-06 for Task 20 of the multi-floor ideas plan. The change is committed as `89e95e3`, and the step cost rows as `f5b349e`.
+
+### What changed
+
+Four steps of the map tick skip on any floor whose Z index is not 0: the wind update, wild animal spawning, the choice of the next weather, and passing ships. The surface runs all four. Each step is a Harmony prefix on the game's own tick method. The prefixes are in `HarmonyPatches/ExtraFloorTickPatches.cs`.
+
+### Red and green
+
+Run the scenario with `tools/Invoke-RuntimeValidation.ps1 -LighterFloors`. Its required row is `lighter floors`. The rows are `no wild spawn on the lower floor in 2000 ticks`, `lower floor weather does not change`, and `the surface still runs its weather`.
+
+- Red, run `20261106-083418`: the spawn row fails with 2 wild animals spawned on the lower floor. The weather row fails because the lower floor's weather decider ran. The surface row passes. The patch was not in the code.
+- Green, run `20261106-083516`: all rows pass. The entry row shows 3 wild animal kinds acceptable on the lower floor.
+- Green rerun with the step cost rows, run `20261106-084041`: all rows pass.
+- Completion check through task-done, run `20261106-084157`: passes.
+
+An earlier red, run `20261106-083222`, did not fail the spawn row. The spawner found no entry cell, because it needs an edge the colony can reach. The scenario now opens the lower floor's outer ring, removes the roofs there, and places one colonist on the floor. Both red runs ran without the patch.
+
+### Core regression
+
+The core validation passes with the change: run `20261106-083608`.
+
+### Benefit
+
+The Task 19 timing ran three times on the patched code: `20261106-083754`, `20261106-083827` and `20261106-083901`. The table compares means and ranges with the three Task 19 repeats.
+
+| Measure | Task 19 repeats, mean | Task 19 repeats, range | Patched runs, mean | Patched runs, range |
+|---|---|---|---|---|
+| Map tick, lower floor, us per tick | 52.0 | 50.0 to 54.8 | 56.0 | 44.7 to 62.0 |
+| Map tick, upper floor, us per tick | 86.1 | 75.4 to 106.0 | 100.7 | 94.4 to 106.9 |
+| Search, one floor, us per call | 392.6 | 359.5 to 412.7 | 387.3 | 357.5 to 416.7 |
+| Search, two floors, us per call | 620.4 | 526.0 to 747.4 | 595.9 | 485.2 to 714.5 |
+| Search, three floors, us per call | 500.0 | 443.3 to 564.5 | 454.6 | 306.4 to 541.5 |
+
+No measurable benefit shows. The lower floor mean rose by 4.0 us per tick, and the upper floor mean rose by 14.6 us per tick. Both differences lie inside the run-to-run spread.
+
+### Step cost on the surface
+
+Run `20261106-084041` times each skipped step alone on the surface, 300 calls each, which keeps all four steps. Wind costs 20.4 us per call. Wild spawning costs 0.5 us, weather choice 0.8 us, and passing ships 0.5 us.
+
+The extra-floor cost of each step is not measured, because the patch skips the step on those floors. The reason for the missing benefit is therefore not known. Either wind costs far less on the extra floors than on the surface, or the spread hides the difference. Three runs cannot separate the two.
+
+### Limits
+
+- Wind and passing ships have no row. Their skip is covered by the code and by the core regression, not by a red and green pair.
+- The benefit is not shown. The means move the wrong way on both floors, but inside the spread.
+- The surface reference tick in the patched runs stays at 241 to 283 us per tick, as expected, because the surface is not skipped.
+
+### Run folders
+
+- Red: `.artifacts/runs/20261106-083222/`, which had no entry cell and is not a valid red, and `.artifacts/runs/20261106-083418/`.
+- Green: `.artifacts/runs/20261106-083516/`, `.artifacts/runs/20261106-084041/` and `.artifacts/runs/20261106-084157/`.
+- Core: `.artifacts/runs/20261106-083608/`.
+- Benefit: `.artifacts/runs/20261106-083754/`, `.artifacts/runs/20261106-083827/` and `.artifacts/runs/20261106-083901/`.
+
+## Own floor first
+
+Task 21 of the multi-floor ideas plan, idea 8 on `docs/mod-comparison/ideas.html`. Code commit `ad922eb`. This section records the change, the red and green runs, the regression runs, the search timing and the limits.
+
+### What changed
+
+- A colonist's work search checks its own floor before the other floors. Work at or above the threshold priority is checked on every floor first. Lower-priority work on another floor is taken only when the own floor has none.
+- The threshold is `ZLevelsSettings.WorkGiverHighPriorityThreshold`. It defaults to 2, and the mod settings slider runs from 0 to 4. A value of 0 turns the high pass off. The threshold reads the game's work priorities, so with "Use work priorities" off the high pass does nothing.
+- The copied `TryIssueJobPackage` is removed from `JobPatches.cs`, about 430 lines. The vanilla search runs once per floor through `OwnFloorFirstSearch` in `HarmonyPatches/OwnFloorFirstPatch.cs`. Each pass sets which work givers the search may check.
+- While the own-floor search runs, the haul, bill, construction, refuel, tend and rescue givers answer with the helpers the copy used (`CrossFloorGiverJob`). Each giver keeps the copy's choice of validator and job. Rescue's job and tend's validator stay vanilla, as in the copy. A helper that calls back into its own giver gets the vanilla method, which stops the refuel helper from calling itself.
+- Two fixes came out of the regression runs:
+  - `IsGoodStoreCell` sets the look-up map to the stockpile's own map for the check, and restores the old map after it. The floor iterator leaves the last floor it yielded recorded, so own-floor cells were checked on the floor below, and every one was refused.
+  - In `BuildJobListFor`, a tend job without medicine no longer becomes a `ZL_HaulThingToDest` with no target. Without medicine, the colonist walks to the patient's floor only when that floor is not its own.
+- The own-floor check and the job-target check give their colonists the work types they set. Some backstories disable work types, and the setup logged an error for a colonist who could not haul. `SpawnCapableColonistNear` retries until the colonist has the work types the row needs.
+
+### Red and green
+
+Own-floor check (`-OwnFloorFirst`):
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-085341 | Red, on the copy (commit `1c47e0c`) | Own-floor work: 9 searches on other floors. FAIL |
+| 20261106-091952 | Green, first version of the new search | All rows PASS |
+| 20261106-101952 | Haul givers patched, storage fix not yet in | Rows 1 and 3 FAIL: the own-floor steel haul returns no job |
+| 20261106-120655 | Probe run | The stockpile cell on `Map-0` is checked against the look-up map `Map-1` |
+| 20261106-130035 | Fixture set hauling on a colonist who could not haul | All rows PASS, but the runner refused the run on an error line |
+| 20261106-130231 | Final | All rows PASS, no error lines |
+
+Job-target check (`-JobTargets`, new):
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-125712 | Red, before the tend fix | FAIL: a `ZL_HaulThingToDest` with no target |
+| 20261106-125839 | Green, after the tend fix | PASS |
+
+Core failure found by the regression set:
+
+- `20261106-123103`: the core run timed out at stage 17. The log had five `JobDriver_HaulThingToDest: targetA.Thing is null` errors for one colonist, each from a new `ZL_HaulThingToDest` job.
+- I did not capture the job type behind those errors. The cause rests on the error text, on the code, and on the job-target check, which reproduces the same error on the tend branch. In the searches this change touches, no other branch of `BuildJobListFor` builds a null target that I could find. Vanilla `CanRefuel` returns false when no fuel is reachable, before any refuel job is made, so the refuel branch cannot get a fuel-less job from these searches.
+- On the final code, the core run passed in `20261106-125914`, `20261106-130707` and `20261106-130823`.
+
+### Regression runs on the final code
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-130231 | `-OwnFloorFirst` | PASS, five rows |
+| 20261106-130112 | `-OtherColonistHauls` | PASS |
+| 20261106-130356 | `-AllColonistsHaul` | PASS |
+| 20261106-130309 | `-MultiBuild` | PASS |
+| 20261106-130458 | `-Cooling` | PASS |
+| 20261106-125839 | `-JobTargets` | PASS |
+| 20261106-125914, 20261106-130707, 20261106-130823 | Core, three runs | PASS, 33 rows each |
+| 20261106-130625, 20261106-131125, 20261106-131158 | `-SearchTiming`, three runs | PASS |
+
+### Search timing
+
+Same method as the Task 19 baseline. Microseconds per call. The baseline column is the mean of its three runs. The final columns are the three runs on the final code.
+
+| Setup | Task 19 baseline mean | 130625 | 131125 | 131158 | Final mean |
+|---|---|---|---|---|---|
+| One floor | 392.6 | 391.3 | 282.3 | 531.9 | 401.8 |
+| Two floors | 620.4 | 493.6 | 231.6 | 394.3 | 373.2 |
+| Three floors | 500.0 | 187.5 | 214.1 | 346.7 | 249.4 |
+
+Map ticks, microseconds per tick, 300 ticks per row. This change does not touch map ticks, so these rows are a control.
+
+| Run | Lower | Upper | Surface |
+|---|---|---|---|
+| 20261106-130625 | 48.2 | 62.6 | 216.3 |
+| 20261106-131125 | 47.3 | 86.2 | 212.9 |
+| 20261106-131158 | 38.9 | 61.9 | 212.4 |
+
+Reading the numbers:
+
+- The one-floor setup runs no cross-floor search, and its three runs range from 282 to 532 µs. The noise in this method is about as large as the differences above.
+- The two- and three-floor means are below the baseline. The three runs do not separate from the noise, so no speed-up is claimed.
+- The cross-floor column is not comparable with the baseline. It counts calls to `FloorPolicy.Allowed`. The search now makes one call per pass, so the count fell from 34200 to 4300 to 6050. The counter itself is unchanged.
+
+### Limits
+
+- The cross-floor tend branch (no medicine, patient on another floor) runs `ZL_GoToMap`, but no row checks it.
+- The job-target check covers the tend branch only. The refuel argument rests on the vanilla code, not on a row.
+- The job type behind the errors in `20261106-123103` was not captured.
+- The threshold reads the game's priorities. A player who turns "Use work priorities" off gets no threshold effect.
+- Warning CS0219 for `dest` in `HasHaulJobOnThing` (`JobPatches.cs`) is in HEAD. This change did not add it.
+- Core failed intermittently while this task ran. One failure after the storage fix (`20261106-123103`) was traced to the tend branch. The final code passed core three times. Three passes do not prove that the intermittent failure is gone.
+
+### Run folders
+
+- Own floor first: `.artifacts/runs/20261106-085341/` (red), `20261106-091952/` (green), `20261106-130231/` (final).
+- Job targets: `.artifacts/runs/20261106-125712/` (red), `20261106-125839/` (green).
+- Regression: `20261106-130112/`, `20261106-130356/`, `20261106-130309/`, `20261106-130458/`.
+- Core: `20261106-123103/` (failed), `20261106-125914/`, `20261106-130707/`, `20261106-130823/`.
+- Search timing: `20261106-130625/`, `20261106-131125/`, `20261106-131158/`.
+
+## Job taken on arrival
+
+Task 23 of the multi-floor ideas plan, idea "check the job on arrival" on `docs/mod-comparison/ideas.html`. Code change in `ZLevels/Source/ZLevels/ZLevels/Jobs/Toils_ZLevels.cs` (`GetArrivalCheck`, `MainJobTargetIsGone`). Scenario `-JobTakenOnArrival`, required row `job taken on arrival`.
+
+### What changed
+
+- `Toils_ZLevels.GoToMap` checks the colonist's main job when the colonist reaches the stairs. The check sits between `goToStairs` and `useStairs`.
+- A target is gone when it is destroyed, or when it is neither spawned nor held by the colonist. A held target is still in use. A main job with no thing as its target is never gone.
+- A gone target resets the colonist's job tracker, then ends the walk with `JobCondition.Incompletable`. The colonist searches again from the stairs.
+- The runner's pass gate reads `ERROR` case-sensitively now. The row label "no error and no pause" had tripped the case-insensitive gate, which refused a run with all rows passing (`20261106-134820`).
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-134820 | First draft, steel destroyed | Rows passed. The walk ended at once, so the draft did not test the stairs. The gate refused the run on the row label |
+| 20261106-135139 | Draft, steel taken away, before the fix | Row "target taken during the walk" FAIL: the colonist went down and idled on the lower floor |
+| 20261106-140850 | Final scenario, committed code | FAIL: the colonist takes the stairs down for a steel that is already gone, and no haul of the second steel follows |
+| 20261106-140805 | Final scenario, fixed code | All four rows PASS: the colonist ends the stale walk at the surface stairs, then hauls the second steel on its own floor |
+
+The brief expected the red to show an error or a pause. It did not. The red that failed is the colonist walking down for a steel that is gone. The "no error and no pause" row passes on both versions.
+
+### Test setup
+
+- The steel is taken away with `DeSpawn`, not destroyed. A destroyed target ends the walking job at once, before the stairs.
+- The second steel is placed on the surface after the walk starts, so the first search still picks the lower steel.
+- The other start colonists have Hauling set to no-work during setup. One of them stored the second steel before the check ran in `20261106-135529` and `20261106-135808`.
+- The check compares what a job targets. Job objects are pooled, and a comparison of job objects missed the new haul in `20261106-140546`.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-141005 | -ReservationRefused (the Task 4 pattern) | PASS |
+| 20261106-141038 | -OtherColonistHauls | PASS |
+| 20261106-141140 | -AllColonistsHaul | PASS |
+| 20261106-141247 | -StairRoutes | PASS |
+| 20261106-141324 | -BackgroundHaul | PASS |
+| 20261106-141401 | -JobTargets | PASS |
+| 20261106-141433 | -OwnFloorFirst | PASS |
+| 20261106-141510 | -MultiBuild | PASS |
+| 20261106-141607 | -Cooling | PASS |
+| 20261106-141734 | core (no switch) | PASS |
+
+### Limits
+
+- Only the cross-floor walk through `GoToMap` is checked. `FindRouteWithStairs`, used by `JobDriver_GoToLocation`, is unchanged. No work chain in `ZLevelsManager` builds that job.
+- The planned "error or pause" red did not occur. The observed red is documented above.
+- In the failing state, a diagnostic found the look-up map still on the lower floor after the colonist walked down, and no store cell found for the surface steel. This was not investigated. The fixed path does not reach that state.
+- Task 24, which would remove the reach and reservation patches, is not started. The Task 19 numbers time the whole search per floor count, so they do not show those patches cost time.
+
+## Raids land on the ground
+
+Task 25 of the multi-floor ideas plan, idea 3 on `docs/mod-comparison/ideas.html`. Code: `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/RaidGroundPatch.cs`. Scenario `-RaidGround`, required row `raid ground`.
+
+### What changed
+
+- A prefix on the enemy raid's `TryExecuteWorker` aims a raid at a lower map at the surface of the same tile. The faction, points, strategy and arrival mode are kept.
+- A raid on the surface, or on a pocket map, is unchanged. If the surface lookup fails, the prefix logs an error and leaves the target alone.
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-142216 | Scenario, no patch | Row 1 FAIL: no raider on the surface, `fired False` |
+| 20261106-142335 | Scenario with the spawn diagnostic, no patch | Row 1 FAIL: `fired False`. The faction (The Spears) resolved, and the spawn center was none. Row 2 PASS: 6 raiders |
+| 20261106-142431 | With the patch | All rows PASS: 5 raiders on the surface, none on the lower map. The surface raid: 5 raiders on the surface |
+
+Before the change, a raid aimed at the lower map never fired. Its arrival is an edge walk-in, which needs an open entry cell, and the underground floor has none. The row fails because no raider reaches the surface.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-142526 | core (no switch) | PASS |
+| 20261106-142654 | -JobTakenOnArrival | PASS |
+| 20261106-142736 | -OtherColonistHauls | PASS |
+
+### Limits
+
+- The scenario uses the edge walk-in, which spawns raiders at once. Drop-pod arrivals (EdgeDrop, CenterDrop) are not exercised.
+- Outside debug mode the reroute writes no log line. The row counts are the proof.
+
+## Leave by stairs
+
+Task 26 of the multi-floor ideas plan, idea 4 (DM9 on `docs/mod-comparison/ideas.html`): a pawn on a lower or upper floor walks to the stairs toward the surface, changes floor, and leaves by the surface exit. Code: `ZLevels/Source/ZLevels/ZLevels/Jobs/LeaveByStairs.cs`. Scenario `-LeaveFromLower`, required row `leave from lower`.
+
+### What changed
+
+- A prefix on `JobGiver_ExitMap.TryGiveJob` (the method every exit job goes through, including the exit duty) routes a pawn on a lower or upper floor to the stairs toward the surface. The route is a `ZL_GoToMap` job whose target is the surface of the same tile.
+- A pawn on the surface, on a pocket map, or on a floor with no stairs toward the surface keeps the vanilla exit. A downed pawn that cannot crawl keeps it too.
+- The scenario gives the visitor the game's own exit lord, `LordJob_ExitMapBest`. The think tree reaches an exit duty only through its lord, so a bare duty is never used.
+
+### Red and green
+
+| Run | State | Result |
+|---|---|---|
+| 20261106-145250 | Lord-based scenario, route patch removed | FAIL. The visitor walks on the lower floor to its west edge at (0, 0, 12) and leaves the lower map there. It never reaches the stairs or the surface. |
+| 20261106-145118 | Lord-based scenario, with the patch | PASS. The visitor walks to the stairs at (2, 0, 182), changes to the surface map, walks to the exit and leaves at (0, 0, 182). All three rows pass. |
+
+Earlier runs gave the visitor a bare exit duty with no lord: 20261106-143153 (red), 143526 and 143835 (green attempts), and the trace run 144223. The think tree never used that duty in those runs, so they test a state the game does not produce. They are not evidence for the change.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-145543 | core (no switch) | PASS |
+| 20261106-145659 | -JobTakenOnArrival | PASS |
+| 20261106-145737 | -RaidGround | PASS |
+| 20261106-145814 | -OtherColonistHauls | PASS |
+| 20261106-145917 | -StairRoutes | PASS |
+| 20261106-145954 | -ReservationRefused | PASS |
+
+### Limits
+
+- The scenario covers the exit lord with defend-self off. The defend-self, escort, random-exit and drop-pod leaves are not exercised. Thieves, kidnappers and caravans are not tested on their own.
+- The red outcome depends on the generated layout. In run 145250 the level had 738 walkable cells and the vanilla exit reached its west edge. A layout with no reachable edge leaves the visitor standing on the lower floor instead, which the scenario also fails.
+- The lord stays on the lower map while the pawn walks on the surface. The scenario does not check the lord after the pawn leaves.
+
+## Game events to check
+
+Task 27 of the multi-floor ideas plan. Each event was tested first, as the brief asks, and code changed only where a row failed. Two events failed, and both fixes are in code that the failing rows exercise. Each scenario is a separate runner switch.
+
+### What changed
+
+- `ZLevels/Common/Defs/Jobs/Jobs.xml`: `ZL_GoToMap` sets `dropThingBeforeJob` to false and `carryThingAfterJob` to true, as vanilla `Goto` does. The game's job tracker drops a carried thing before any job whose `dropThingBeforeJob` is true, and that is the default. A pawn that starts a floor change while it carries something lost it.
+- `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/ReachAndReservationPatches.cs`: the two branches of the `Reachability.CanReach` prefix that move the pawn to the target's floor run the reach check from the arrival cell there. They used the pawn's position on the surface.
+
+Events whose rows passed were not changed.
+
+### Red and green
+
+| Item | Scenario | Red | Green |
+|---|---|---|---|
+| a. Parties and weddings on another floor | `-EventsOtherFloor` | none: the first run passed (151227) | 151227 PASS; 155500 PASS in the regression |
+| b. Lover thoughts across floors | `-MoodOtherFloor` | none: the first run passed (151000) | 151000 PASS; 155423 PASS in the regression |
+| c. Falling objects and the roof | `-SkyfallerRoof` | 150535 FAIL, from my check's blast radius | 150648 PASS, no game change |
+| d. Thief carrying a colonist down | `-ThiefCarry` | 153500 FAIL: the colonist is dropped at the start of the route job | 153552 PASS after the `ZL_GoToMap` flags |
+| e. Children, animals and mechs | `-ChildAnimalMech` | 154059 FAIL: from the surface coordinates the lower floor reports the animal unreachable (False); from the stairs cell it reports reachable (True) | 154153 PASS after the arrival-cell fix |
+
+Run 20261106-150535 failed because the scenario used a radius of two cells. The chunk covers 2 by 2 cells, and vanilla `Skyfaller.HitRoof` breaks the roof over the footprint plus one cell. The check now uses that rectangle.
+
+Earlier runs of d (151506, 151906, 152227, 152622, 153030) put the thief where the pathfinder cannot reach the stairs, so the route job ended with `ErroredPather`. Those runs are not evidence for the change, and the setup was corrected in the run that followed.
+
+Runs 153721 and 153854 of e expected a surface colonist to be unable to reach a lower animal. The mod allows that through the stairs on purpose, so the expectation was wrong. The rows were rewritten to test the stairs route and a sealed rock pocket with no route. The pocket row passed in each run that had it, from 153854 onward.
+
+### Regression runs
+
+| Run | Scenario | Result |
+|---|---|---|
+| 20261106-154249 | Core (no switch) | PASS |
+| 20261106-154402 | -StairRoutes | PASS |
+| 20261106-154439 | -JobTakenOnArrival | PASS |
+| 20261106-154516 | -LeaveFromLower | PASS |
+| 20261106-154559 | -RaidGround | PASS |
+| 20261106-154636 | -OtherColonistHauls | PASS |
+| 20261106-154739 | -AllColonistsHaul | PASS |
+| 20261106-154836 | -BackgroundHaul | PASS |
+| 20261106-154913 | -JobTargets | PASS |
+| 20261106-154951 | -OwnFloorFirst | PASS |
+| 20261106-155028 | -MultiBuild | PASS |
+| 20261106-155140 | -ReservationRefused | PASS |
+| 20261106-155213 | -Cooling | PASS |
+| 20261106-155345 | -SkyfallerRoof | PASS |
+| 20261106-155423 | -MoodOtherFloor | PASS |
+| 20261106-155500 | -EventsOtherFloor | PASS |
+| 20261106-155618 | -ThiefCarry | PASS |
+| 20261106-155700 | -ChildAnimalMech | PASS |
+
+### Limits
+
+- a: a party and a wedding on the lower floor. Rituals need Ideology data, which this install does not have. The title ceremony runs from a quest, and no quest was set up.
+- b: one thought, `WantToSleepWithSpouseOrLover`, read for a lover on the lower floor. Of the alert classes that read maps, 75 use `Find.Maps` and so cover every floor. `Alert_AnimaLinkingReady` reads only the current map. It is an Anomaly alert, and no run exercised it.
+- c: `ShipChunkIncoming` on the surface. Drop pods and explosive skyfallers are not run, and neither is a landing on the lower floor.
+- d: a thief with the exit lord. The kidnapping job is not run.
+- e: a wild Muffalo, with the reach and reservation checks that roping, charging and child jobs depend on. Mech charging, the child routines and the roping jobs themselves are not run. Their Biotech setup is not built.
+- The reach fix changes which targets on another floor a pawn can reach. The 18 regression runs show no failure. They do not measure how much more cross-floor work the colony finds.
+
+## Fighting across floors
+
+Task 28 of the multi-floor ideas plan. The scenario is `-CrossFloorFight`, run by `RunCrossFloorFightTick` in `tools/RuntimeValidation/EventScenarios.cs`. No game code changed. The shot row failed at first, and that failure is a finding about the game's line-of-fire rule. Decision D6 (option a) keeps the rule, applied as the default on 2026-11-07. The shot row now expects the refusal, and it passes. See "Decision D6" below.
+
+### What the scenario checks
+
+The scenario builds a lower floor with stairs up to the surface, then runs three checks in order.
+
+1. A hostile on the lower floor shoots at a colonist on the surface for 1800 ticks. The hostile holds its cell on the `AttackStatic` job, so it cannot walk up the stairs. Each frame the scenario records the hostile's floor and job, and whether the colonist loses health.
+2. A colonist on the lower floor starts `AttackMelee` on a hostile on the surface, diagonally across the stairs cell, for 1200 ticks.
+3. A control. A colonist and a hostile on the lower floor, next to each other, start the same `AttackMelee` job for 600 ticks.
+
+Before the shot, the scenario removes every thing that is not a pawn from a band one cell either side of the line from the stairs to the colonist, five cells long. It records what it removed. The removal changes no game rule.
+
+### Result
+
+Run 20261106-163149, with the final scenario.
+
+| Row | Result | Detail |
+|---|---|---|
+| a shot from the lower floor through the stairs hits a surface colonist, as it should | FAIL | No hit in 1800 ticks. The hostile stayed on the lower floor and kept its job in every frame. The line of fire from the lower floor was refused, and the ground under the hostile on the surface is Sand. |
+| melee across the stairs cell is refused, as it should | PASS | The attack job was never taken, and the target took no damage. |
+| melee on one floor is taken, as a control | PASS | The attack job was taken at once. The hostile took no damage, and the colonist switched to `FleeAndCower` 17 ticks in. |
+| cross floor fight | FAIL | A row above failed. The runner exits with code 1. |
+
+### Why the shot is refused
+
+The mod moves the shooter onto the target's floor to check the line of fire. The prefix and postfix of `Verb.TryFindShootLineFromTo` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/CombatPatches.cs` (lines 362 to 421) do this. The postfix then refuses the line unless every cell on it that is at least two cells from the target is `ZL_OutsideTerrain`, which is open air. `IsVoidsEverywhereInShootingLineInBackWard` (lines 505 to 552) makes that check. Ordinary ground fails it. The stairs cell is `ZL_OutsideTerrainTwo`, which the check does not accept. The stairs set that terrain in `Building_StairsDown.cs` (lines 47 to 68).
+
+During the run, the scenario asked the shooter's verb for the line from the lower floor. The answer was refused. The ground under the shooter on the surface was Sand.
+
+The spec does not say whether a shot may cross from one floor to another over solid ground. The code sets the rule explicitly. The shot row stayed red until decision D6 was applied on 2026-11-07. The rule was kept, so the row now expects the refusal.
+
+### Why the melee across the stairs is refused
+
+The attack job is not current straight after `StartJob`, so the colonist never takes it, and the target takes no damage. On one floor the same job is current at once. The check that refuses it, whether reservation or reach across floors, is not isolated.
+
+### Earlier runs
+
+Two earlier runs passed the shot row. Neither one proves a shot from the lower floor.
+
+- 20261106-160723: the hostile's floor was not recorded.
+- 20261106-162135: the hostile walked up the stairs and shot from the surface. The enemy AI routes a hostile to a target on another floor. The postfixes of `JobGiver_AIGotoNearestHostile` and `JobGiver_AIFightEnemy` in `CombatPatches.cs` do that.
+
+Other early runs failed in the scenario's own setup. They are not listed here.
+
+### Limits
+
+- The hostile holds its cell only while it runs `AttackStatic`. Without that job, the enemy AI walks it up the stairs.
+- The control checks that the attack job starts on one floor. It does not check that the job lands a hit. In all six runs that sampled the control, the colonist switched to `FleeAndCower` between 9 and 27 ticks in.
+- The stairs sit at column 2 in every run, next to the low-x edge, because the setup takes the first open block on the surface. The generated lower level ranged from 262 to 4126 walkable cells between runs. The scenario does not set the layout, so the cells it picks differ from run to run.
+- The scenario does not test a shot through open air. So it says nothing about a shot the rule allows.
+- The cause of the melee refusal is not isolated. It may be reservation or reach across floors.
+
+### Run folders
+
+- `.artifacts/runs/20261106-163149`: the final scenario.
+- `.artifacts/runs/20261106-163519`: the core validation after the runner change, PASS.
+
+### Decision D6 (2026-11-07)
+
+Decision D6 asks whether a shot from a lower floor may reach a surface target over solid ground. Option (a) keeps the rule, and it is the recommended option. Option (b) lets the shot through. That changes the rule in `CombatPatches.cs` (lines 362 to 421) and this row. Lucas did not answer D6 by name. On 2026-11-07 he wrote "D1 a", which I read as D1, so option (a) was applied as the default. If "D1 a" was meant for D6, the answer is the same.
+
+The shot row now expects the refusal. Its label is "a shot from the lower floor across solid ground is refused, as the rule says". It passes when the colonist is not hit, the shooter stayed on the lower floor on its attack job for the whole window, and the line of fire from the lower floor is refused. The melee rows are unchanged. No game code changed for this decision.
+
+| Run | Build | Shot row | Scenario |
+|---|---|---|---|
+| `20261107-000331` | old row, a hit expected | FAIL: the colonist was not hit | FAIL |
+| `20261107-173118` | new row, rule kept | PASS: not hit, the line of fire refused, the shooter held its job | PASS |
+| `20261107-173346` | new row, rule switched off (temporary mutant) | FAIL: the colonist lost health, 3 frames with a hit, the first 52 ticks in; the line of fire was clear | FAIL |
+
+The mutant switched off the back-ward branch of the postfix of `Verb.TryFindShootLineFromTo` in `CombatPatches.cs`. The file was restored from a backup kept at `%TEMP%\claude-scratch\d6-mutant\CombatPatches.cs.orig`. Its SHA-256 after the restore is `52df9830bd0ce74b2cea780107a8f6ed0590637efe0f76498a77e53c2923635f`, the same as the backup, and `git status` lists no change to it. The mutant run shows that the rule, and not the vanilla line of fire, refuses the shot.
+
+Limits:
+
+- The row checks a refusal. It does not test a shot through open air, so a shot from a lower floor that the rule allows is untested.
+- The detail names the surface ground under the shooter. It does not name the cell that blocks the line.
+- Reversal: option (b) changes the rule and this row. The row would then expect a hit.
+
+## Floors tab
+
+Lucas's idea "floor settings tab" (`docs/mod-comparison/ideas.html`). The Floors button (`MainButtonDef` `ZL_Floors`, order 210) opens `ZLevels.FloorsTab`: one row per free colonist on the colony's floors. The columns are the colonist, the floor it stands on, and the floor that each of four needs searches on: sleep, food, fun and meditation. A click opens a menu with "Any" and each floor. `FloorPolicy` keeps the choices per colonist and need, and `ZLevelsManager` saves them with the game.
+
+### What the scenario checks
+
+`-FloorsTab` runs one colony with a lower floor. Each row reads the job that a search returns, plus the route destination the tracker stores for that colonist. The scenario does not tick the game to see where the colonist ends up.
+
+- `tab is registered`: the button opens `ZLevels.FloorsTab`.
+- `current floor column shows the floor`: a lower colonist shows Lower 1, a surface colonist shows Surface.
+- `sleep floor set to lower with no bed there`: with no bed on either floor, the rest is a ground spot on the lower floor, and the route goes there.
+- `sleep floor set to lower: the rest job uses a bed on the lower floor`: a surface bed stands beside the colonist, so the filter must choose the lower bed.
+- `food floor set to lower`: a meal lies on each floor, and the food job must take the lower one.
+- `meditation floor set to lower`: a `MeditationSpot` stands on the lower floor only, and the meditation job must be at it.
+- `fun floor set to lower`: sixteen colonists search for a fun job. No search may take a job off the lower floor, and at least one job must be found there.
+- `floor setting survives save and reload`: the sleep floor is still set after a save and load.
+- `floors tab`: passes when every row above passes.
+
+### Result
+
+Final green run `20261106-175108`, passed with other mods (the user's mod list, read-only):
+
+| Row | Result |
+|---|---|
+| tab is registered | PASS |
+| current floor column shows the floor | PASS |
+| sleep floor set to lower with no bed there | PASS: the colonist lies on the ground of the lower floor, routed there |
+| sleep floor set to lower: the rest job uses a bed on the lower floor | PASS: LayDown for a bed on Map-1 |
+| food floor set to lower | PASS: Ingest for a meal on Map-1 |
+| meditation floor set to lower | PASS: Meditate at a MeditationSpot on Map-1 |
+| fun floor set to lower: no fun search takes a job off the lower floor | PASS: 11 of 16 found a job on the lower floor, 5 found none |
+| floor setting survives save and reload | PASS |
+| floors tab | PASS |
+
+### Red runs
+
+- `20261106-174127`, need filter off, user's mod list: the ground, sleep, food, meditation and fun rows FAIL. The sleep row got the surface bed, the food row the surface meal, the meditation row a surface job, and most fun searches a surface job. The save row passes, since it does not depend on the filter.
+- `20261106-174345`, filter on, before the fixes: the sleep and food rows PASS, so the filter works for those needs. The ground row FAILs: the spot was picked on the lower floor, but the route went to the surface, because the spot was picked again after the search loop. The meditation row FAILs, since no meditation filter existed yet. The fun row FAILs: 13 of 16 searches found no job. The lower level has never been seen, so it is fogged. The fix clears the fog, as the need cool-down scenario does. After that, 5 of 16 found none.
+
+### Fixes made while the rows were red
+
+- The ground spot on a set sleep floor is routed to that floor, while the colonist still stands there. Before, the search recomputed the spot on the surface (`JobPatches.cs`, rest prefix).
+- `JobGiver_Meditate.TryGiveJob` has a prefix that searches only the chosen floor, as the rest and food searches do (`JobGiver_MeditatePatch`).
+- The food row uses a base `JobGiver_GetFood` with the Hungry minimum, as the food scenario sets it. The think tree's first food giver can be a Starving one.
+- The aggregate flag was an instance field, and the game builds a new component on load. The flag is static now, so the rows before the save are read after it.
+
+### Earlier runs, superseded
+
+- `20261106-170559`: timed out. The after-reload function did not shut the game down. Fixed.
+- `20261106-172310`: the sleep row read only the route job. The bed job sat in the queue behind it. The sleeper also stood beside the only lower bed, so the filter could not change the result.
+- `20261106-173608`: the food search found nothing, because of the Starving giver. The meditation spot origin was off the map.
+- `20261106-173830`: setup failed, because the centre of the surface had no reachable cell. The surface cells now sit around the stairs.
+- `20261106-173951`: the meditation spot def was null. Royalty is not in the default validation mod list (`ModsConfig.xml` of the run lists no `ludeon.rimworld.royalty` in `activeMods`).
+- `20261106-174700`: the fun row required a job from all sixteen searches. Vanilla's joy pick found none for eight. The row now requires that no search takes a job off the floor.
+- `20261106-174914`: every row passed, but the aggregate failed on the flag described above.
+
+### Regression, default mod list, final code
+
+- `20261106-175318` core (33 rows), `20261106-175445` `-OwnFloorFirst`, `20261106-175523` `-JobTargets`, `20261106-175555` `-StayOnFloor`, `20261106-175638` `-JobTakenOnArrival`, `20261106-175720` `-BackgroundHaul`. All PASS.
+
+The `-FloorsTab` run is the only run with Royalty loaded. It uses the user's mod list read-only, through `-ModsConfigSource`, because the default list has no Royalty. The default runs do not load Royalty.
+
+### Other mods
+
+The green run logged four errors from other mods (`other-mod-errors.txt` in its run folder): a duplicate package id (`Aoba.DeadManSwitch.Core`), a Rimatomics patch operation, and two null references from Milira's `CheckMiliraPermanentEnemyStatus`. None comes from Z-Levels, and the run's log has no Z-Levels error.
+
+### Limits
+
+- The meditation filter sits on `JobGiver_Meditate.TryGiveJob`. `JobGiver_MeditateInBed` overrides that method, so in-bed meditation is not filtered. That giver does not search: it meditates in the bed the colonist is already lying in.
+- The fun search makes one weighted pick of a joy giver, and the pick can find nothing. The floor setting stops a job off the floor. It does not make every search find a job.
+- The tab's clicks and drawing are not driven, and no screenshot was taken. Registration and the column text are read through the tab's own functions.
+- The rows read the job chain. They do not follow the colonist after ticks.
+- Multiplayer: untested. The project notes leave it optional and unverified.
+- The runs were built from the working tree, which also holds another session's vault-rock file. The commit holds only Floors tab work, and it was built alone in a clean export.
+
+## Work filter per floor
+
+Lucas's idea "work filter per floor" in `docs/mod-comparison/ideas.html` is idea 6. The Floors tab has a second table. Its rows are the visible work types, and its columns are the floors, headed `<floor> does it`. A cleared box stops that floor's work searches from giving a job of that work type.
+
+The check runs inside the search. The vanilla search sets `OwnFloorFirstSearch.GiverFilter` in `RunVanillaSearch`, and `PawnCanUseWorkGiverPatch` refuses each work giver the filter rejects. Each search pass names its own floor, so each pass reads the boxes of the floor it searches. A colonist on the surface therefore gets no cooking job at a stove on a lower floor whose cooking box is cleared.
+
+`FloorPolicy` keeps the cleared boxes per floor in `workOffFloors`. A save writes them as two lists, `workOffFloorIndexes` and `workOffWorkTypes`. Each work type is saved by its definition name, because a save cannot hold a def.
+
+### What the scenario checks
+
+`-FloorWorkFilter` runs one colony with a lower floor. A fuelled stove with a cook-a-meal bill stands on the lower floor, and raw rice lies beside it. A colonist on the surface has cooking as its only work.
+
+- `cooking off on the lower floor: no cook job there`. With cooking cleared for the lower floor, the search takes no cooking work at the stove.
+- `cooking on: the cook job is taken`. With cooking set for the lower floor, the search takes the cooking work at the stove.
+- `filter survives save and reload`. The cleared box is still cleared after a save and load.
+- `floor work filter`. Passes when every row above passes.
+
+Cooking work at the stove means a bill on the stove, a haul into it, or a haul to a cell beside it. A cook job starts by bringing its ingredients to the stove, so that haul is part of the cook job.
+
+### Result
+
+Green run `20261106-182202`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| cooking off on the lower floor: no cook job there | PASS. The search found no job at all. Cooking is the colonist's only work, and the filter refuses it. |
+| cooking on: the cook job is taken | PASS. The search takes DoBill on FueledStove74707 on Map-1. |
+| filter survives save and reload | PASS |
+| floor work filter | PASS |
+
+### Red run
+
+Run `20261106-182024` with the filter forced off. For this run, a temporary `return true` came first in `FloorPolicy.WorkTypeAllowed`, so every work type was allowed. The file was then restored from a copy made before the switch. Its SHA-256 matched that copy, and its diff against `HEAD` held only the Task 30 lines.
+
+- Row 1 failed. The search takes cooking work at the stove on the lower floor, `DoBill on FueledStove102380 on Map-1`.
+- Row 2 passed, with the same job.
+- Row 3 failed. Under the switch, every work type reads as allowed after the load, so the reload check fails as well.
+- `floor work filter` failed.
+
+An earlier red run, `20261106-180922`, failed row 1 in the same way. It ran before the rice's origin was corrected.
+
+### Regression, final code
+
+- `20261106-182245`, `-FloorsTab`, with the user's mod list read-only through `-ModsConfigSource`: 9 of 9 rows PASS. Other mods logged four error lines, as they did in Task 29.
+- `20261106-182422`, core: 33 rows, PASS.
+- `20261106-182525`, `-OwnFloorFirst`: 8 rows, PASS.
+
+### Earlier runs, superseded
+
+- `20261106-181024` (green), `20261106-181159` (core) and `20261106-181348` (`-OwnFloorFirst`) passed on the same production code. The scenario origins changed after them.
+- `20261106-181425`, `-FloorsTab`, failed in its setup. The ground colonist's origin was `(12, 0, -4)`, off the map. The stairs stand at `(2, 0, 2)`, so the cell six cells south of the middle had a negative z coordinate. `OnMapCell` now keeps each origin on the map. It moves a cell no farther from the stairs than the offset it came from, so the open area around the lower stairs still covers it.
+
+### Fixes made while the rows were red
+
+- Row 1 first passed by mistake on a haul into the stove, the first step of a cook job. The check now counts that haul as cooking at the stove.
+- The search kept the destination and main job of the previous search. `FloorWorkSearch` clears both before each search.
+
+### Limits
+
+- The grid's checkboxes are not clicked or drawn, and no screenshot was taken. The rows read the search's first step, main job, and destination. They do not follow the colonist after ticks.
+- The lower level is generated. Its walkable cell count was 316 in the green run and 1791 in the red run.
+- A work giver with no work type is allowed on every floor.
+- A saved work type that no longer exists is dropped at load, without an error.
+- No run loads a save made before this change. Such a save has no work lists, so every floor does all work. This follows from the code, not from a run.
+- Multiplayer: untested. The project notes leave it optional and unverified.
+
+## Haul to a floor
+
+Lucas's idea "haul to a floor" in `docs/mod-comparison/ideas.html`. The haul-to-floor designator, `Designator_HaulToFloor`, sits in a new Architect category named `floors`. The player clicks or drags over loose items, then picks a floor from a menu. Each item that the chosen floor needs is marked for it with `ItemFloorMarks.Mark`. A colonist on that floor then hauls the item into storage there, through the offer that the background scan already makes (Task 22).
+
+The designator asks the same question as the background scan: does the floor need this item? `ItemFloorMarks.FloorNeeds` and the scan both read `DestinationOf`, so they agree. A floor that needs none of the selected items takes no mark. The menu reports how many items each choice took.
+
+### What the scenario checks
+
+`-HaulToFloor` runs one colony with a lower floor. The lower stockpile takes steel only. Two items lie on the surface. The first is a steel stack that the scenario marks through `Designator_HaulToFloor.MarkItemsForFloor`. The second is a wood log that nothing marks. A colonist on the lower floor hauls.
+
+- `a click on a cell with no loose item does nothing and does not throw`. A single click on an empty cell opens no menu and throws nothing. The game sends a click to `DesignateSingleCell`, not to the drag method.
+- `marked item ends on the chosen floor`. The marked steel is in storage on the lower floor within 6000 ticks.
+- `an unmarked item stays where it was`. The wood log is still on the surface, at its start cell.
+- `haul to a floor`. Passes when every row above passes.
+
+The scenario marks through `MarkItemsForFloor`, not through a drag. The validation harness has no mouse, so the drag and the menu are not driven.
+
+### Result
+
+Final green run `20261106-190430`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| a click on a cell with no loose item does nothing and does not throw | PASS |
+| marked item ends on the chosen floor | PASS. The marked steel is in storage on the lower floor. |
+| an unmarked item stays where it was | PASS |
+| haul to a floor | PASS |
+
+### Red runs
+
+- `20261106-183559`, before the designator existed: the first row failed with `the mod has no ZLevels.Designator_HaulToFloor class`. The build had no errors.
+- `20261106-190320`, with the marking in place and no click override: the click row failed with `The method or operation is not implemented.` The other rows passed.
+
+### Regression, final code
+
+- `20261106-190520`, `-BackgroundHaul`: 6 rows, PASS. `ItemFloorMarks` changed, and this run covers the refactored scan.
+- `20261106-190557`, core: 33 rows, PASS.
+
+### Fixes made while the rows were red
+
+- The click path was missing. The base `Designator.DesignateSingleCell` throws, and the game calls it for a single click (`DesignatorManager.cs`, line 101). The designator now overrides it. The decompile showed the call, and the click row confirmed it.
+- The first lower stockpile carve was centred three cells from the stairs, with radius four. `ClearCell` removed the lower stairs up. The surface stairs down then lost its partner, so `ZLevelsManager.ReCheckStairs` dropped it. The colonist could not route down, and the game paused in `Toils_ZLevels.GetSetStairs` with "cant find stairs down". The carve is now centred on the stairs, and the stockpile sits five cells away. A guard fails the setup if the lower stairs go missing.
+- The first version of row 2 used a second steel stack. The background scan marks every item the lower floor needs, so that steel was hauled down as well. The row now uses a wood log, which the lower stockpile does not take.
+
+### Limits
+
+- The drag, the menu, and the category button are not driven, and no screenshot was taken. The menu was not opened in any run.
+- Items in storage are not offered. The player takes a stored item out of storage first.
+- A floor that needs none of the selected items takes no mark. The next scan would drop the mark in any case.
+- The validation watchdog ends a run after four minutes of real time. A run that stalls shows `Timed out at stage`, which is the watchdog and not a scenario row.
+- Multiplayer: untested.
+
+## Workbench floor link
+
+Lucas's idea "workbench floor link" in `docs/mod-comparison/ideas.html`. A player's work table shows a "Work on floor" button. The button is added in `WorkTableFloorGizmoPatch`, a postfix on `ThingWithComps.GetGizmos`. The button opens a menu of floors, and the chosen floor is stored in `FloorPolicy` (`SetBenchFloor` and `BenchFloor`). The store is saved with the game.
+
+The bill ingredient search, `StartOrResumeBillJob`, tries the floors in its usual order and stops at the first floor with ingredients. A linked table tries its floor first. `LinkedFloorFirst` moves that floor to the front of the list, and the other floors keep their order. A table with no link keeps the whole order.
+
+The gizmo patch targets `ThingWithComps.GetGizmos`, because the game declares that method there and not on `Building_WorkTable`. A patch on a derived type that does not declare the method would stop the mod loading, as `StairsGizmoPatch.cs` records.
+
+### What the scenario checks
+
+`-BenchLink` runs one colony with a lower floor. A fuelled stove on the surface has one cook-a-meal bill. Raw rice lies beside the stove on the surface, and more rice lies on the lower floor. Each search uses its own colonist, with cooking as the only work.
+
+- `an unlinked bench is unchanged`. With no link, the search fetches the surface rice, as before.
+- `bench linked to the lower floor fetches lower ingredients first`. With the stove linked to the lower floor, the search fetches the lower rice.
+- `the link survives save and reload`. The stove, found by its id after a save and load, is still linked to the lower floor.
+- `bench link`. Passes when every row above passes.
+
+### Result
+
+Final green run `20261106-191432`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| an unlinked bench is unchanged | PASS. The surface rice is fetched. |
+| bench linked to the lower floor fetches lower ingredients first | PASS. The lower rice is fetched. |
+| the link survives save and reload | PASS |
+| bench link | PASS |
+
+### Red run
+
+Run `20261106-191145`, before the link existed. The unlinked row passed. The linked row failed with `FloorPolicy has no SetBenchFloor`, and the aggregate failed. The scenario reaches `SetBenchFloor` by name, so a missing method fails a row and not the build.
+
+### Regression, final code
+
+- `20261106-191530`, core: 33 rows, PASS.
+- `20261106-191648`, `-FloorWorkFilter`: 4 rows, PASS. Its stove has no link, so its search order is unchanged.
+- `20261106-191735`, `-OwnFloorFirst`: 8 rows, PASS.
+
+### Limits
+
+- The gizmo's button and its floor menu are not driven, and no screenshot was taken. The link is set through `SetBenchFloor`, the call that the menu makes.
+- The save row covers one stove and one link. A link on a table that has been destroyed is left out of the save.
+- The button uses the game's install icon, `TexCommand.Install`, because the mod ships no command icons.
+- A linked floor with no ingredients falls back to the other floors, in their usual order.
+- Multiplayer: untested.
+
+## Call colonists here
+
+Lucas's idea "call colonists here" in `docs/mod-comparison/ideas.html`. A player colonist's gizmo list has a "Call colonists here" button. The button starts a targeter on the floor the player is viewing. A standable cell that is picked sends each selected colonist to it. A colonist on another floor takes the stairs first. A colonist already on the cell gets no job.
+
+The button is added by `CallColonistsGizmoPatch`, a postfix on `Pawn.GetGizmos`. The order is `CallColonistsTargeter.CallTo`. It resets each colonist's job tracker. A colonist on the target floor gets a `Goto` job. A colonist on another floor gets the route that a float-menu order builds: `BuildJobListFor` with the target floor, then `EndCurrentJob`, which starts the go-to-map job and queues the walk after it.
+
+### What the scenario checks
+
+`-CallColonists` runs one colony with a lower floor, and makes two calls. The walker is a colonist on the lower floor, locked to that floor, and it is called to a free cell on the surface. The stayer is a drafted colonist standing on the surface, and it is called to the cell it stands on.
+
+- `call colonists gizmo is offered to a selected colonist`. The stayer's gizmos hold the button. The row is recorded before the calls, so it fails on its own when the button is missing.
+- `colonist on the lower floor reaches the spot within 6000 ticks`. The walker stands on its cell before 6000 ticks pass.
+- `colonists already at the spot stay there`. The call sends the stayer nowhere, and no route job appears for it during the walker's walk.
+- `a locked colonist keeps its lock on the floor it is called to`. After the call, the walker's lock names the surface.
+- `call colonists`. Passes when every row above passes.
+
+### Result
+
+Green run `20261106-193148`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| call colonists gizmo is offered to a selected colonist | PASS |
+| colonist on the lower floor reaches the spot within 6000 ticks | PASS, after 2106 ticks |
+| colonists already at the spot stay there | PASS |
+| a locked colonist keeps its lock on the floor it is called to | PASS, floor index 0 |
+| call colonists | PASS |
+
+### Decision: a call moves the lock
+
+A locked colonist keeps its lock through a call. `FloorPolicy.MoveLock` moves the lock to the floor of the cell, and the lock keeps its expiry. Without the move, the lock stays on the old floor, and the colonist's job searches are limited to that floor. To reverse the decision, remove the `MoveLock` call from `CallTo`. The last row checks for this move.
+
+### Red runs
+
+- Run `20261106-192923`, before the order existed. The first row failed with `the mod has no ZLevels.CallColonistsTargeter class`, and the aggregate failed. That version had no gizmo row, so the other rows failed only because setup stopped at the missing order.
+- Run `20261106-193056`, with the gizmo row added. The gizmo row failed on its own, with `the colonist's gizmos hold no Call colonists here button`. The walker row failed with the missing order, and the aggregate failed.
+
+The order is reached by name, so a missing class fails rows and not the build.
+
+### Regression, final code
+
+- `20261106-193251`, core: 33 rows, PASS.
+- `20261106-193447`, `-WorkOnFloorOrder`: PASS.
+- `20261106-193907`, `-BenchLink`: PASS.
+- `20261106-193956`, `-FloorWorkFilter`: PASS.
+- `20261106-194232`, `-FloorsTab` with the user's mod list, read only: PASS. Other mods logged four error lines, and Z-Levels logged none.
+- `-StayOnFloor`: run `20261106-193404` failed on `unlocked colonist takes the same haul`, before the harness fix in the next section. Runs `20261106-193622`, `20261106-193706` and `20261106-193754` pass after it.
+
+### Harness fix found by the regression
+
+`-StayOnFloor` spawned its two colonists at random and set Hauling priority on each, without checking that the colonist can haul. A colonist with Hauling disabled got no haul. The game logged `Tried to change priority on disabled worktype Hauling for pawn Soto`, and the unlocked row failed. The locked row could also pass for the wrong reason, since a colonist that cannot haul skips a haul too. `SpawnHaulerAt` spawns again until the colonist can haul. Task 16 recorded the same failure and left it open.
+
+### Limits
+
+- The button, its click and the targeter's mouse path are not driven. No screenshot was taken.
+- The scenario makes one call with one walker from the lower floor. Several selected colonists in one call, a colonist on the upper floor, and a colonist two floors down are not tested.
+- The gizmo group key, which should merge the button across a selection, is not tested.
+- A picked cell that another pawn stands on is not tested.
+- The lock's expiry is kept through a call, but no row checks a timed lock.
+- The button uses `TexCommand.GatherSpotActive`, because the mod ships no command icons.
+- Multiplayer: untested.
+
+## Heat and gas through stairs
+
+Lucas's idea "heat and gas through stairs" in `docs/mod-comparison/ideas.html`. The rooms that a pair of stairs joins on two floors now trade heat, and the gas on the stairs cell passes between the floors. The equalizer is `StairEqualizer` in `StairEqualizer.cs`. The game calls `StairEqualizer.StepAll` every 60 ticks, and each pair is stepped once, from its end on the upper floor.
+
+### How it works
+
+- Heat. The gap between the two rooms closes by 10 degrees a day at medium speed, scaled by the speed setting. Each room takes half of the closing, so the gap shrinks by exactly that amount and never overshoots. A room that takes its temperature from the weather is left alone.
+- Gas. On each gas type, the stairs cells on the two floors move a share of their difference. At medium speed the share is a tenth per 60 tick step. Only the gas that the receiving cell takes leaves the sending cell, so the total stays the same.
+- Speed. The setting has three values: slow, medium (the default) and fast. The multipliers are 0.5, 1 and 4. A 10 degree gap closes in two days at slow, one day at medium and a quarter of a day at fast, as DM12 of the multifloors plan sets out. The slider is in the mod's settings window, and its value is saved with the game.
+- Removed stairs. A pair whose other end is gone moves nothing.
+
+### What the scenario checks
+
+`-StairsEqualize` runs one colony with a lower floor. Each floor has a walled room with a roof around the stairs. The surface room is 30 degrees, the lower room is 20, and smoke lies on the surface stairs cell. Every row is measured within one frame, so no game tick runs between two readings.
+
+- `temperature gap between joined rooms shrinks`. One call over 6000 ticks at medium closes the gap from 10.00 to 9.00.
+- `gas moves through the stairs`. One step of 60 ticks moves 20 of the 200 smoke to the lower stairs cell.
+- `speed setting changes the rate`. 6000 ticks close 0.50 degrees at slow and 4.00 at fast.
+- `nothing moves when the stairs are removed`. With the lower stairs destroyed, both temperatures and both smoke readings stay the same.
+- `stairs equalize`. Passes when every row above passes.
+
+### Result
+
+Green run `20261106-195102`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| temperature gap between joined rooms shrinks | PASS, from 10.00 to 9.00 |
+| gas moves through the stairs | PASS, 20 smoke on the lower stairs cell |
+| speed setting changes the rate | PASS, 0.50 at slow and 4.00 at fast |
+| nothing moves when the stairs are removed | PASS |
+| stairs equalize | PASS |
+
+### Red run
+
+Run `20261106-194904`, before the equalizer existed. The first row failed with `the mod has no ZLevels.StairEqualizer class`. The gas and removed-stairs rows failed the same way, and the speed row failed with `the settings have no StairsEqualizeSpeed`. The aggregate failed. Setup passed, so the two joined rooms were built and checked as indoor before any row ran.
+
+### Regression, final code
+
+- `20261106-195159`, core: 33 rows, PASS.
+- `20261106-195313`, `-OneFloorColony`: 3 rows, PASS.
+- `20261106-195346`, `-StairsDamage`: 4 rows, PASS.
+- `20261106-195424`, `-Cooling`: 47 rows, PASS. The cooling runs depend on room temperature, so they show the equalizer does not disturb them.
+- `20261106-195557`, `-CoolingTwoNets`: 8 rows, PASS.
+
+### Decisions
+
+- Linear closing. The plan's DM12 gives days for a 10 degree gap to close, and a steady rate meets those figures exactly. Reverse in `StepHeat`. Cost if wrong: the gap closes on a different curve, and the three day figures no longer hold.
+- Half each. Each room takes half of the closing. That is exact when the rooms are the same size, and approximate when they are not. Reverse in `StepHeat`.
+- Gas share. The tenth of the difference per step, and the same speed multipliers as heat, are my choice. Reverse with `GasSharePerStepAtMedium`.
+- Smoke in the test. `GasGrid.AddGas` refuses tox gas unless the Biotech expansion is active, and deadlife dust unless Anomaly is active (`ModLister.CheckBiotech` and `ModLister.CheckAnomaly`). The validation mod list loads neither, so the scenario uses smoke, which needs no expansion.
+
+### Limits
+
+- The settings slider is not driven. Its label is plain English, as the new labels of the port are. No translation key is added.
+- Only smoke is tested. Tox gas and deadlife dust take the same code path, but no run loads their expansions.
+- One pair of stairs in one colony is tested. Several pairs, and a pair on a third floor, are not.
+- The rooms are closed rooms that the scenario builds. Rooms open to the outdoors are not tested.
+- The 60 tick call in `ZLevelsManager.GameComponentTick` is not checked by a row. The scenario calls `Step` directly. The regression runs show that the call does not break a run, but not that the game makes it.
+- Multiplayer: untested.
+
+## In-game guide
+
+Lucas's idea "in-game guide" in `docs/mod-comparison/ideas.html`. A guide window explains the floors in plain words. The Guide button at the top of the Floors tab opens it. The window is `FloorsGuideWindow`, and its text is `FloorsGuideWindow.GuideText`.
+
+### What the guide covers
+
+The text names the floors, the stairs, the two floor keys (N for one floor up and M for one floor down, the defaults), Stay on this floor, Work on this floor, Call colonists here, and the Floors tab.
+
+### What the scenario checks
+
+`-FloorsGuide` opens the guide the way the Floors tab's button does, then reads the guide text. The button itself is not clicked.
+
+- `guide opens`. The guide window is on the window stack after `Open`.
+- `guide text covers stairs, floors, stay on floor, work on floor, and the keys`. The text names the stairs, the floors, Stay on this floor, Work on this floor, N and M.
+- `floors guide`. Passes when both rows above pass.
+
+### Result
+
+Green run `20261106-200016`, on the default validation mod list:
+
+| Row | Result |
+|---|---|
+| guide opens | PASS |
+| guide text covers stairs, floors, stay on floor, work on floor, and the keys | PASS |
+| floors guide | PASS |
+
+### Red run
+
+Run `20261106-195902`, before the window existed. The first row failed with `the mod has no ZLevels.FloorsGuideWindow class`. The text row failed the same way, and the aggregate failed.
+
+### Regression, final code
+
+- `20261106-200050`, core: 33 rows, PASS.
+- `20261106-200158`, `-FloorsTab` with the user's mod list, read only: PASS with other mods, 10 rows. The Floors tab moved its table down by 36 pixels for the Guide button, and this run passes with the table in its new place.
+
+### Limits
+
+- The Guide button, its click, and the window's layout on screen are not driven. No screenshot was taken.
+- The text check looks for keywords. It does not check each sentence against the current menus.
+- The keys named in the guide are the defaults. A player who rebinds them sees the defaults in the text.
+- The guide text is English only, as the other new labels of the port are.
+- Multiplayer: untested.
+
+## More ways up (2026-11-06)
+
+Lucas's decision D3, answered 2026-11-06: ladders and stair sizes. The idea "more ways up" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 36.
+
+### What was built
+
+Small ladders take one cell. Large ladders and large stairs take a 2 by 2 block. Each kind has an up piece on the lower floor and a down piece on the floor above, on the same cells. The defs are in `ZLevels/Common/Defs/Buildings/WayUps.xml`, and the kind table is `ZLevels/Source/ZLevels/ZLevels/Buildings/WayUpKinds.cs`. Costs and strength are decision DM15 in the plan. The existing stairs keep their behaviour.
+
+The large kinds are not rotatable, so both floors get the same footprint. A large way may be placed only when its four cells lie in one room of at least 25 cells, and its four cells on the other floor are standable and empty. Small ways keep their old checks.
+
+### What the scenario checks
+
+`-WayUps` (file `tools/RuntimeValidation/WayUpsScenarios.cs`). Both floors share one block of cells, because a partner is found by its cell.
+
+- `small ladder places a pair of ways`. A small ladder up on the lower floor creates its down piece on the floor above, at the same cell.
+- `large ladder covers four cells on both floors`. A large ladder up creates a partner on all four cells above.
+- `large stairs place a pair`. The same check for large stairs.
+- `colonist climbs a large ladder`. The small ladder and the large stairs are removed first, so the large ladder is the only way between the floors. A colonist is called to the surface cell and must stand there within 6000 ticks.
+- `large way allowed with four open cells on the other floor`. The placement check allows a large way whose four cells above are open.
+- `blocked cell on the other floor refuses a large way`. A wall on one of the four cells above makes the check refuse the way, with the message "A large way needs four open cells on the other floor."
+- `way ups`. Passes when the six rows above pass.
+
+### Red run
+
+Run `20261106-212937`, before any def existed. Every row failed with `the mod has no <def> def`, and the aggregate failed. The build had no errors. Its two warnings (CS0168 in `RoofAndFloorPatches.cs` and `ZPathfinder.cs`) were already there.
+
+### Green run
+
+Run `20261106-213318`, on the default validation mod list. The log ends with `Runtime validation passed. Evidence: ...20261106-213318`.
+
+| Row | Result |
+|---|---|
+| small ladder places a pair of ways | PASS, 1 by 1 cells hold the pair |
+| large ladder covers four cells on both floors | PASS, 2 by 2 cells hold the pair |
+| large stairs place a pair | PASS, 2 by 2 cells hold the pair |
+| large way allowed with four open cells on the other floor | PASS |
+| blocked cell on the other floor refuses a large way | PASS, refused with the other-floor message |
+| colonist climbs a large ladder | PASS, on the surface after 253 ticks |
+| way ups | PASS |
+
+### Regression
+
+Final batch, after the teleport terrain fix below, run one at a time on the default validation mod list. The logs are in the ledger folder, named `task36-v2-<name>.log`.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-221515 | `-WayUps` | PASS, six rows and the aggregate |
+| 20261106-221600 | core | PASS |
+| 20261106-221713 | `-StayOnFloor` | PASS, with the two INFO rows added to it |
+| 20261106-221801 | `-StairsDamage` | PASS |
+| 20261106-221844 | `-OneFloorColony` | PASS |
+| 20261106-221917 | `-Cooling` | PASS |
+| 20261106-222046 | `-CoolingTwoNets` | PASS |
+| 20261106-222129 | `-StairsEqualize` | PASS |
+| 20261106-222207 | `-CallColonists` | PASS |
+| 20261106-222250 | `-HaulToFloor` | PASS |
+| 20261106-222333 | `-BackgroundHaul` | PASS |
+| 20261106-222411 | `-WorkOnFloorOrder` | PASS |
+| 20261106-222449 | `-BenchLink` | PASS |
+
+First batch, before the teleport terrain fix. The logs are named `task36-reg-<name>.log`. Every run passed except `-StayOnFloor`, which is covered in the next part.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-213436 | core | PASS |
+| 20261106-213559 | `-StayOnFloor` | FAIL on `unlocked colonist takes the same haul` |
+| 20261106-213648 | `-StairsDamage` | PASS |
+| 20261106-213731 | `-OneFloorColony` | PASS |
+| 20261106-213804 | `-Cooling` | PASS |
+| 20261106-213937 | `-CoolingTwoNets` | PASS |
+| 20261106-214015 | `-StairsEqualize` | PASS |
+| 20261106-214053 | `-CallColonists` | PASS |
+| 20261106-214137 | `-HaulToFloor` | PASS |
+| 20261106-214220 | `-BackgroundHaul` | PASS |
+| 20261106-214258 | `-WorkOnFloorOrder` | PASS |
+| 20261106-214336 | `-BenchLink` | PASS |
+
+### `-StayOnFloor` is intermittent
+
+The row `unlocked colonist takes the same haul` ("takes no job") failed in run `20261106-213559` and in its first rerun, `20261106-214555`. The two reruns after them, `214639` and `214727`, passed. Later runs passed too: three with extra diagnostic rows, eight more, sixteen more with a storage row, and the final batch. That is 2 failures in 31 runs on the Task 36 code. The same row failed once in Task 33, in run `193404`, before any Task 36 change.
+
+The cause is not known. The failing runs were made before the diagnostic rows existed, so they show no storage row. The rows now record the stairs, the steel, the zone, the colonists, whether the steel is stored, a store cell for it, and the claims on either stack. A failing run with these rows would show whether a claim or a missing store cell blocks the first search. The pass criteria of the row did not change.
+
+### Teleport terrain fix
+
+While reading the teleport paths, I found that the shared partner helper set the outside terrain tile on the cell where the other stairs end. The old `SpawnStairsBelow` and `SpawnStairsUpper` never did. The helper now takes a flag. The stairs' own spawn passes `true`, as before, and both teleport paths pass `false`. The final batch ran after this change.
+
+### Limits
+
+- Save and reload of the large kinds is not tested.
+- Damage and destruction of a large way are not tested. The stairs damage run covers the small stairs only.
+- Upper-floor pairs use the same code, but only the lower-to-surface pair was run.
+- The climb row checks that a colonist arrives. It does not measure how many colonists climb at once.
+- The ladders and the large stairs share the stairs' textures, so a large way looks like a bigger ladder. This was not checked on screen.
+- Multiplayer: untested.
+
+## Floor pipes between floors (2026-11-06)
+
+Lucas's decision D4, answered 2026-11-06, is one chosen resource per pipe, at a fixed rate. The idea "pipes between floors" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 37. The rules DM17 to DM19 are in that plan.
+
+### What was built
+
+A floor pipe is one object across two floors. Its lower end is placed on a floor that has a floor above, and its other end stands on the same cell up there. The def is in `ZLevels/Common/Defs/Buildings/FloorPipe.xml` (steel 10, 120 hit points, 300 work). The class is `ZLevels/Source/ZLevels/ZLevels/Buildings/Building_FloorPipe.cs`.
+
+- The end that sends takes stored items of the chosen resource and moves 60 a game day to the other end. The rate is `itemsPerDay` in the def, read through `FloorPipeExtension.cs`. The flow runs in steps of 250 ticks, the game's rare-tick interval.
+- Only items in storage move. Forbidden and reserved items are skipped. The items land next to the receiving end (`FloorPipeMover.cs`). If the receiving floor has no room for an item, the item goes back where it was, and the part of the move it would have made is not carried over.
+- The resource is steel first, then the raw resources with a stack limit above 1, by label. A gizmo sets it on both ends. A second gizmo flips which end sends.
+- Removing one end removes the other.
+- The placement check (`PlaceWorker_FloorPipe.cs`) refuses a pipe on the top floor, and refuses a pipe where the cell above is blocked.
+
+### What the scenario checks
+
+`-FloorPipe` (file `tools/RuntimeValidation/FloorPipeScenarios.cs`). The scenario is synchronous. A game day is 240 calls to the pipe's `Step` method, each for 250 ticks, as the rare tick makes them.
+
+- `floor pipe places its other end above`. A pipe on the lower floor has a pipe on the cell above.
+- `steel moves up at 60 a day`. 60 steel stored on the lower floor leave the zone, and 60 land above.
+- `only the chosen resource moves`. Under a steel pipe, 60 wood stays stored below.
+- `flip direction sends the other way`. After a flip, 30 steel stored above land below.
+- `removing one end removes the other`. Removing the lower end removes the upper one.
+- `resource gizmo sets both ends`. Setting WoodLog on one end gives the other end WoodLog too.
+- `pipe refused on the top floor`. The placement check returns its top-floor message.
+- `pipe refused where the cell above is blocked`. A wall above makes the check return its blocked message.
+- `pipe allowed where the cell above is clear`.
+- `pipe on the lowest of three floors has one other end`. The top floor is made after the rows above, so their two-floor layout does not change. A pipe that also stands on the top floor fails the row.
+- `floor pipe`. Passes when the ten rows pass.
+
+The three placement rows were added after the first green run, because no row had reached the placement check. Their red is the mutant run below, not a missing-def run.
+
+### Red and green runs
+
+- Red, run `20261106-223004`. Every row fails. The first reason reads "the mod has no ZL_FloorPipe def". The aggregate fails. The build had no errors.
+- Green, six rows, run `20261106-223558`. The log ends with `Runtime validation passed. Evidence: ...20261106-223558`.
+- Green, nine rows, run `20261106-223851`. The log ends the same way.
+- Mutant, run `20261106-223803`. The first statement of `AllowsPlacing` was made `return true;`. `pipe refused on the top floor` fails ("the top floor placement is allowed"). `pipe refused where the cell above is blocked` fails ("the lower floor placement is allowed"). `pipe allowed where the cell above is clear` and the six pipe rows pass, because they never reach the check. The aggregate fails. The file was then restored from a scratch copy and matches it byte for byte.
+
+The build of `tools/RuntimeValidation/RuntimeValidation.csproj` before the first green run reported 0 errors and 12 warnings. None of the warnings is in a floor pipe file.
+
+### Regression
+
+Run one at a time on the default validation mod list, after the nine rows were in place. The logs are in the ledger folder, named `task37-reg-<name>.log`.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-223946 | core | PASS |
+| 20261106-224109 | `-StairsDamage` | PASS |
+| 20261106-224147 | `-StairsEqualize` | PASS |
+| 20261106-224230 | `-OneFloorColony` | PASS |
+| 20261106-224304 | `-Cooling` | PASS |
+| 20261106-224432 | `-StayOnFloor` | PASS |
+| 20261106-224516 | `-WayUps` | PASS |
+
+`-StayOnFloor` passed in this batch. Its intermittent failure from Task 36 did not recur here.
+
+### Three floors, found in review
+
+On a colony with three floors, placing a pipe's other end made a further end on the top floor. One pipe became a chain of three pipes, not one pair. The two-floor rows could not show this, because the surface is the top floor in those rows.
+
+The cause is in `Building_FloorPipe.SpawnSetup`. The other end is placed through the game's placement, which runs that end's own `SpawnSetup`, and that call made the top end. `Partner()` checks the floor above first, so the middle end paired with the top end. A flip or the flow could then go to the wrong floor.
+
+The row `pipe on the lowest of three floors has one other end` was added last, so the two-floor rows keep their layout. It builds a top floor with `CreateUpperLevel`. It passes when the middle floor has a pipe at the test cell and the top floor has none.
+
+- Red, run `20261106-230839`, built before the fix: the row fails with `FAIL: the middle floor has a pipe True and the top floor has a pipe True, at (24, 0, 58)`. The nine earlier rows pass.
+- Green, run `20261106-230929`, after the fix in commit `c57e5f1`: all ten rows pass, and the aggregate `floor pipe` passes. The row reads `PASS: one other end on the middle floor at (24, 0, 26), none on the top floor`.
+
+The fix makes the placement of the other end a case that `SpawnSetup` skips. A flag is set around the call and reset in a `finally` block.
+
+### Limits
+
+- Saving and loading a pipe, with its chosen resource and its direction, is not tested.
+- The rows stop when the items land. The haul logic that stores them on the receiving floor is not run here.
+- Forbidden and reserved items are skipped in the code, but no row covers them.
+- A full receiving floor is not tested. The return-to-origin path has no row.
+- Damage and deconstruction of a pipe are not tested. The removal row uses `DestroyMode.Vanish` only.
+- The pipe's texture is `Things/Building/Furniture/Column`, the same texture the power column uses. Runs are headless, so no texture was drawn, and the pipe's look on screen was not checked.
+- The gizmos were not clicked. The rows call the methods the gizmos call.
+- The scenario calls `Step` itself, 240 times a day. It does not wait for the game's rare tick, so the real tick's timing is not proven by a row.
+- Flow and flip were run only on the lower-to-surface pair. The three-floor row checks where the other end stands. No flow or flip runs on that colony.
+- Multiplayer: untested.
+
+## Stair transfer (2026-11-06)
+
+Lucas's decision D5, answered 2026-11-06, is to send a chosen list now. The idea "stair transfer" is in `docs/mod-comparison/ideas.html`. The plan is `docs/superpowers/plans/2026-11-06-multifloors-phase-e.md`, Task 38. The rule DM20 is in that plan.
+
+### What was built
+
+- Every stairs piece has a "Transfer across the stairs" button. It sits beside the view button, in the gizmo list that `StairsGizmoPatch.AddViewButton` builds. `Building_Stairs` is the base class of both stairs pieces, so the upper and the lower piece both get it.
+- The button opens `StairTransferWindow` (`ZLevels/Source/ZLevels/ZLevels/UI/StairTransferWindow.cs`). It lists the free colonists and the loose items on the stairs' floor, with a checkbox for each, and a "Send checked" button.
+- Send walks the checked colonists to the landing cell beside the other end. It uses `CallColonistsTargeter.CallTo`, so a colonist on the other floor takes the stairs by the same route a float-menu order uses. Each checked item goes to `Designator_HaulToFloor.MarkItemsForFloor`. An item the other floor does not need is not marked, and Send counts it.
+- `LandingCell` is the first standable cell next to the other end that holds no building. If none is free, it is the other end's own cell.
+- `Designator_HaulToFloor.IsLooseItem` is now internal, so the window uses the same rule as the designator.
+- The floors guide's Stairs paragraph names the new button.
+
+### What the scenario checks
+
+`-StairTransfer` (file `tools/RuntimeValidation/StairTransferScenarios.cs`). The scenario is frame-driven. On the lower floor it places one colonist to send, one to keep, a steel stack, and two wood stacks: one to send and one to keep. The surface has a stockpile that takes steel only, so the surface needs steel and does not need wood. This is the set-up of `-HaulToFloor`.
+
+- `transfer button is on the stairs`. The gizmo list of the lower stairs has "Transfer across the stairs".
+- `window lists the colonists and items on the floor`. `ColonistsOn` lists both colonists, and `ItemsOn` lists all three items.
+- `send walks the checked colonist to the other floor`. Within 6000 ticks the colonist stands on the landing cell above.
+- `send marks the checked item for the other floor`. The steel carries the mark for the surface, and one item is marked.
+- `an item the other floor does not need is not marked`. The checked wood is counted as not needed, is not marked, and stays on the lower floor. The plan does not list this row. It tests DM20 directly.
+- `unchecked colonist and item stay where they are`. After the transfer, the unchecked colonist and the unchecked wood are still on the lower floor, and the wood is unmarked.
+- `a checked item that left the floor is skipped and counted`. A checked steel stack that is no longer on the floor is counted as gone, and `Send` marks nothing for it. The stand-in is a steel stack that was never spawned, so its map is null, as a carried item's is.
+- `stair transfer`. Passes when the seven rows pass.
+
+### Red and green runs
+
+- Red, run `20261106-225314`. Every row fails. The button row reads "the stairs piece has no 'Transfer across the stairs' button", and the other rows read "the mod has no ZLevels.StairTransferWindow class". The build had no compile errors.
+- An earlier red attempt did not compile. The scenario read `ZUtils`, which is internal to the mod, and the build reported four CS0122 errors. The scenario now reads the tracker from `Current.Game`, as the other scenarios do. No run went on the failed build.
+- Green, run `20261106-225433`. The six rows and the aggregate pass. The counts row reads "sent 1 colonist, marked 1 item, and 1 item was not needed on the floor above", and the landing cell is (3, 0, 18).
+
+### Regression
+
+Run one at a time on the default validation mod list, on the code as it stood at the end of Task 38. The logs are in the ledger folder, named `task38-reg-<name>.log`. These runs predate the stale-item fix in commit `58668d1`. The final regression, at the end of this report, covers the fixed code.
+
+| Run | Command | Result |
+|---|---|---|
+| 20261106-225540 | core | PASS |
+| 20261106-225653 | `-CallColonists` | PASS |
+| 20261106-225731 | `-HaulToFloor` | PASS |
+| 20261106-225819 | `-BackgroundHaul` | PASS |
+| 20261106-225858 | `-StairsDamage` | PASS |
+| 20261106-225936 | `-StairsEqualize` | PASS |
+| 20261106-230014 | `-FloorsGuide` | PASS |
+
+### A checked item that left the floor, found in review
+
+The window keeps the list of loose items that it built when it opened. A colonist who picks up a checked item holds it outside the map, so `Thing.Map` is null for that item. `Send` then threw `NullReferenceException` in `MarkItemsForFloor`, after the colonists were already sent. A second send would throw again while the item stayed checked.
+
+`Send` now keeps only the items that `Designator_HaulToFloor.IsLooseItem` accepts. Any other checked item, whether stored, carried or used, is counted in `TransferResult.ItemsGone`. The window's message reports that count, and the item is not marked.
+
+- Red, run `20261106-231843`, before the fix. The row `a checked item that left the floor is skipped and counted` fails with `Object reference not set to an instance of an object.` The six earlier rows pass, and the aggregate `stair transfer` fails.
+- Green, run `20261106-231957`, after the fix in commit `58668d1`. All seven rows pass, and the aggregate `stair transfer` passes. The build has no `error CS` line.
+
+Not tested: the window's own "Send checked" button and the new message text. The scenario calls the static `Send`. No real carried item was used, so the stand-in is the only test of that state.
+
+### Limits
+
+- The window is not opened on screen. The scenario calls the methods the window calls: `ColonistsOn`, `ItemsOn`, `Send` and `LandingCell`. The checkboxes, the layout and the Send button were not clicked.
+- The button is read from the gizmo list. It was not clicked.
+- The window's lists are taken when it opens, and they are not refreshed. A checked item that has left the floor by then is skipped and counted, as the section above describes. A colonist who dies or goes down by then is skipped by `CallTo`. No row covers that.
+- A downed or dead colonist is left out of the list. No row covers that case.
+- The landing cell's fallback, the other end's own cell, is not tested.
+- `CallTo` moves the colonist's floor lock to the floor it is sent to. No row checks the lock.
+- The transfer is run from the lower stairs only. The surface's button uses the same code, but was not run.
+- Items that do not fit on the other floor, and a destination that is full, are not tested.
+- The guide's new sentence is checked only by the keyword check in `-FloorsGuide`.
+- Multiplayer: untested.
+
+## Final regression, every scenario (2026-11-06 and 2026-11-07)
+
+The final regression ran the core validation and each scenario switch in the runner's `$scenarioSwitches` map, one run at a time. That is 59 runs. The batch script is `.superpowers/sdd/2026-11-05-multifloors-ideas/task39-run-all.sh`. Its summary is `task39-all-summary.txt`, and each run has a log named `task39-<name>.log`. The batch started at 23:21 on 2026-11-06, on commit `58668d1`, the last code change of Task 39.
+
+### Result
+
+The runner printed its pass line for 54 of the 59 runs. One of the five runs that did not pass was a batch mistake, and a rerun passes it. After that rerun, 55 switches pass. The other four are explained below.
+
+- `-FloorsTab` failed in the batch because the batch script did not pass `-ModsConfigSource`. The scenario needs Royalty, and the default mod list does not load it. The rerun reads the user's mod list, read only, and passes: run `20261107-002345`. Every row and the aggregate pass.
+
+### Runs that do not pass
+
+- `-VaultInfestation`, run `20261106-232823`. Its two rows and its aggregate pass. The runner then stopped on a game error in Player.log: `Tried to destroy non-destroyable thing ZL_VaultExit48371`. The stack starts at `ZLevelsValidation.RuntimeValidation.ClearCell`, which `SpawnFood` calls (`tools/RuntimeValidation/RuntimeValidation.cs`, lines 2279 and 2324). The helper clears a cell for food, and that cell held the vault exit. The fault sits in the vault session's scenario and a shared harness helper. Nothing here changed it.
+- `-UnreachableZone`, run `20261106-233639`. The reachable control cell got no haul in 60 seconds, so the row failed. Five reruns passed: `20261107-001507`, `20261107-001639`, `20261107-001828`, `20261107-002001` and `20261107-002129`. Each rerun had one haul to the reachable cell. The failing run's log has one `ERROR` line, the known duplicate package id warning for `Aoba.DeadManSwitch.Core`. The working tree did not change during the batch. The cause is not found, and no fix was made. Treat this check as flaky until the cause is found.
+- `-CoolingNoColumns`, run `20261106-234147`. This is a negative control, so the failure is by design. Its variant places no column pair, so its 14 link rows fail, and so does its aggregate. The positive control, `uncooled core overheats`, passes.
+- `-CrossFloorFight`, run `20261107-000331`. The shot row fails, as it did in Task 28 (run `20261106-163149`). The rule refuses the line, because the cells on it that are two or more from the target are not open air (`ZL_OutsideTerrain`). The ground under the shooter on the surface is `Marble_Rough` in this run and `Sand` in the Task 28 run. Whether a shot may cross solid ground is decision D6. Its default (a) was applied on 2026-11-07, and the shot row now expects the refusal: run `20261107-173118` passes (see "Fighting across floors"). The two melee rows pass.
+
+### Table
+
+Result lines counts the lines of `validation-results.txt` that carry a `|` separator, so the generated-level and INFO lines are included. Failing lines counts the `FAIL` lines.
+
+| Switch | Run folder | Batch verdict | Result lines | Failing lines |
+|---|---|---|---|---|
+| core | 20261106-232115 | PASS | 33 | 0 |
+| `-InfestationGuard` | 20261106-232255 | PASS | 8 | 0 |
+| `-StaleLookup` | 20261106-232343 | PASS | 3 | 0 |
+| `-VaultPlacement` | 20261106-232427 | PASS | 6 | 0 |
+| `-VaultPocket` | 20261106-232505 | PASS | 3 | 0 |
+| `-VaultEnter` | 20261106-232544 | PASS | 8 | 0 |
+| `-VaultLoad` | 20261106-232637 | PASS | 6 | 0 |
+| `-VaultSave` | 20261106-232720 | PASS | 6 | 0 |
+| `-VaultInfestation` | 20261106-232823 | not passed | 3 | 0 |
+| `-VaultRock` | 20261106-232902 | PASS | 8 | 0 |
+| `-Supply` | 20261106-233236 | PASS | 12 | 0 |
+| `-UnreachableZone` | 20261106-233639 | not passed | 3 | 1 |
+| `-MultiBuild` | 20261106-233812 | PASS | 7 | 0 |
+| `-StairsDamage` | 20261106-233915 | PASS | 4 | 0 |
+| `-Cooling` | 20261106-233953 | PASS | 47 | 0 |
+| `-CoolingNoColumns` | 20261106-234147 | not passed | 46 | 15 |
+| `-CoolingTwoNets` | 20261106-234315 | PASS | 8 | 0 |
+| `-SocialRelaxQueue` | 20261106-234353 | PASS | 2 | 0 |
+| `-RestSearchNull` | 20261106-234431 | PASS | 5 | 0 |
+| `-TraderReturn` | 20261106-234504 | PASS | 1 | 0 |
+| `-ReservationRefused` | 20261106-234536 | PASS | 6 | 0 |
+| `-FloorHotkeys` | 20261106-234614 | PASS | 7 | 0 |
+| `-StayOnFloor` | 20261106-234652 | PASS | 12 | 0 |
+| `-WorkOnFloorOrder` | 20261106-234740 | PASS | 6 | 0 |
+| `-NeedCooldown` | 20261106-234813 | PASS | 9 | 0 |
+| `-IdleSearchPause` | 20261106-234856 | PASS | 5 | 0 |
+| `-StaleClaims` | 20261106-234934 | PASS | 7 | 0 |
+| `-FloorGuard` | 20261106-235012 | PASS | 6 | 0 |
+| `-StorageIndex` | 20261106-235050 | PASS | 6 | 0 |
+| `-StairRoutes` | 20261106-235128 | PASS | 5 | 0 |
+| `-AddonLoad` | 20261106-235205 | PASS | 2 | 0 |
+| `-ChoreSpread` | 20261106-235238 | PASS | 3 | 0 |
+| `-OneFloorColony` | 20261106-235311 | PASS | 3 | 0 |
+| `-StairsView` | 20261106-235344 | PASS | 3 | 0 |
+| `-StairPlacement` | 20261106-235421 | PASS | 4 | 0 |
+| `-SearchTiming` | 20261106-235454 | PASS | 13 | 0 |
+| `-LighterFloors` | 20261106-235532 | PASS | 8 | 0 |
+| `-OwnFloorFirst` | 20261106-235605 | PASS | 8 | 0 |
+| `-JobTargets` | 20261106-235638 | PASS | 2 | 0 |
+| `-BackgroundHaul` | 20261106-235710 | PASS | 6 | 0 |
+| `-JobTakenOnArrival` | 20261106-235748 | PASS | 10 | 0 |
+| `-RaidGround` | 20261106-235826 | PASS | 5 | 0 |
+| `-LeaveFromLower` | 20261106-235904 | PASS | 10 | 0 |
+| `-SkyfallerRoof` | 20261106-235947 | PASS | 6 | 0 |
+| `-MoodOtherFloor` | 20261107-000024 | PASS | 5 | 0 |
+| `-EventsOtherFloor` | 20261107-000102 | PASS | 8 | 0 |
+| `-ThiefCarry` | 20261107-000215 | PASS | 12 | 0 |
+| `-ChildAnimalMech` | 20261107-000253 | PASS | 8 | 0 |
+| `-CrossFloorFight` | 20261107-000331 | not passed | 8 | 2 |
+| `-FloorsTab` | 20261107-000504 | not passed | 7 | 1 |
+| `-FloorWorkFilter` | 20261107-000541 | PASS | 5 | 0 |
+| `-HaulToFloor` | 20261107-000629 | PASS | 78 | 0 |
+| `-BenchLink` | 20261107-000717 | PASS | 5 | 0 |
+| `-CallColonists` | 20261107-000755 | PASS | 13 | 0 |
+| `-StairsEqualize` | 20261107-000838 | PASS | 6 | 0 |
+| `-FloorsGuide` | 20261107-000916 | PASS | 3 | 0 |
+| `-WayUps` | 20261107-000948 | PASS | 8 | 0 |
+| `-FloorPipe` | 20261107-001031 | PASS | 12 | 0 |
+| `-StairTransfer` | 20261107-001109 | PASS | 10 | 0 |
+
+The `-FloorsTab` row is the batch run. Its rerun with the user's mod list is run `20261107-002345`, and it passes.
+
+### Fix and rerun folders
+
+- Three-floor pipe: red `20261106-230839`, green `20261106-230929`, fix in commit `c57e5f1`.
+- Stale item in the transfer window: red `20261106-231843`, green `20261106-231957`, fix in commit `58668d1`.
+- `-UnreachableZone` reruns: `20261107-001507`, `20261107-001639`, `20261107-001828`, `20261107-002001` and `20261107-002129`.
+- `-FloorsTab` rerun with the user's mod list, read only: `20261107-002345`.
+
+### Working tree
+
+The runs used the working tree, which holds the vault session's uncommitted work. That is `VaultPocket.xml`, `VaultExitSpot.cs`, a deleted `GenStep_VaultFloor.cs`, an untracked `GenStep_VaultRock.cs`, vault lines in `tools/Invoke-RuntimeValidation.ps1` and `tools/RuntimeValidation/RuntimeValidation.cs`, and the build outputs `ZLevels.dll` and `ZLevelsRimatomics.dll`. Those shared files last changed before the batch began, so every run in the batch tested the same sources. The vault switches (`-VaultPlacement`, `-VaultPocket`, `-VaultEnter`, `-VaultLoad`, `-VaultSave`, `-VaultRock` and `-VaultInfestation`) belong to that session. The committed tree was not run alone, because the game's mod junctions point at this checkout.
+
+### Harness findings
+
+- The batch script read the run path from the last verdict line. PowerShell cuts that line short for a failing run, so the summary lost the path for four runs. It also recorded no folder for `-VaultInfestation`, which stopped on a logged error and printed a different line. The table takes each folder from the log. These are faults in the batch script, not in the scenarios.
+- The batch script omitted `-ModsConfigSource` for `-FloorsTab`. That caused its batch failure, as described above.
+- The log gate matches ` ERROR ` without regard to case. The fix belongs in the runner, which the vault session also edits, so it was not changed.
+- In one earlier core run, 27 of 33 rows reached Player.log (Task 1). The cause is not known, and no later run has shown it.
+
+### Limits and open items
+
+- Decision D6 decided the shot row of `-CrossFloorFight` on 2026-11-07, by its default (a). See "Fighting across floors".
+- The `-UnreachableZone` flake has no cause yet.
+- The `ClearCell` helper destroys a non-destroyable thing. The vault session should decide the fix.
+- `-SocialRelaxQueue` reads the game speed during the screen fade, so its paused row may pass without a pause (Task 4). This was not checked.
+- No switch covers these: the pipe texture on screen, saving and loading a pipe, pipe damage, deconstructing one end of a pipe, flow on the three-floor colony, the stair transfer button on the surface, and the window's "Send checked" button with its messages.
+- Multiplayer: untested.
+
+
+## Per-patch timing (Task 24, 2026-11-07)
+
+Task 24 of the multi-floor ideas plan removes the busiest questions if they cost time. Its gate needs per-patch numbers, and the Task 19 timing does not give them. The plan is `docs/superpowers/plans/2026-11-07-task24-patch-timing.md`. Lucas answered D1 with option A on 2026-11-07, and option A starts with measuring.
+
+The gate is measured, and nothing is removed. The reach and reservation patches cost no measurable time in the work search. One attack search loop costs a little, 1.2 to 2.2 microseconds per idle call. Removing it would change how the attack search looks at other floors. Decision D8 in `docs/roadmap.md` asks Lucas about it. The default keeps the loop.
+
+### What the scenario does
+
+`-SearchTiming` runs a per-patch phase after the three-floor timing. The code is in `tools/RuntimeValidation/PatchTimingScenarios.cs`. For each patch group, the phase removes the patch from the running game with `Harmony.Unpatch`, measures, and applies the patch again with `Harmony.Patch`. Each removal has a baseline before it and a baseline after it. Each group runs in three rounds. The mod's code does not change.
+
+- Work search: the Task 19 method on three floors, 500 calls per measure. Groups: `CanReach`, `CanReserve` and `CanReserveStack`.
+- Attack probe: 500 calls per measure on one colonist that holds a revolver. No hostile is in range, so every call finds nothing. Groups: `BestShootTargetFromCurrentPosition`, `FindAttackTarget` and `BestAttackTarget`. `FindAttackTarget` is called through reflection, so its times include a fixed reflection cost.
+- The row `patch timing recorded` passes only when every removal took effect, every patch was applied again, and every measure had calls.
+
+### Runs
+
+| Run | Result |
+|---|---|
+| `20261107-173554` | Red, before the phase existed. `patch timing recorded` FAIL with "the per-patch phase did not run". Runner exit 1, as planned. |
+| `20261107-173706` and `20261107-173731` | Did not build. A helper named `Find` hid the game's `Find` class, and then two Harmony members had the wrong shape. Both fixed. No rows. |
+| `20261107-173858` | PASS. The first run with the phase. |
+| `20261107-174047` | PASS. Repeat 2. |
+| `20261107-174220` | PASS. Repeat 3. |
+
+### Results
+
+Each cell gives the change in the mean, the drop in microseconds, and the spread of the baselines in that run. The drop is the baseline mean minus the mean without the patch, so a negative drop means the call was slower without the patch. The change is the same comparison as a percentage. The spread is the range of the baseline values around the removal. Rule R2 from the plan says a patch costs time when removing it lowers the mean by at least 10 percent and by more than that spread.
+
+Work search, three floors:
+
+| Patch | Run 173858 | Run 174047 | Run 174220 | Runs where R2 holds |
+|---|---|---|---|---|
+| `CanReach` | -0.6%, drop 0.8 us, spread 27.9 us | +11.9%, drop -14.8 us, spread 39.4 us | -0.8%, drop 1.6 us, spread 87.5 us | 0 of 3 |
+| `CanReserve` | -7.1%, drop 9.8 us, spread 69.3 us | +4.4%, drop -5.3 us, spread 43.7 us | +2.8%, drop -4.8 us, spread 26.9 us | 0 of 3 |
+| `CanReserveStack` | +1.9%, drop -2.5 us, spread 8.1 us | +1.0%, drop -1.2 us, spread 23.1 us | +9.9%, drop -15.5 us, spread 33.9 us | 0 of 3 |
+
+Every change in this table is smaller than the spread in its own run. `CanReserveStack` was slower without the patch in all three runs, but its spread was larger than the change each time.
+
+Attack probe, idle, 500 calls per measure:
+
+| Removed patch, metric | Run 173858 | Run 174047 | Run 174220 | Runs where R2 holds |
+|---|---|---|---|---|
+| `BestShootTargetFromCurrentPosition`, metric `FindAttackTarget` | -29.1%, drop 2.7 us, spread 16.2 us | -30.6%, drop 2.8 us, spread 17.2 us | -26.1%, drop 2.4 us, spread 14.6 us | 0 of 3 |
+| `BestShootTargetFromCurrentPosition`, metric `BestShootTargetFromCurrentPosition` | -26.1%, drop 2.0 us, spread 0.4 us | -27.1%, drop 2.0 us, spread 0.5 us | 0.0%, drop 0.0 us, spread 0.5 us | 2 of 3 |
+| `FindAttackTarget`, metric `FindAttackTarget` | -31.9%, drop 1.9 us, spread 1.6 us | -29.6%, drop 1.9 us, spread 0.3 us | -11.9%, drop 0.8 us, spread 3.1 us | 2 of 3 |
+| `FindAttackTarget`, metric `BestShootTargetFromCurrentPosition` | -3.7%, drop 0.2 us, spread 5.1 us | -12.9%, drop 1.1 us, spread 4.4 us | +12.9%, drop -0.9 us, spread 5.7 us | 0 of 3 |
+| `BestAttackTarget`, metric `FindAttackTarget` | -26.9%, drop 1.8 us, spread 0.2 us | -34.1%, drop 2.2 us, spread 0.7 us | -17.4%, drop 1.2 us, spread 0.2 us | 3 of 3 |
+| `BestAttackTarget`, metric `BestShootTargetFromCurrentPosition` | -22.8%, drop 1.7 us, spread 0.1 us | -26.5%, drop 1.7 us, spread 3.1 us | -14.8%, drop 1.1 us, spread 0.1 us | 2 of 3 |
+
+The `BestAttackTarget` row for `FindAttackTarget` is the one that holds in every run. The two flag patches, on `BestShootTargetFromCurrentPosition` and on `FindAttackTarget`, set a flag that the same loop reads. The `FindAttackTarget` flag drops that metric by 1.9 microseconds in two runs, and by 0.8 microseconds in the third, where the spread was 3.1. The `BestShootTargetFromCurrentPosition` flag drops its own metric by 2.0 microseconds in two runs and by nothing in the third. The `BestShootTargetFromCurrentPosition` patch also lowers the `FindAttackTarget` metric by 2.4 to 2.8 microseconds in all three runs. The code gives no path for that. `FindAttackTarget` calls `BestAttackTarget` directly, and the shoot flag is set only inside `BestShootTargetFromCurrentPosition`. The cause is not known. The probe runs both metrics in one call, so the effect may come from the probe. Those numbers are not used.
+
+### What the numbers mean
+
+- The busiest questions are not the cost. Removing a reach or reservation patch changed the work search by less than the run's own spread. Leaving them alone would save nothing that can be measured.
+- The attack loop costs 1.2 to 2.2 microseconds per idle call. A three-floor work search call took 120 to 192 microseconds in these runs, so the loop is under 2 percent of one work search call. The work search is not where the time goes.
+- The loop is the search of other floors for targets. The prefix of `BestAttackTarget` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/CombatPatches.cs` runs it, nearest floor first, and keeps the first target it finds. Removing it would stop that search. The effect on fights is untested.
+
+### Rule R6 and Task B
+
+Rule R2 is applied per run. This report counts a patch as costing time when R2 holds in all three runs. That is a ruling made after the repeats. It makes a removal harder to justify, not easier. Read per run, the two flag patches would also count in some runs.
+
+Task B of the plan removes each patch that costs time, one at a time, with a row for each removal. Task B is not run. Only the loop meets R6. Removing it changes the attack search, and no row in the plan tests that search across floors. A removal needs a row that shows a hostile on one floor still finds a colonist on another floor with the loop gone. That row does not exist yet. Decision D8 asks Lucas. The default keeps the loop.
+
+### Limits
+
+- The probe is idle. Every call found nothing, so the attack numbers are the cost of a search with no target. A fight with targets is not measured.
+- The surface is random in every run, because the runner starts a new random game. The three-floor work search baselines were 120 to 192 microseconds, so the runs differ. Each run compares only its own removals.
+- `FindAttackTarget` is called through reflection. Its times include a fixed reflection cost, and its percentages are against those times.
+- The spreads are large for the work search and for the `FindAttackTarget` probe. Three runs cannot separate small effects from noise there.
+- The probe is noisy by about 2 microseconds in some windows. In run `20261107-174220`, removing the `BestShootTargetFromCurrentPosition` patch changed its own metric by 0.0 percent, while the other two runs dropped by 2.0 microseconds. The flag patches are not relied on for the decision. The `BestAttackTarget` result is the one used, and the code gives it a path to both metrics.
+- The cost of `CanBeSeenOverFast`, `TryFindShootLineFromTo` and the four `TryGiveJob` patches is not measured. They are not in the plan's list.
+- Where the work search spends its time is not known. No part of the search has been profiled.
+
+### Run folders
+
+- Red: `.artifacts/runs/20261107-173554`.
+- Green and repeats: `.artifacts/runs/20261107-173858`, `.artifacts/runs/20261107-174047` and `.artifacts/runs/20261107-174220`.
+- Did not build: `.artifacts/runs/20261107-173706` and `.artifacts/runs/20261107-173731`. They have no rows.
+- Harness commit: `e1d5291`.

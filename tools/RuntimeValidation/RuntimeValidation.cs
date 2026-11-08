@@ -11,7 +11,7 @@ using ZLevels;
 
 namespace ZLevelsValidation
 {
-    public class RuntimeValidation : GameComponent
+    public partial class RuntimeValidation : GameComponent
     {
         private int stage;
         private Pawn pawn;
@@ -331,6 +331,326 @@ namespace ZLevelsValidation
                 {
                     // RunCoolingLinkTick sets finished when it is done. The look check runs over several frames.
                     RunCoolingLinkTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsreservationrefused"))
+                {
+                    // The game ignores a pause while the screen fades in, so the check waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunReservationRefusedCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbackgroundhaul"))
+                {
+                    finished = true;
+                    RunBackgroundHaulCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsraidground"))
+                {
+                    finished = true;
+                    RunRaidGroundCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsleavefromlower"))
+                {
+                    // The walk takes game time, so the check runs over several frames. It waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    RunLeaveFromLowerTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsskyfallerroof"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunSkyfallerRoofTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsmoodotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunMoodOtherFloorCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelseventsotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunEventsOtherFloorTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelshaulfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunHaulToFloorTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbenchlink"))
+                {
+                    if (!reloaded)
+                    {
+                        if (!benchLinkSaved)
+                        {
+                            benchLinkSaved = true;
+                            RunBenchLinkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (benchLinkChecked)
+                    {
+                        return;
+                    }
+                    benchLinkChecked = true;
+                    RunBenchLinkAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscallcolonists"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCallColonistsTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsequalize"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunStairsEqualizeCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorsguide"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorsGuideCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelswayups"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunWayUpsTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorpipe"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorPipeCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairtransfer"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunStairTransferTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunThiefCarryTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschildanimalmech"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunChildAnimalMechCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscrossfloorfight"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCrossFloorFightTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsjobtakenonarrival"))
+                {
+                    // The walk takes game time, so the check runs over several frames. It waits until the player has control, as the reservation check does.
+                    if (!PlayerControlReady())
+                        return;
+                    RunJobTakenOnArrivalTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsjobtargets"))
+                {
+                    finished = true;
+                    RunJobTargetCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsownfloorfirst"))
+                {
+                    finished = true;
+                    RunOwnFloorFirstCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelslighterfloors"))
+                {
+                    finished = true;
+                    RunLighterFloorsCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelssearchtiming"))
+                {
+                    finished = true;
+                    RunSearchTimingCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairplacement"))
+                {
+                    finished = true;
+                    RunStairPlacementCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsview"))
+                {
+                    finished = true;
+                    RunStairsViewCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsonefloorcolony"))
+                {
+                    finished = true;
+                    RunOneFloorColonyCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschorespread"))
+                {
+                    finished = true;
+                    RunChoreSpreadCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsaddonload"))
+                {
+                    finished = true;
+                    RunAddonLoadCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairroutes"))
+                {
+                    finished = true;
+                    RunStairRoutesCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstorageindex"))
+                {
+                    finished = true;
+                    RunStorageIndexCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorguard"))
+                {
+                    finished = true;
+                    RunFloorGuardCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstaleclaims"))
+                {
+                    finished = true;
+                    RunStaleClaimsCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsidlesearchpause"))
+                {
+                    finished = true;
+                    RunIdleSearchPauseCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsneedcooldown"))
+                {
+                    finished = true;
+                    RunNeedCooldownCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsworkonfloororder"))
+                {
+                    finished = true;
+                    RunWorkOnFloorOrderCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorwork"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!floorWorkSaved)
+                        {
+                            floorWorkSaved = true;
+                            RunFloorWorkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (floorWorkChecked) return;
+                    floorWorkChecked = true;
+                    finished = true;
+                    RunFloorWorkAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorstab"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!floorsTabSaved)
+                        {
+                            floorsTabSaved = true;
+                            RunFloorsTabBeforeSave();
+                        }
+                        return;
+                    }
+                    if (floorsTabChecked) return;
+                    floorsTabChecked = true;
+                    finished = true;
+                    RunFloorsTabAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstayonfloor"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!stayOnFloorSaved)
+                        {
+                            stayOnFloorSaved = true;
+                            RunStayOnFloorBeforeSave();
+                        }
+                        return;
+                    }
+                    if (stayOnFloorChecked) return;
+                    stayOnFloorChecked = true;
+                    finished = true;
+                    RunStayOnFloorAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorhotkeys"))
+                {
+                    finished = true;
+                    RunFloorHotkeysCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelstradereturn"))
+                {
+                    finished = true;
+                    RunTraderReturnCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsrestsearchnull"))
+                {
+                    finished = true;
+                    RunRestSearchNullCheck();
                     return;
                 }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssocialrelaxqueue"))

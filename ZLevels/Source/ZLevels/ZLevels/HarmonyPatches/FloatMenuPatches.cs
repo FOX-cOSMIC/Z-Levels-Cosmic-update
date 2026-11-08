@@ -954,5 +954,42 @@ namespace ZLevels
                 return false;
             }
         }
+
+        // Task 7 (idea 5 on docs/mod-comparison/ideas.html). Clicking stairs offers "Work on this floor (100 s)" to the selected colonists.
+        // The order locks each colonist to the floor being viewed, for 6000 ticks, through the same lock that Stay on this floor uses.
+        [HarmonyPatch(typeof(FloatMenuMakerMap), "GetOptions")]
+        public static class WorkOnFloorOrderPatch
+        {
+            public const string OrderLabel = "Work on this floor (100 s)";
+            public const int OrderTicks = 6000;
+
+            public static void Postfix(List<Pawn> selectedPawns, Vector3 clickPos, ref List<FloatMenuOption> __result)
+            {
+                Map map = Find.CurrentMap;
+                if (map == null || __result == null || selectedPawns == null)
+                {
+                    return;
+                }
+                IntVec3 cell = clickPos.ToIntVec3();
+                if (!cell.InBounds(map) || !map.thingGrid.ThingsAt(cell).OfType<Building_Stairs>().Any())
+                {
+                    return;
+                }
+                List<Pawn> colonists = selectedPawns.Where(pawn => pawn != null && pawn.IsColonistPlayerControlled).ToList();
+                if (colonists.Count == 0)
+                {
+                    return;
+                }
+                int floorIndex = ZUtils.ZTracker.GetZIndexFor(map);
+                __result.Add(new FloatMenuOption(OrderLabel, () =>
+                {
+                    int untilTick = Find.TickManager.TicksGame + OrderTicks;
+                    foreach (Pawn colonist in colonists)
+                    {
+                        ZUtils.ZTracker.floorPolicy.SetLock(colonist, floorIndex, untilTick);
+                    }
+                }));
+            }
+        }
     }
 }

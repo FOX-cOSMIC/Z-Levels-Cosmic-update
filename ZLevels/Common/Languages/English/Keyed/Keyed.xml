@@ -8,4 +8,6 @@
 	<debugEnabledExplanation>Enable debug logging</debugEnabledExplanation>
 	<ZGoHere>Go here usingLabel stairs</ZGoHere>
 	<allowZLevelsInfestation>Allow Z-Levels Infestation</allowZLevelsInfestation>
+	<workGiverHighPriorityThresholdLabel>Search work at priority {0} or more important on all floors first</workGiverHighPriorityThresholdLabel>
+	<workGiverHighPriorityThresholdTooltip>RimWorld priority 1 is the most important and 4 the least. Work at the chosen priority or more important is searched on every floor before the colonist does lower-priority work on its own floor. The priorities count only while Use work priorities is on in the play settings. 0 turns this pass off.</workGiverHighPriorityThresholdTooltip>
 </LanguageData>

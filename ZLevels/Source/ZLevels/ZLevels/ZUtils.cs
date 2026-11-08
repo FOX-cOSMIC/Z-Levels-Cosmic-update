@@ -28,6 +28,19 @@ namespace ZLevels
 			}
 		}
 
+        // Nothing extra until floors exist (idea "nothing extra until floors exist" on docs/mod-comparison/ideas.html). A pawn whose tile has one
+        // floor runs the vanilla job search: the cross-floor search would have no other floor to search. A null pawn counts as one floor.
+        public static bool HasExtraFloors(Pawn pawn)
+        {
+            return pawn != null && ZTracker.GetAllMaps(pawn.Tile).Count > 1;
+        }
+
+        // The same test for a map, for the checks that have a thing and its map but no colonist.
+        public static bool HasExtraFloors(Map map)
+        {
+            return map != null && ZTracker.GetAllMaps(map.Tile).Count > 1;
+        }
+
         private static Dictionary<Map, MapComponentZLevel> mapComponents = new Dictionary<Map, MapComponentZLevel>();
         public static MapComponentZLevel GetMapComponentZLevel(Map key)
         {
@@ -45,6 +58,8 @@ namespace ZLevels
         public static void ResetZTracker()
 		{
 			zTracker = null;
+			StorageIndex.Clear();
+			StairRouteCache.Clear();
 		}
 
         // Infestations stop at five levels down: level -5 and every level below it is free of them.
@@ -100,16 +115,17 @@ namespace ZLevels
                         if (!skipOldMap || skipOldMap && otherMap != oldMap)
                         {
                             IntVec3 newPosition = IntVec3.Invalid;// stairs.MinBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)).Position;
-                            if (thing is Pawn pawn)
+                            if (thing is Pawn)
                             {
-                                foreach (var stair in stairs.OrderBy(x => IntVec3Utility.DistanceTo(thing.Position, x.Position)))
+                                // The reachable stair with the shortest walk from the colonist's own cell (idea "saved stair routes" on
+                                // docs/mod-comparison/ideas.html). The route starts on the map the stairs stand on, so it is used only when
+                                // that map is the colonist's own map.
+                                if (stairs[0].Map == oldMap)
                                 {
-                                    //ZLogger.Message($"CHECK: {pawn} is from {zTracker.GetMapInfo(pawn.Map)}, can reach {stair} - {pawn.CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly)}," +
-                                    //    $" stair is from {zTracker.GetMapInfo(stair.Map)}");
-                                    if (pawn.CanReach(stair, Verse.AI.PathEndMode.OnCell, Danger.Deadly))
+                                    Building_Stairs route = StairRouteCache.Best(oldMap, oldPosition, otherMapZIndex > oldMapZIndex);
+                                    if (route != null)
                                     {
-                                        newPosition = stair.Position;
-                                        break;
+                                        newPosition = route.Position;
                                     }
                                 }
                             }
@@ -117,6 +133,7 @@ namespace ZLevels
                             if (newPosition.IsValid)
                             {
                                 TeleportThing(thing, otherMap, newPosition);
+                                FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                                 //ZLogger.Message($"1 CHECK: {thing} is going to {zTracker.GetMapInfo(otherMap)}");
                                 currentLookedIntoMap = otherMap;
                                 yield return otherMap;
@@ -176,6 +193,7 @@ namespace ZLevels
                 else
                 {
                     TeleportThing(thing, otherMap, oldPosition);
+                    FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                     currentLookedIntoMap = otherMap;
                     yield return otherMap;
                 }
@@ -220,6 +238,7 @@ namespace ZLevels
                     var position = selectedStairs.Position;
                     TeleportThing(thing, otherMap, position);
                     TeleportThing(thing2, otherMap, position);
+                    FloorPolicy.FailSearchIfTesting(oldMap, otherMap);
                     currentLookedIntoMap = otherMap;
                     yield return otherMap;
                 }

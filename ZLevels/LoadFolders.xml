@@ -3,5 +3,6 @@
 	<v1.7>
 		<li>Common</li>
 		<li>1.7</li>
+		<li IfModActive="dubwise.rimatomics">1.7-Rimatomics</li>
 	</v1.7>
 </loadFolders>

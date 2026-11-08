@@ -18,6 +18,9 @@
 
 	<ThingDef ParentName="StairsBase">
 		<defName>ZL_StairsUp</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
 		<label>stairs up</label>
 		<altitudeLayer>BuildingOnTop</altitudeLayer>
 		<description>stairs.</description>
@@ -49,6 +52,9 @@
 
 	<ThingDef ParentName="StairsBase">
 		<defName>ZL_StairsDown</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
 		<label>stairs down</label>
 		<description>stairs.</description>
 		<thingClass>ZLevels.Building_StairsDown</thingClass>
