@@ -20,6 +20,10 @@ namespace ZLevels
         // The part of an item the source has earned and has not sent yet.
         public float carry;
 
+        // True when the other end stands on the floor above. The end the player places is the lower end of its pair, so it is true there. The
+        // other end made on the floor above is false. A pipe's partner is found from this, not from whatever pipe stands above or below it.
+        public bool pairsAbove = true;
+
         private static List<ThingDef> resourceChoices;
 
         // True while a source makes its other end. The other end makes no end of its own, so one pipe is one pair of ends, not a chain up the
@@ -44,26 +48,19 @@ namespace ZLevels
             }
         }
 
-        // The other end: the pipe at the same cell on the floor above or below. Null when there is none.
+        // The other end: the pipe at the same cell on the floor this end pairs with (pairsAbove). Null when there is none.
         public Building_FloorPipe Partner()
         {
             if (!Spawned)
             {
                 return null;
             }
-            foreach (Map other in new[] { ZUtils.ZTracker.GetUpperLevel(Map.Tile, Map), ZUtils.ZTracker.GetLowerLevel(Map.Tile, Map) })
+            Map other = pairsAbove ? ZUtils.ZTracker.GetUpperLevel(Map.Tile, Map) : ZUtils.ZTracker.GetLowerLevel(Map.Tile, Map);
+            if (other == null || other == Map)
             {
-                if (other == null || other == Map)
-                {
-                    continue;
-                }
-                Building_FloorPipe pipe = Position.GetThingList(other).OfType<Building_FloorPipe>().FirstOrDefault();
-                if (pipe != null)
-                {
-                    return pipe;
-                }
+                return null;
             }
-            return null;
+            return Position.GetThingList(other).OfType<Building_FloorPipe>().FirstOrDefault();
         }
 
         public override void SpawnSetup(Map map, bool respawningAfterLoad)
@@ -102,6 +99,7 @@ namespace ZLevels
             if (made is Building_FloorPipe otherEnd)
             {
                 otherEnd.IsSource = false;
+                otherEnd.pairsAbove = false;
                 otherEnd.Resource = Resource;
             }
         }
@@ -216,6 +214,7 @@ namespace ZLevels
             base.ExposeData();
             Scribe_Defs.Look(ref Resource, "resource");
             Scribe_Values.Look(ref IsSource, "isSource", true);
+            Scribe_Values.Look(ref pairsAbove, "pairsAbove", true);
             Scribe_Values.Look(ref carry, "carry", 0f);
         }
     }
