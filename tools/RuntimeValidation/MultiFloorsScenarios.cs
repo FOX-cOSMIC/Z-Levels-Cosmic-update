@@ -990,10 +990,10 @@ namespace ZLevelsValidation
                 SpawnStairPair(tracker, surface, belowSurface, bookStairs);
                 tracker.GameComponentTick();
                 List<Zone_Stockpile> bookHeldBack = surface.zoneManager.AllZones.OfType<Zone_Stockpile>().Where(z => z.settings.AllowedToAccept(novel)).ToList();
-                foreach (Zone_Stockpile bookHeldZone in bookHeldBack) bookHeldZone.settings.filter.SetAllow(novel.def, false);
                 Job bookFirst;
                 try
                 {
+                    foreach (Zone_Stockpile bookHeldZone in bookHeldBack) bookHeldZone.settings.filter.SetAllow(novel.def, false);
                     bookFirst = SearchWorkJob(bookHauler);
                 }
                 finally
@@ -1146,7 +1146,7 @@ namespace ZLevelsValidation
                 bool normalMarkOk = markedNormal != null && markedNormal.targetA.Thing == markedBerries;
                 Record("the same marked item is hauled once the pause is over", normalMarkOk ? "PASS" : "FAIL: the normal search gave " + DescribeOwnFloorJob(markedNormal) + ", not the berries");
 
-                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk && toOwnStockpile && otherItemRejected && pausedFoodOk && pausedFoodOwnOk && pausedMarkOk && candidatesPausedOk && candidatesNormalOk && normalMarkOk ? "PASS" : "FAIL: a row above failed");
+                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk && toOwnStockpile && otherItemRejected && pausedFoodOk && pausedFoodOwnOk && pausedMarkOk && candidatesPausedOk && candidatesNormalOk && normalMarkOk && !geyser.Spawned ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
             {
