@@ -2173,3 +2173,81 @@ Task B of the plan removes each patch that costs time, one at a time, with a row
 - Green and repeats: `.artifacts/runs/20261107-173858`, `.artifacts/runs/20261107-174047` and `.artifacts/runs/20261107-174220`.
 - Did not build: `.artifacts/runs/20261107-173706` and `.artifacts/runs/20261107-173731`. They have no rows.
 - Harness commit: `e1d5291`.
+
+## Work search profile (D9, 2026-11-08)
+
+Decision D9 asked for a profile of the colonist job search, with no mod change. Lucas answered option a on 2026-11-08. The plan is `docs/superpowers/plans/2026-11-08-work-search-profile.md`. The phase is `-WorkSearchProfile`, and its code is `tools/RuntimeValidation/WorkSearchProfileScenarios.cs`. The phase builds the three-floor colony that `-SearchTiming` builds. The harness adds timers at run time and removes them in a `finally` block. Nothing in `ZLevels/` changes.
+
+### Result
+
+The search time is in the vanilla search over the colonist's own map. On two and three floors, the own-floor search takes 94 to 98 percent of the whole search. Inside it, the vanilla search over the own map, which calls the vanilla `TryIssueJobPackage`, takes 90 to 97 percent. The mod's own steps take 1.3 to 5.5 percent of the search together. Each call makes three teleports, two tracker resets and two floor restores. The other floors step takes 1.3 to 5.6 percent of the own-floor search.
+
+### Runs
+
+| Run | Result | Cause or note |
+|---|---|---|
+| `20261108-112712` | FAIL, the search timer counted 400 of 200 calls | The timer prefix had the default priority, 400, the same as the mod's prefix. The count shows that the mod's prefix ran first, so each nested vanilla call was counted as a second call. |
+| `20261108-113101` | FAIL, the same count | The timer prefix had priority 0, which is `Priority.Last`. Harmony runs higher priorities first, so this prefix still ran after the mod's prefix. The order is in `PatchInfoSerialization.PriorityComparer` in `0Harmony.dll`. |
+| `20261108-113617` | PASS, `Runtime validation passed` | The timer prefix uses `HarmonyLib.Priority.First` (800), so it runs before the mod's prefix. |
+| `20261108-113824` | PASS | Repeat 2. |
+| `20261108-113955` | PASS | Repeat 3. |
+
+Both failed runs came from the timers, not from the search. Both are kept as evidence.
+
+### Per-run baseline and timer overhead
+
+Each cell gives the mean microseconds per call with no timers, then the range of its three baseline rounds in brackets, then the mean with timers, then the overhead, which is the timed mean minus the baseline mean.
+
+| Floors | Run 113617 | Run 113824 | Run 113955 |
+|---|---|---|---|
+| 1 | 329.5 (291.8 to 404.3); timers 424.6; overhead +95.1 | 456.5 (435.8 to 480.4); timers 443.4; overhead -13.1 | 520.6 (483.6 to 560.6); timers 601.3; overhead +80.7 |
+| 2 | 488.7 (433.9 to 522.5); timers 595.4; overhead +106.7 | 719.2 (694.3 to 733.6); timers 759.7; overhead +40.5 | 455.5 (312.0 to 605.4); timers 289.8; overhead -165.6 |
+| 3 | 493.7 (449.3 to 528.1); timers 614.8; overhead +121.1 | 251.3 (217.8 to 275.7); timers 292.5; overhead +41.2 | 124.9 (112.6 to 144.6); timers 209.4; overhead +84.5 |
+
+The overhead is not a reliable figure in these runs. It ranges from -166 to +121 microseconds, and the baseline rounds for two floors in run 113955 span 293 microseconds.
+
+### Shares of the search, timed runs
+
+Each row is one timed run. The search time is the mean over its three timed rounds.
+
+| Floors | Run | Search, microseconds per call | Own-floor search, share of search | Vanilla maps, share of own-floor search | Other floors, share of own-floor search | Teleports, share of search | Tracker resets, share of search | Floor restores, share of search |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 113617 | 554.2 | 98.0% | 96.5% | 1.6% | 0.4% | 0.5% | 0.8% |
+| 2 | 113824 | 723.5 | 98.4% | 97.4% | 1.3% | 0.3% | 0.4% | 0.6% |
+| 2 | 113955 | 270.5 | 96.1% | 94.0% | 3.2% | 0.9% | 0.9% | 1.7% |
+| 3 | 113617 | 574.8 | 98.0% | 96.5% | 1.7% | 0.4% | 0.5% | 0.7% |
+| 3 | 113824 | 273.4 | 96.4% | 93.5% | 3.2% | 0.8% | 0.9% | 1.6% |
+| 3 | 113955 | 189.8 | 93.9% | 89.7% | 5.6% | 1.3% | 1.6% | 2.6% |
+
+The counts per call were the same in every run, with one exception. Vanilla maps and maps in order were 1.00 per call. Teleports were 3.00, tracker resets 2.00 and floor restores 2.00. The floor policy calls were 8.60 per call in runs 113617 and 113824, and 10.90 in run 113955. Every call in every run found no job (0 of 600).
+
+### What the numbers mean
+
+- The time goes to the vanilla search over the colonist's own map. The mod calls that search. It does not replace it. The probe times the whole vanilla call, so the report cannot split the vanilla search further.
+- The mod's own steps are small. Teleports, tracker resets and floor restores take 1.3 to 5.5 percent of the search together.
+- A second floor does not add a consistent cost in these runs. The one-floor baselines were 330, 457 and 521 microseconds. In run 113955 the two-floor baseline, 456 microseconds, was lower than the one-floor baseline.
+
+### Not timed
+
+- The work-giver loop inside the vanilla search, and the filter the mod passes to it. The probe covers the whole vanilla call.
+- The search time outside the own-floor search, 2 to 6 percent of the search. The mod's prefix code outside the probed methods is in that part.
+- The Harmony wrapper cost of each probe, and the harness cost. The overhead row includes both and does not separate them.
+- The one-floor search. No own-floor search runs on one floor, so its 0 percent share describes the path. It is not a finding.
+- Searches that find a job. Every call found none, so this is the cost of an idle search.
+
+### Limits
+
+- Each run starts a new random game, so the surface differs between runs. The three-floor baselines were 125, 251 and 494 microseconds per call. Read the shares across runs, and do not compare absolute times between runs.
+- The shares moved by up to 6 points between runs. Vanilla maps on three floors ranged from 89.7 to 96.5 percent of the own-floor search. Three runs are few.
+- The timer overhead is not reliable, as shown above.
+- The count-only probes, floor policy and maps in order, have counts and no times.
+
+### Decision
+
+Decision D9 is answered as option a. The profile proposes no mod change. The next speed step is a new decision, listed in `docs/roadmap.md` under Decisions for Lucas. Its default is no change, and the work does not wait.
+
+### Run folders
+
+- Failed: `.artifacts/runs/20261108-112712` and `.artifacts/runs/20261108-113101`.
+- Passed: `.artifacts/runs/20261108-113617`, `.artifacts/runs/20261108-113824` and `.artifacts/runs/20261108-113955`.
+- Harness commit: `fd476f4`. The identity header of each passing run reads `dirty: True`, because the RimWorld version change for D10 was not yet committed. That change matches the installed build, so the built DLL is the same.

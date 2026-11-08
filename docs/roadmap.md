@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-07. Order matters: finish a stage before starting the next. Port plan boxes refer to `docs/superpowers/plans/2026-10-27-zlevels-17.md`.
+Updated 2026-11-08. Order matters: finish a stage before starting the next. Port plan boxes refer to `docs/superpowers/plans/2026-10-27-zlevels-17.md`.
 
 ## Now
 
@@ -26,7 +26,7 @@ Built:
 
 Not built:
 
-- Task 24, "leave the busiest questions alone". Measured on 2026-11-07, not built. The reach and reservation patches cost no measurable time in the work search. The attack search's loop over the other floors costs 1.2 to 2.2 microseconds per idle call. Removing it would stop that search, which is untested. Decision D8 asks whether to remove it. Report: `docs/validation-report.md`, "Per-patch timing (Task 24, 2026-11-07)".
+- Task 24, "leave the busiest questions alone". Measured on 2026-11-07, not built. The reach and reservation patches cost no measurable time in the work search. The attack search's loop over the other floors costs 1.2 to 2.2 microseconds per idle call. Removing it would stop that search, which is untested. Decision D8 kept the loop (see Decisions for Lucas). Report: `docs/validation-report.md`, "Per-patch timing (Task 24, 2026-11-07)".
 - The powered elevator and the freight elevator (idea "more ways up"). Decision D3 chose option a, so only ladders and stair sizes are built.
 - The standing "keep a set amount on the next floor" option of the stair transfer. Decision D5 chose option a, so the window sends a chosen list now only.
 - Power and fluids through the connectors. Decision D4 chose one chosen resource at a fixed rate. The "tubes between levels" line stays open for those.
@@ -43,7 +43,7 @@ Decisions made under "implement all of them" (plan 2026-11-06, DM14 to DM20):
 
 Waiting:
 
-- D6, D8 and D9 are open. None of them blocks the work. D6's default (a) is applied as of 2026-11-07: the rule stays, and the shot row of `-CrossFloorFight` expects the refusal. D8 and D9 keep their defaults until Lucas answers (see the decisions list).
+- D6, D8, D9 and D10 are answered on 2026-11-08 (see the decisions list). D8 needs Lucas's confirmation, because the choice he made could not be applied, and the loop stays until he says otherwise. Nothing blocks the work now. The final regression and the review run next. The DLL publish and the merge wait for them.
 
 ## Next
 
@@ -69,12 +69,18 @@ Waiting:
 - D3 (Task 36). Answered 2026-11-06: ladders and stair sizes (the recommended option). No powered elevator and no freight elevator are built. The decisions made under it are DM14 to DM16 in the Phase E plan.
 - D4 (Task 37). Answered 2026-11-06: one chosen resource per pipe, at a fixed rate (the recommended option). The decisions made under it are DM17 to DM19 in the Phase E plan. The "Tubes between levels" line stays open for power and fluids.
 - D5 (Task 38). Answered 2026-11-06: send a chosen list of colonists and items now (the recommended option). The standing "keep a set amount" option is not built. The decision made under it is DM20 in the Phase E plan.
-- D6 (open, not blocking; default applied 2026-11-07). May a shot from a lower floor reach a surface target over solid ground? Default (a), applied: keep the rule, so the shot is refused. The row "a shot from the lower floor across solid ground is refused, as the rule says" expects the refusal. Reversal: option (b) changes the rule in `CombatPatches.cs` and this row. On 2026-11-07 Lucas wrote "D1 a", which I read as D1. If he meant D6, D6 is answered (a).
+- D6 (answered 2026-11-08). May a shot from a lower floor reach a surface target over solid ground? Lucas wrote that they shouldn't be able to shoot through levels ever. I read that as no shot crossing between levels, over solid ground or through open air. The mod's patch on the line check is removed, and the cast is refused before it teleports anything (commit 834cd72). The open-air row failed on run 20261108-111047, where the old rule allowed the line, and passed on run 20261108-111922. The solid-ground row passes in both. The default (a) applied on 2026-11-07 stood until this answer. Reversal: restore a line check that allows open-air lines, one patch on `Verb.TryFindShootLineFromTo`.
 - D7 (answered 2026-11-07: a). Keep the Royalty flag on `-FloorsTab` only. Lucas's words: "No mandatory DLC please." The default validation mod list does not load Royalty.
 - D1 (answered 2026-11-07: A). Measure, then rebuild the job search in place. Lucas's words: "D1 a". The measurement is Task 24's per-patch timing, in `docs/superpowers/plans/2026-11-07-task24-patch-timing.md`.
 - D2 was answered on 2026-11-05: "all of them". D1 was read as rebuild in place until Lucas answered it on 2026-11-07.
-- D8 (open, not blocking; default in effect). Remove the attack search's loop over the other floors, to save 1.2 to 2.2 microseconds per idle call? Options: (a) keep the loop (Recommended). (b) remove it, after a new row shows that a hostile on one floor still finds a colonist on another floor with the loop gone. The loop is the prefix of `BestAttackTarget` in `CombatPatches.cs`. Default: (a). Trade-off: (a) keeps a cost that is under 2 percent of one work search call. (b) saves it, and may stop fights across floors, which is untested. The work does not wait.
-- D9 (open, not blocking). What is the next speed target? The reach and reservation patches are not where the work search spends its time. Options: (a) profile the work search's own code, as a new plan (Recommended). (b) stop speed work here. Default: (b), no profile until Lucas asks. The work does not wait.
+- D8 (answered 2026-11-08 as (b), whose condition failed, so the loop stays). Lucas chose (b): remove the attack search's loop over the other floors, after a new row shows that a hostile on one floor still finds a colonist on another floor with the loop gone. I ran that row. With the loop disabled, run 20261108-112323 failed the row: no job sent the hostile after a colonist on the surface, and the target was none. The melee row across the stairs cell also failed on that run, so the loop affects that row too. With the loop in place, the same row passes on run 20261108-111922. The loop stays, which is the default (a). Keeping it costs 1.2 to 2.2 microseconds per idle call (Task 24). Lucas is asked to confirm, because his choice was (b). Default if he does not answer: the loop stays. The work does not wait. If the loop is removed anyway, a hostile stops going after colonists on other floors, and that needs its own plan.
+- D9 (answered 2026-11-08: a). Profile the work search's own code, as a new plan, with no mod change. The plan is `docs/superpowers/plans/2026-11-08-work-search-profile.md`. The result and its run folders are in `docs/validation-report.md`, "Work search profile (D9, 2026-11-08)". The time goes to vanilla's own-map search, which takes 90 to 97 percent of the own-floor search. The mod's own steps take 1.3 to 5.5 percent of the search. Passing runs: `20261108-113617`, `20261108-113824` and `20261108-113955`. The next speed step is a new decision, listed under Decisions for Lucas.
+- D10 (answered 2026-11-08: 1.7.5000 rev1275, the recommended option). The mod targets the RimWorld build installed here, not the 1.7.4998 rev1299 that CLAUDE.md named. `Directory.Build.props`, `README.md`, `CLAUDE.md` and `AGENTS.md` now name 1.7.5000 rev1275. The decision is in `docs/adr/0010-rimworld-target-1-7-5000-rev1275.md`, which replaces the value in ADR 0006. The DLLs are published from this build after the final regression, and the merge waits for that publish.
+- Next speed step after the D9 profile (new, not blocking). Which one comes next? (a) No speed change now (Recommended). Nothing changes, and the mod's own steps stay at 1.3 to 5.5 percent of the search. Trade-off: no speed gain. (b) Time each vanilla work giver on the own map, with no mod change, as a new plan. Trade-off: one more measurement plan, and no gameplay change. (c) Filter which work givers the own-floor search tries on an idle call. Trade-off: a possible gain, but colonists could pick different jobs, so each work type needs a row. Default if Lucas does not answer: (a). The work does not wait.
+- Decisions I made on 2026-11-08 under Lucas's answers. Each has its reason and its reversal.
+  - D6 reading: no shot crosses between levels, over solid ground or through open air. Reason: Lucas wrote that shots should never cross levels. Reversal: restore one line-check patch on `Verb.TryFindShootLineFromTo`. Commit 834cd72 removes it.
+  - D8 outcome: the attack loop stays, because the condition of option (b) failed. Reversal: remove the loop in `BestAttackTarget` in `CombatPatches.cs`, after a plan covers hostiles across floors.
+  - Branch: the work is on `multifloors-ideas` in a separate worktree, so `master` keeps the other sessions' changes. Reversal: none needed.
 
 ## Later
 
