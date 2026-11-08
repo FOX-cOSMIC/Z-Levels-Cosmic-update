@@ -97,6 +97,11 @@ namespace ZLevels
         // A locked colonist may search only the map of its locked floor. An unlocked colonist may search every map.
         public bool AllowsMap(Pawn pawn, Map map, int nowTick)
         {
+            // The paused search of this colonist stays on its own floor.
+            if (OwnFloorFirstSearch.OwnFloorOnlyFor(pawn))
+            {
+                return map == OwnFloorFirstSearch.OwnFloorOnlyMap;
+            }
             int? floorIndex = LockedFloorIndex(pawn, nowTick);
             if (floorIndex == null)
             {

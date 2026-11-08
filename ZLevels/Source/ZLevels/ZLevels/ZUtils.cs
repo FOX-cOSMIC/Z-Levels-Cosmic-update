@@ -81,6 +81,8 @@ namespace ZLevels
             var arrivals = new Dictionary<Map, IntVec3> { { oldMap, oldPosition } };
             foreach (var otherMap in zTracker.GetAllMapsInClosestOrder(oldMap))
             {
+                // The paused search of this colonist stays on its own floor.
+                if (OwnFloorFirstSearch.OwnFloorOnlyFor(thing) && otherMap != OwnFloorFirstSearch.OwnFloorOnlyMap) continue;
                 if (!dontCheckForStairs)
                 {
                     var stairs = new List<Building_Stairs>();
@@ -235,6 +237,8 @@ namespace ZLevels
 
             foreach (var otherMap in ZTracker.GetAllMapsInClosestOrder(oldMap))
             {
+                // The paused search of this colonist stays on its own floor.
+                if (OwnFloorFirstSearch.OwnFloorOnlyFor(thing) && otherMap != OwnFloorFirstSearch.OwnFloorOnlyMap) continue;
                 var stairs = new List<Building_Stairs>();
                 if (ZTracker.GetZIndexFor(otherMap) > ZTracker.GetZIndexFor(oldMap) && !cantGoUP)
                 {

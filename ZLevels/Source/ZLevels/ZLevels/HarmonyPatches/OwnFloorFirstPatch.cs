@@ -19,8 +19,18 @@ namespace ZLevels
         // True while this class calls the vanilla search. The Z-Levels prefix on JobGiver_Work.TryIssueJobPackage lets that call through.
         internal static bool VanillaCallRunning;
 
-        // True while the paused search runs. The helpers that answer across floors stand aside then, so the paused search finds only this floor's work.
-        internal static bool OwnFloorOnlyRunning;
+        // The colonist of the paused search, and its floor, while that search runs. Null otherwise. While they are set, the floor policy and the floor
+        // iterators offer that colonist only its own floor, and the helpers answer nothing across floors.
+        internal static Pawn OwnFloorOnlyPawn;
+        internal static Map OwnFloorOnlyMap;
+
+        internal static bool OwnFloorOnlyRunning => OwnFloorOnlyPawn != null;
+
+        // True when the thing is the colonist of the paused search.
+        internal static bool OwnFloorOnlyFor(Thing thing)
+        {
+            return thing != null && thing == OwnFloorOnlyPawn;
+        }
 
         // While it is set, the vanilla search checks only the work givers it accepts (see PawnCanUseWorkGiverPatch). Null accepts every giver.
         internal static Func<WorkGiver, bool> GiverFilter;
@@ -97,7 +107,7 @@ namespace ZLevels
         }
 
         // The search of a colonist in the idle pause: the own floor only, and only when the floor lock allows it. The floor's work settings
-        // are part of the filter in RunVanillaSearch. Nothing moves the colonist, so nothing needs restoring.
+        // are part of the filter in RunVanillaSearch. The guard puts the colonist back on its cell and floor when the search throws.
         internal static ThinkResult SearchOwnFloorOnly(JobGiver_Work instance, Pawn pawn, JobIssueParams jobParams, JobTracker jobTracker)
         {
             Map ownMap = pawn.Map;
@@ -108,15 +118,21 @@ namespace ZLevels
             // The helpers answer across floors while a normal search runs. The paused search keeps them to their vanilla answers, so it finds
             // only work on this floor, with the floor's lock and work settings. Before the own-floor search took over the pause, the paused search
             // was the plain vanilla search, which has no helpers, so this keeps that reach.
-            bool previous = OwnFloorOnlyRunning;
-            OwnFloorOnlyRunning = true;
+            Pawn previousPawn = OwnFloorOnlyPawn;
+            Map previousMap = OwnFloorOnlyMap;
+            OwnFloorOnlyPawn = pawn;
+            OwnFloorOnlyMap = ownMap;
             try
             {
-                return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
+                using (new FloorRestore(pawn, ownMap, pawn.Position))
+                {
+                    return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
+                }
             }
             finally
             {
-                OwnFloorOnlyRunning = previous;
+                OwnFloorOnlyPawn = previousPawn;
+                OwnFloorOnlyMap = previousMap;
             }
         }
 

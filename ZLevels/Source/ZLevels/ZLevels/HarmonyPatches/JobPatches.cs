@@ -953,6 +953,8 @@ namespace ZLevels
             private static void Postfix(WorkGiver_InteractAnimal __instance, ref Job __result, Pawn pawn, Pawn tamee)
             {
                 if (!ZUtils.HasExtraFloors(pawn)) return;
+                // The paused search stays on its own floor. Its answer is the vanilla one.
+                if (OwnFloorFirstSearch.OwnFloorOnlyFor(pawn)) return;
                 if (!recursiveTrap && __result is null)
                 {
                     recursiveTrap = true;
@@ -1027,6 +1029,8 @@ namespace ZLevels
             private static void Postfix(ref IEnumerable<Thing> __result, Pawn pawn)
             {
                 if (!ZUtils.HasExtraFloors(pawn)) return;
+                // The paused search stays on its own floor, so the marked items of other floors are not offered to it.
+                if (OwnFloorFirstSearch.OwnFloorOnlyFor(pawn)) return;
                 var list = __result.ToList();
                 // The other floors offer only the items that the background scan marked for this colonist's floor (ItemFloorMarks).
                 int floor = ZUtils.ZTracker.GetZIndexFor(pawn.Map);
