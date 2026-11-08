@@ -1274,10 +1274,11 @@ namespace ZLevels
                             ZLogger.Message(pawn + " has no active jobs");
                         }
                         // Idle pause (DM6): after a normal search that found nothing, the next normal search waits 600 ticks. The emergency search
-                        // is not paused, and the vanilla search on the colonist's own map still runs, so local work is not delayed.
+                        // is not paused. A paused search still checks only the own floor, with that floor's lock and work settings.
                         if (!___emergency && !ZTracker.floorPolicy.IdleSearchAllowed(pawn, Find.TickManager.TicksGame))
                         {
-                            return true;
+                            __result = OwnFloorFirstSearch.SearchOwnFloorOnly(__instance, pawn, jobParams, jobTracker);
+                            return false;
                         }
                         ThinkResult result;
                         var oldMap = pawn.Map;

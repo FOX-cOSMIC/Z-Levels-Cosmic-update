@@ -44,7 +44,13 @@ namespace ZLevels
                             return own;
                         }
                     }
-                    ThinkResult highElsewhere = SearchOtherFloors(instance, pawn, jobParams, jobTracker, oldMap, oldPosition, high);
+                    // SearchOtherFloors moves the colonist onto each floor it yields, and it can leave the colonist on the last one. The
+                    // lower-priority pass below searches the own floor, so the colonist goes back to its own floor first.
+                    ThinkResult highElsewhere;
+                    using (new FloorRestore(pawn, oldMap, oldPosition))
+                    {
+                        highElsewhere = SearchOtherFloors(instance, pawn, jobParams, jobTracker, oldMap, oldPosition, high);
+                    }
                     if (highElsewhere.Job != null)
                     {
                         return highElsewhere;
@@ -85,6 +91,18 @@ namespace ZLevels
                 }
             }
             return ThinkResult.NoJob;
+        }
+
+        // The search of a colonist in the idle pause: the own floor only, and only when the floor lock allows it. The floor's work settings
+        // are part of the filter in RunVanillaSearch. Nothing moves the colonist, so nothing needs restoring.
+        internal static ThinkResult SearchOwnFloorOnly(JobGiver_Work instance, Pawn pawn, JobIssueParams jobParams, JobTracker jobTracker)
+        {
+            Map ownMap = pawn.Map;
+            if (!ZUtils.ZTracker.floorPolicy.AllowsMap(pawn, ownMap, Find.TickManager.TicksGame))
+            {
+                return ThinkResult.NoJob;
+            }
+            return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
         }
 
         // Runs the vanilla search with the colonist on the given map, and lets through only the work givers the filter accepts. While the search
