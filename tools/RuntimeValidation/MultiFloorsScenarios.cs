@@ -961,9 +961,100 @@ namespace ZLevelsValidation
                 Record("the stockpile below", "INFO: " + lowerZone.CellCount + " cells, accepts the book " + lowerZone.settings.AllowedToAccept(novel));
                 Record("the bookcase on the surface", "INFO: accepts the book " + bookcase.Accepts(novel) + ", priority " + bookcase.GetStoreSettings().Priority + ", on " + bookcase.Map);
                 Record("the paused search job", "INFO: " + DescribeOwnFloorJob(bookPaused) + ", on the surface " + onSurface);
-                bool pausedStorageOk = bookFirst == null && !onSurface;
+                // A haul to a cell names no thing. A cell of the surface's stockpile, which is no stockpile of this floor, is a haul to another floor.
+                bool onSurfaceCell = bookPaused != null && bookPaused.targetB.Thing == null && surface.zoneManager.ZoneAt(bookPaused.targetB.Cell) != null
+                    && belowSurface.zoneManager.ZoneAt(bookPaused.targetB.Cell) == null;
+                bool pausedStorageOk = bookFirst == null && !onSurface && !onSurfaceCell;
                 Record("a paused search does not send a haul to storage on another floor", pausedStorageOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(bookPaused) + ", with its destination on the surface");
-                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk ? "PASS" : "FAIL: a row above failed");
+                // The paused search still finds the book's haul to this floor's stockpile. Without this row the rows above would pass when the search finds nothing.
+                bool toOwnStockpile = bookPaused != null && bookPaused.targetB.Thing == null && belowSurface.zoneManager.ZoneAt(bookPaused.targetB.Cell) == lowerZone;
+                Record("a paused search keeps the book's haul on this floor's stockpile", toOwnStockpile ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(bookPaused) + ", not a haul to the stockpile on this floor");
+
+                // Row 7, a paused search and food for an animal, with the food on another floor (S10). This row makes a stair pair between the surface and the level
+                // below, nine cells from the surface centre, so the food check can walk to the stairs. The colonist and a tame monkey stand beside the stairs. The
+                // monkey is set to learn obedience, so its training job needs food for it, and the colonist has the animals skill that the job asks for. Raw berries
+                // are the food: the food search takes foods up to the raw tasty preference, and berries are one. The first search finds no food, so the pause starts.
+                // Then berries are built on the level below, and the paused search must not take them. Row 8 puts berries on the surface, and the paused search takes
+                // those.
+                IntVec3 foodStairs = surface.Center + new IntVec3(-9, 0, 0);
+                CarveAround(surface, foodStairs, 6);
+                CarveAround(belowSurface, foodStairs, 6);
+                SpawnStairPair(tracker, surface, belowSurface, foodStairs);
+                tracker.GameComponentTick();
+                Pawn feeder = SpawnCapableColonistNear(surface, foodStairs + new IntVec3(2, 0, 2), noAvoid, WorkTypeDefOf.Handling);
+                SetWork(feeder, WorkTypeDefOf.Handling, 3, WorkTypeDefOf.Mining, 0);
+                feeder.skills.GetSkill(SkillDefOf.Animals).Level = 12;
+                Pawn monkey = PawnGenerator.GeneratePawn(DefDatabase<PawnKindDef>.GetNamed("Monkey"), Faction.OfPlayer);
+                GenSpawn.Spawn(monkey, FindReachableCellNear(surface, foodStairs + new IntVec3(3, 0, 4), noAvoid), surface);
+                monkey.training.SetWantedRecursive(TrainableDefOf.Obedience, true);
+                TrainableDef monkeyTrainable = monkey.training.NextTrainableToTrain();
+                Job feederFirst = SearchWorkJob(feeder);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Thing lowerBerries = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("RawBerries"));
+                lowerBerries.stackCount = 50;
+                GenSpawn.Spawn(lowerBerries, FindReachableCellNear(belowSurface, lowerSpot + new IntVec3(-3, 0, 3), noAvoid), belowSurface);
+                Job feederPaused = SearchWorkJob(feeder);
+                Record("the monkey's next trainable", "INFO: " + (monkeyTrainable == null ? "none" : monkeyTrainable.defName) + ", the first search gave " + DescribeOwnFloorJob(feederFirst));
+                bool pausedFoodOk = feederFirst == null && feederPaused == null;
+                Record("a paused search does not take food for an animal from another floor", pausedFoodOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(feederPaused) + ", with the food on the level below");
+                // Diagnostics for the food check of the paused search, read only apart from the colonist's cell, which is put back. The check visits the other floors
+                // from the colonist's cell, and the food search runs on each one. Here: the floors the check visits, and the best food on the level below, found
+                // from the arrival there with the same arguments the check uses.
+                IntVec3 feederSpot = feeder.Position;
+                string visitedFloors = string.Join(", ", ClosestOrderMaps(feeder, surface, feederSpot).Select(map => tracker.GetZIndexFor(map).ToString()));
+                TeleportThingMethod().Invoke(null, new object[] { feeder, belowSurface, foodStairs });
+                ThingDef lowerFoodDef;
+                Thing lowerFood = FoodUtility.BestFoodSourceOnMap(feeder, monkey, desperate: false, out lowerFoodDef, FoodPreferability.RawTasty, allowPlant: false, allowDrug: false, allowCorpse: false, allowDispenserFull: false, allowDispenserEmpty: false, allowForbidden: false, allowSociallyImproper: false, allowHarvest: false, forceScanWholeMap: false, ignoreReservations: false, calculateWantedStackCount: false, FoodPreferability.Undefined, JobDriver_InteractAnimal.RequiredNutritionPerFeed(monkey) * 2f * 4f);
+                TeleportThingMethod().Invoke(null, new object[] { feeder, surface, feederSpot });
+                Record("the food check from the colonist's cell", "INFO: visits the floors with zIndex " + visitedFloors + ", the best food from the level below's arrival " + (lowerFood == null ? "none" : lowerFood.ToString() + " on " + lowerFood.Map) + ", the colonist's cell " + feederSpot + " on " + feeder.Map);
+                Thing surfaceBerries = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("RawBerries"));
+                surfaceBerries.stackCount = 50;
+                GenSpawn.Spawn(surfaceBerries, FindReachableCellNear(surface, foodStairs + new IntVec3(4, 0, -2), noAvoid), surface);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Job feederOwn = SearchWorkJob(feeder);
+                bool pausedFoodOwnOk = feederOwn != null && feederOwn.targetA.Thing == surfaceBerries;
+                Record("a paused search takes food for an animal from this floor", pausedFoodOwnOk ? "PASS" : "FAIL: the paused search gave " + DescribeOwnFloorJob(feederOwn) + ", not the berries on the surface");
+                // Diagnostics, read only: each gate the training job passes before it asks for food, for the colonist and the monkey as they stand now.
+                WorkGiver_Train trainGiver = feeder.workSettings.WorkGiversInOrderNormal.OfType<WorkGiver_Train>().FirstOrDefault();
+                bool canInteract = WorkGiver_InteractAnimal.CanInteractWithAnimal(feeder, monkey, out string interactReason, false);
+                Job trainJob = trainGiver == null ? null : trainGiver.JobOnThing(feeder, monkey, false);
+                Record("the training job's gates for the monkey", "INFO: giver " + (trainGiver != null) + ", can interact " + canInteract + " (" + interactReason + "), awake " + monkey.Awake() + ", handling skill needed " + TrainableUtility.MinimumHandlingSkill(monkey) + " against the colonist's " + feeder.skills.GetSkill(SkillDefOf.Animals).Level + ", eats the berries " + monkey.WillEat(surfaceBerries, feeder) + ", trained too recently " + TrainableUtility.TrainedTooRecently(monkey) + ", the job " + DescribeOwnFloorJob(trainJob));
+
+                // Row 9, a marked item from another floor (S11). The surface's haulables and the berries of the rows above are cleared first, so the colonist's first
+                // search finds nothing and the pause starts. Then berries on the level below are marked for the surface, and the paused search must not haul them up.
+                // Row 10 advances the clock past the pause, and the normal search then hauls the same berries.
+                foreach (Thing haulable in surface.listerHaulables.ThingsPotentiallyNeedingHauling().ToList())
+                {
+                    haulable.Destroy(DestroyMode.Vanish);
+                }
+                foreach (Thing lowerHaulable in belowSurface.listerHaulables.ThingsPotentiallyNeedingHauling().ToList())
+                {
+                    lowerHaulable.Destroy(DestroyMode.Vanish);
+                }
+                foreach (Thing food in new[] { lowerBerries, surfaceBerries, novel })
+                {
+                    if (food.Spawned)
+                    {
+                        food.Destroy(DestroyMode.Vanish);
+                    }
+                }
+                Pawn markedHauler = SpawnCapableColonistNear(surface, pauseBlock + new IntVec3(2, 0, 6), noAvoid, WorkTypeDefOf.Hauling);
+                SetWork(markedHauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+                Job markedFirst = SearchWorkJob(markedHauler);
+                Thing markedBerries = ThingMaker.MakeThing(DefDatabase<ThingDef>.GetNamed("RawBerries"));
+                markedBerries.stackCount = 50;
+                GenSpawn.Spawn(markedBerries, FindReachableCellNear(belowSurface, lowerSpot + new IntVec3(-3, 0, -3), noAvoid), belowSurface);
+                ItemFloorMarks.Mark(markedBerries, surfaceIndex);
+                Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
+                Job markedPaused = SearchWorkJob(markedHauler);
+                bool pausedMarkOk = markedFirst == null && markedPaused == null;
+                Record("a paused search does not haul an item marked for this floor from another floor", pausedMarkOk ? "PASS" : "FAIL: the first search gave " + DescribeOwnFloorJob(markedFirst) + ", the paused search gave " + DescribeOwnFloorJob(markedPaused) + ", with the berries on the level below");
+                AdvanceClockPastIdlePause();
+                Job markedNormal = SearchWorkJob(markedHauler);
+                bool normalMarkOk = markedNormal != null && markedNormal.targetA.Thing == markedBerries;
+                Record("the same marked item is hauled once the pause is over", normalMarkOk ? "PASS" : "FAIL: the normal search gave " + DescribeOwnFloorJob(markedNormal) + ", not the berries");
+
+                Record("idle search pause", noWork && searched && atMostThree && pausedHaulOk && pausedLockOk && pausedStorageOk && toOwnStockpile && pausedFoodOk && pausedFoodOwnOk && pausedMarkOk && normalMarkOk ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
             {
@@ -1286,6 +1377,110 @@ namespace ZLevelsValidation
             {
                 Record("stair routes", "FAIL: " + exception);
                 Log.Error("Z-Levels stair routes validation failed: " + exception);
+            }
+            Root.Shutdown();
+        }
+
+        // The walk up to a floor that the colonist reaches after it has yielded the floor below. The iterator yields the floors nearest first. The upper
+        // level and the lower level are equally far from the surface, and the iterator keeps their order of creation, so the upper level is made first.
+        // The colonist yields the upper level by the surface's stairs up, then the lower level by the surface's stairs down. The stairs up to the top
+        // level stand on the upper level. The reachability patch teleports the colonist to the cell at the lower stairs' coordinates on the upper level,
+        // and that cell is walled in here. A walk that starts there cannot reach the top stairs. The walk must start at the arrival on the upper level.
+        private void RunFloorWalkCheck()
+        {
+            try
+            {
+                Map surface = Find.CurrentMap;
+                ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
+                Map upper = tracker.CreateUpperLevel(surface, surface.Center);
+                Map lower = CreateLevelBelow(tracker, surface);
+                Map top = tracker.CreateUpperLevel(upper, upper.Center);
+                IntVec3 center = surface.Center;
+                IntVec3 start = center;
+                IntVec3 downStairs = center + new IntVec3(1, 0, 0);
+                IntVec3 arrivalUp = center + new IntVec3(-4, 0, 0);
+                IntVec3 topStairs = center + new IntVec3(-4, 0, 3);
+                foreach (Map floor in new[] { surface, upper, lower, top })
+                {
+                    CarveAround(floor, center, 9);
+                    floor.fogGrid.ClearAllFog();
+                }
+                ClearCell(surface, start);
+                surface.terrainGrid.SetTerrain(start, TerrainDefOf.Concrete);
+                SpawnStairPair(tracker, surface, lower, downStairs);
+                SpawnStairPair(tracker, upper, surface, arrivalUp);
+                SpawnStairPair(tracker, top, upper, topStairs);
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        if (dx != 0 || dz != 0)
+                        {
+                            SpawnWallOn(upper, downStairs + new IntVec3(dx, 0, dz));
+                        }
+                    }
+                }
+                tracker.GameComponentTick();
+                IntVec3 topStock = topStairs + new IntVec3(3, 0, -2);
+                ClearCell(top, topStock);
+                Thing topSteel = ThingMaker.MakeThing(ThingDefOf.Steel);
+                topSteel.stackCount = 10;
+                GenSpawn.Spawn(topSteel, topStock, top);
+                MakeSupplyZone(top, topStairs + new IntVec3(-3, 0, -2));
+                Pawn colonist = SpawnPawnAt(surface, start);
+                SetWork(colonist, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
+
+                List<Map> order = tracker.GetAllMapsInClosestOrder(surface);
+                bool upperFirst = order.IndexOf(upper) >= 0 && order.IndexOf(upper) < order.IndexOf(lower);
+                Record("the floors in closest order from the surface", (upperFirst ? "PASS" : "FAIL: the lower level comes first, so the walk is not tested") + " (zIndex " + string.Join(", ", order.Select(map => tracker.GetZIndexFor(map).ToString())) + ")");
+
+                // Diagnostics, read only. They report the stairs each level lists, the cell the reachability patch teleports the colonist to when it walks from
+                // the lower arrival, and the reachability of the top stairs from that cell and from the arrival.
+                Record("stairs up on the surface", "INFO: " + string.Join(", ", tracker.GetStairsUpFor(surface).Select(stairs => stairs.Position.ToString())));
+                Record("stairs down on the surface", "INFO: " + string.Join(", ", tracker.GetStairsDownFor(surface).Select(stairs => stairs.Position.ToString())));
+                Record("stairs up on the upper level", "INFO: " + string.Join(", ", tracker.GetStairsUpFor(upper).Select(stairs => stairs.Position.ToString())));
+                MethodInfo cellToTeleport = typeof(ZLevelsManager).Assembly.GetType("ZLevels.ZUtils", true).GetMethod("GetCellToTeleportFrom", BindingFlags.Public | BindingFlags.Static);
+                IntVec3 lowerWalkStart = (IntVec3)cellToTeleport.Invoke(null, new object[] { lower, downStairs, upper });
+                int walls = 0;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        if ((dx != 0 || dz != 0) && (downStairs + new IntVec3(dx, 0, dz)).GetEdifice(upper) != null)
+                        {
+                            walls++;
+                        }
+                    }
+                }
+                Record("the walk from the lower arrival", "INFO: starts at " + lowerWalkStart + " on the upper level; the surface arrival is " + arrivalUp + ", the lower stairs' cell is " + downStairs + " with " + walls + " of 8 neighbours walled");
+                Building_Stairs topUp = tracker.GetStairsUpFor(upper).FirstOrDefault(stairs => stairs.Position == topStairs);
+                if (topUp != null)
+                {
+                    Record("the reachability of the top stairs", "INFO: from the lower walk's start " + upper.reachability.CanReach(lowerWalkStart, topUp, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)) + ", from the surface arrival " + upper.reachability.CanReach(arrivalUp, topUp, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
+                }
+                else
+                {
+                    Record("the reachability of the top stairs", "FAIL: no stairs up on the upper level at " + topStairs);
+                }
+
+                Job first = SearchWorkJob(colonist);
+                Job work = MainWorkJob(tracker, colonist, first);
+                bool reachedTop = work != null && work.targetA.Thing != null && work.targetA.Thing.Map == top;
+                Record("the search reaches work two floors up after the floor below", reachedTop ? "PASS" : "FAIL: the search gave " + DescribeOwnFloorJob(work) + " for a colonist on " + colonist.Map + ", not the steel on the top level");
+                if (topUp != null)
+                {
+                    TeleportThingMethod().Invoke(null, new object[] { colonist, lower, downStairs });
+                    bool fromLowerArrival = colonist.CanReach(topUp, PathEndMode.OnCell, Danger.Deadly);
+                    TeleportThingMethod().Invoke(null, new object[] { colonist, upper, arrivalUp });
+                    bool fromUpperArrival = colonist.CanReach(topUp, PathEndMode.OnCell, Danger.Deadly);
+                    Record("the colonist's walk to the top stairs", "INFO: from the lower arrival " + fromLowerArrival + ", from the arrival on the upper level " + fromUpperArrival);
+                }
+                Record("floor walk", upperFirst && reachedTop ? "PASS" : "FAIL: a row above failed");
+            }
+            catch (Exception exception)
+            {
+                Record("floor walk", "FAIL: " + exception);
+                Log.Error("Z-Levels floor walk validation failed: " + exception);
             }
             Root.Shutdown();
         }

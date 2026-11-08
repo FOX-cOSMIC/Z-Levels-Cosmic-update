@@ -551,6 +551,12 @@ namespace ZLevelsValidation
                     RunStairRoutesCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorwalk"))
+                {
+                    finished = true;
+                    RunFloorWalkCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelsstorageindex"))
                 {
                     finished = true;
