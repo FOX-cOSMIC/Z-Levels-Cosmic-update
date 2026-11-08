@@ -19,6 +19,9 @@ namespace ZLevels
         // True while this class calls the vanilla search. The Z-Levels prefix on JobGiver_Work.TryIssueJobPackage lets that call through.
         internal static bool VanillaCallRunning;
 
+        // True while the paused search runs. The helpers that answer across floors stand aside then, so the paused search finds only this floor's work.
+        internal static bool OwnFloorOnlyRunning;
+
         // While it is set, the vanilla search checks only the work givers it accepts (see PawnCanUseWorkGiverPatch). Null accepts every giver.
         internal static Func<WorkGiver, bool> GiverFilter;
 
@@ -102,7 +105,19 @@ namespace ZLevels
             {
                 return ThinkResult.NoJob;
             }
-            return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
+            // The helpers answer across floors while a normal search runs. The paused search keeps them to their vanilla answers, so it finds
+            // only work on this floor, with the floor's lock and work settings. Before the own-floor search took over the pause, the paused search
+            // was the plain vanilla search, which has no helpers, so this keeps that reach.
+            bool previous = OwnFloorOnlyRunning;
+            OwnFloorOnlyRunning = true;
+            try
+            {
+                return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
+            }
+            finally
+            {
+                OwnFloorOnlyRunning = previous;
+            }
         }
 
         // Runs the vanilla search with the colonist on the given map, and lets through only the work givers the filter accepts. While the search
@@ -187,7 +202,7 @@ namespace ZLevels
         internal static bool TryAnswer<T>(Func<T> answer, out T result)
         {
             result = default(T);
-            if (!OwnFloorFirstSearch.VanillaCallRunning || helperRunning)
+            if (!OwnFloorFirstSearch.VanillaCallRunning || OwnFloorFirstSearch.OwnFloorOnlyRunning || helperRunning)
             {
                 return false;
             }
