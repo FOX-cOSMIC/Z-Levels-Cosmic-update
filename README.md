@@ -14,7 +14,7 @@ This repository holds a port of **Z-Levels Beta** (by RamRod, package `foxcosmic
 
 - Original project: [RamRod6198/Z-Levels](https://github.com/RamRod6198/Z-Levels), master at commit `7cf66ce417d8fc4928afa7b713f925e9a6494239`. This repository is a GitHub fork of it. The original files were imported under `ZLevels/` in commit `a1b072d`.
 - The original project has no licence file, and this port grants no redistribution rights. The original author could not be reached before the Steam Workshop release. Keep the original author credit (RamRod) wherever the mod is shown.
-- The Steam Workshop item is planned as a Private upload first. Its link is added here once it exists. The Steam item ships only the 1.7 files. No modpack or multiplayer compatibility is claimed.
+- The Steam Workshop item is a Private upload: https://steamcommunity.com/sharedfiles/filedetails/?id=3833780917. Lucas switches it to Public after testing. The Steam item ships only the 1.7 files. No modpack or multiplayer compatibility is claimed.
 
 ### Requirements
 
