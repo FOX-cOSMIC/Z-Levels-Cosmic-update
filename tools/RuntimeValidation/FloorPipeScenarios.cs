@@ -21,7 +21,7 @@ namespace ZLevelsValidation
     {
         private const string FloorPipeDefName = "ZL_FloorPipe";
 
-        // The six rows, in the order they run. Each is recorded under its label.
+        // The rows, in the order they run. Each is recorded under its label. The aggregate counts this list, so a new row is added here too.
         private static readonly string[] FloorPipeRowLabels =
         {
             "floor pipe places its other end above",
@@ -34,6 +34,7 @@ namespace ZLevelsValidation
             "pipe refused where the cell above is blocked",
             "pipe allowed where the cell above is clear",
             "pipe on the lowest of three floors has one other end",
+            "two pairs stacked on four floors keep their own partners",
         };
 
         // The pipe class, by name. A missing class throws, so the row reads FAIL with the reason.
@@ -293,29 +294,29 @@ namespace ZLevelsValidation
                         ? "PASS: one other end on the middle floor at " + cell + ", none on the top floor"
                         : "FAIL: the middle floor has a pipe " + middle + " and the top floor has a pipe " + topFloor + ", at " + cell;
                 });
-        // Four floors: a pair from the lowest floor to the middle one, and a pair from the floor above to the top one, at one cell. The middle
-        // end must pair with the pipe below it, not with the pipe above.
-        RecordFloorPipeRow(rows, "two pairs stacked on four floors keep their own partners", () =>
-        {
-            Map topFloor = tracker.GetUpperLevel(surface.Tile, surface) ?? throw new InvalidOperationException("no top floor for the pipe check");
-            Map topmost = tracker.CreateUpperLevel(topFloor, topFloor.Center);
-            topmost.fogGrid.ClearAllFog();
-            ClearWayUpsBlock(topmost, block);
-            IntVec3 stackCell = WayUpCell(block, 14, 7);
-            Thing lowestEnd = FloorPipeAt(lower, stackCell) ?? throw new InvalidOperationException("no pipe on the lowest floor at " + stackCell);
-            Thing middleEnd = FloorPipeAt(surface, stackCell) ?? throw new InvalidOperationException("no pipe on the middle floor at " + stackCell);
-            Thing upperSource = SpawnFloorPipe(topFloor, stackCell);
-            Thing topEnd = FloorPipeAt(topmost, stackCell) ?? throw new InvalidOperationException("no pipe on the top floor at " + stackCell);
-            Building_FloorPipe partner = ((Building_FloorPipe)middleEnd).Partner();
-            if (partner != lowestEnd)
-            {
-                return "FAIL: the middle end pairs with " + (partner == null ? "no pipe" : partner.Map == topFloor ? "the pipe above" : "a pipe below") + ", not the pipe below";
-            }
-            middleEnd.Destroy(DestroyMode.Vanish);
-            return upperSource.Spawned && topEnd.Spawned
-                ? "PASS: the middle end pairs with the pipe below, and removing it leaves the pair above"
-                : "FAIL: removing the middle end took the pair above with it";
-        });
+                // Four floors: a pair from the lowest floor to the middle one, and a pair from the floor above to the top one, at one cell. The middle
+                // end must pair with the pipe below it, not with the pipe above.
+                RecordFloorPipeRow(rows, "two pairs stacked on four floors keep their own partners", () =>
+                {
+                    Map topFloor = tracker.GetUpperLevel(surface.Tile, surface) ?? throw new InvalidOperationException("no top floor for the pipe check");
+                    Map topmost = tracker.CreateUpperLevel(topFloor, topFloor.Center);
+                    topmost.fogGrid.ClearAllFog();
+                    ClearWayUpsBlock(topmost, block);
+                    IntVec3 stackCell = WayUpCell(block, 14, 7);
+                    Thing lowestEnd = FloorPipeAt(lower, stackCell) ?? throw new InvalidOperationException("no pipe on the lowest floor at " + stackCell);
+                    Thing middleEnd = FloorPipeAt(surface, stackCell) ?? throw new InvalidOperationException("no pipe on the middle floor at " + stackCell);
+                    Thing upperSource = SpawnFloorPipe(topFloor, stackCell);
+                    Thing topEnd = FloorPipeAt(topmost, stackCell) ?? throw new InvalidOperationException("no pipe on the top floor at " + stackCell);
+                    Building_FloorPipe partner = ((Building_FloorPipe)middleEnd).Partner();
+                    if (partner != lowestEnd)
+                    {
+                        return "FAIL: the middle end pairs with " + (partner == null ? "no pipe" : partner.Map == topFloor ? "the pipe above" : "a pipe below") + ", not the pipe below";
+                    }
+                    middleEnd.Destroy(DestroyMode.Vanish);
+                    return upperSource.Spawned && topEnd.Spawned
+                        ? "PASS: the middle end pairs with the pipe below, and removing it leaves the pair above"
+                        : "FAIL: removing the middle end took the pair above with it";
+                });
             }
             catch (Exception exception)
             {
