@@ -957,7 +957,8 @@ namespace ZLevelsValidation
                 // Row 6, a paused search and storage on another floor. The colonist is on the level below, with a book and no storage there, so its first
                 // search finds nothing and the pause starts. Then a bookcase on the surface, at a higher priority, and a stockpile on the level below are
                 // built. The surface has a stair pair to this floor, and its hauling is allowed during the pause, so the bookcase and the surface's stockpile are
-                // reachable from here. Only the own-floor gate keeps the colonist from them. The paused search must not send the colonist up to either.
+                // reachable from here. The own-floor gate is meant to keep the colonist from them. The paused search must not send the colonist up to either.
+                // The storage checks in this row still pass with the gate removed, so they do not prove the gate's own effect on storage.
                 belowSurface.fogGrid.ClearAllFog();
                 // The level below is sealed rock until it is carved, so the colonist, the book and the stockpile get a clear disc first.
                 IntVec3 lowerSpot = new IntVec3(belowSurface.Size.x / 2, 0, belowSurface.Size.z / 2);
@@ -968,17 +969,22 @@ namespace ZLevelsValidation
                 Pawn bookHauler = SpawnCapableColonistNear(belowSurface, lowerSpot + new IntVec3(3, 0, 3), noAvoid, WorkTypeDefOf.Hauling);
                 SetWork(bookHauler, WorkTypeDefOf.Hauling, 3, WorkTypeDefOf.Mining, 0);
                 tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, false);
-                Job bookFirst = SearchWorkJob(bookHauler);
-                Record("INFO: the colonist's map after the first search", "INFO: " + bookHauler.Map + ", at " + bookHauler.Position);
-                // The first search must find nothing, so the idle pause starts. The stair pair is built after it, so the first search has no route to the surface.
-                Record("the first search finds nothing, so the pause starts", bookFirst == null ? "PASS" : "FAIL: the first search found " + DescribeOwnFloorJob(bookFirst));
-                // A stair pair between this floor and the surface, eight cells across and six up from the centre. The paused search is the one under test, and it
-                // must find the surface storage reachable from the colonist's floor, so that only the own-floor rule keeps it out.
+                // A stair pair between this floor and the surface, eight cells across and six up from the centre. It is built before the first search, so the
+                // first search runs on the same connected floors as the paused search. Once the floors connect, a surface stockpile takes the book, so the
+                // stockpiles that accept the book are held back for that one search and allowed again before the paused search. The paused search is the one
+                // under test. It must find the surface storage reachable from the colonist's floor, and the own-floor rule is meant to keep it out.
                 IntVec3 bookStairs = lowerSpot + new IntVec3(-8, 0, -6);
                 CarveAround(surface, bookStairs, 6);
                 CarveAround(belowSurface, bookStairs, 6);
                 SpawnStairPair(tracker, surface, belowSurface, bookStairs);
                 tracker.GameComponentTick();
+                List<Zone_Stockpile> bookHeldBack = surface.zoneManager.AllZones.OfType<Zone_Stockpile>().Where(z => z.settings.AllowedToAccept(novel)).ToList();
+                foreach (Zone_Stockpile bookHeldZone in bookHeldBack) bookHeldZone.settings.filter.SetAllow(novel.def, false);
+                Job bookFirst = SearchWorkJob(bookHauler);
+                foreach (Zone_Stockpile bookHeldZone in bookHeldBack) bookHeldZone.settings.filter.SetAllow(novel.def, true);
+                Record("INFO: the colonist's map after the first search", "INFO: " + bookHauler.Map + ", at " + bookHauler.Position + ", surface stockpiles held back from the book " + bookHeldBack.Count);
+                // The first search must find nothing, so the idle pause starts. Surface hauling is off for this search, so the surface is not searched.
+                Record("the first search finds nothing, so the pause starts", bookFirst == null ? "PASS" : "FAIL: the first search found " + DescribeOwnFloorJob(bookFirst));
                 ThingDef bookcaseDef = DefDatabase<ThingDef>.GetNamed("Bookcase");
                 Building_Bookcase bookcase = (Building_Bookcase)ThingMaker.MakeThing(bookcaseDef, GenStuff.DefaultStuffFor(bookcaseDef));
                 bookcase.SetFaction(Faction.OfPlayer);
@@ -989,7 +995,8 @@ namespace ZLevelsValidation
                 Zone_Stockpile lowerZone = MakeSupplyZone(belowSurface, lowerSpot + new IntVec3(-1, 0, -1));
                 lowerZone.settings.Priority = StoragePriority.Normal;
                 Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + 10);
-                // The surface's hauling is allowed for the paused search, so the surface's storage is a candidate and only the own-floor gate keeps it out.
+                // The surface's hauling is allowed for the paused search, so the surface's storage is a candidate. The own-floor gate is meant to keep it out.
+                // The storage checks still pass with the gate removed, so this row does not prove that the gate does.
                 tracker.floorPolicy.SetWorkAllowed(WorkTypeDefOf.Hauling, surfaceIndex, true);
                 Map pausedStartMap = bookHauler.Map;
                 Job bookPaused = null;
