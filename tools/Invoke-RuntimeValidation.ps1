@@ -585,17 +585,23 @@ foreach ($built in @($builtZLevelsDll, $builtMultiplayerDll, $builtRimatomicsDll
     if (!(Test-Path -LiteralPath $built)) { throw "Missing build output: $built" }
 }
 $builtSha256 = (Get-FileHash -LiteralPath $builtZLevelsDll -Algorithm SHA256).Hash
-# The mods are staged in the run folder, then copied into the game copy. ZLevels takes About, Common, LoadFolders.xml and the 1.7 folder without its tracked
-# Assemblies, which take the built DLLs instead. ZLevels-Validation takes About and its built DLL.
+# The mods are staged in the run folder, then copied into the game copy. ZLevels takes About, Common, LoadFolders.xml, the 1.7 folder and the 1.7-Rimatomics
+# folder, each without its tracked Assemblies, which take the built DLLs instead. The add-on DLL goes into 1.7-Rimatomics, the folder that LoadFolders.xml
+# lists for Dubs Rimatomics, as Publish-Mod.ps1 places it. ZLevels-Validation takes About and its built DLL.
 $stageRoot = Join-Path $runDirectory 'staged'
 $stagedZLevels = Join-Path $stageRoot 'ZLevels'
 $stagedValidation = Join-Path $stageRoot 'ZLevels-Validation'
 $stagedAssemblies = Join-Path (Join-Path $stagedZLevels '1.7') 'Assemblies'
-New-Item -ItemType Directory -Path $stagedAssemblies, (Join-Path $stagedValidation 'Assemblies') -Force | Out-Null
+$stagedAddonAssemblies = Join-Path (Join-Path $stagedZLevels '1.7-Rimatomics') 'Assemblies'
+New-Item -ItemType Directory -Path $stagedAssemblies, $stagedAddonAssemblies, (Join-Path $stagedValidation 'Assemblies') -Force | Out-Null
 $modSource = Join-Path $workspace 'ZLevels'
 foreach ($item in @('About', 'Common', 'LoadFolders.xml')) { Copy-Item -LiteralPath (Join-Path $modSource $item) -Destination $stagedZLevels -Recurse }
 Get-ChildItem -LiteralPath (Join-Path $modSource '1.7') -Force | Where-Object { $_.Name -ne 'Assemblies' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagedZLevels '1.7') -Recurse }
-foreach ($dll in @($builtZLevelsDll, $builtRimatomicsDll, $builtMultiplayerDll)) { Copy-Item -LiteralPath $dll -Destination $stagedAssemblies }
+if (Test-Path -LiteralPath (Join-Path $modSource '1.7-Rimatomics')) {
+    Get-ChildItem -LiteralPath (Join-Path $modSource '1.7-Rimatomics') -Force | Where-Object { $_.Name -ne 'Assemblies' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagedZLevels '1.7-Rimatomics') -Recurse }
+}
+foreach ($dll in @($builtZLevelsDll, $builtMultiplayerDll)) { Copy-Item -LiteralPath $dll -Destination $stagedAssemblies }
+Copy-Item -LiteralPath $builtRimatomicsDll -Destination $stagedAddonAssemblies
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'RuntimeValidation/About') -Destination $stagedValidation -Recurse
 Copy-Item -LiteralPath $builtValidationDll -Destination (Join-Path $stagedValidation 'Assemblies')
 # The game copy is made from the install and the staged mods, and it is the only game this run starts. The install and the user's Mods folder are only read.
