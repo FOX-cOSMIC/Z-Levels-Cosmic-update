@@ -1240,7 +1240,20 @@ namespace ZLevelsValidation
                 // through the surface, as the base search did, so the job it finds is the haul on the upper floor.
                 Map upperFloor = tracker.CreateUpperLevel(surface, surface.Center);
                 upperFloor.fogGrid.ClearAllFog();
-                IntVec3 climb = center + new IntVec3(6, 0, -6);
+                // The climb area must hold no fixed thing, such as a steam geyser. The harness cannot destroy one, and clearing over it logs an error.
+                IntVec3 climb = IntVec3.Invalid;
+                foreach (IntVec3 offset in new[] { new IntVec3(6, 0, -6), new IntVec3(-6, 0, -6), new IntVec3(6, 0, 6), new IntVec3(-6, 0, 6), new IntVec3(0, 0, -9), new IntVec3(0, 0, 9) })
+                {
+                    if (AreaFree(surface, center + offset, 3) && AreaFree(upperFloor, center + offset, 3))
+                    {
+                        climb = center + offset;
+                        break;
+                    }
+                }
+                if (!climb.IsValid)
+                {
+                    throw new InvalidOperationException("no 7 by 7 area free of fixed things near the centre of the surface");
+                }
                 foreach (Map floor in new[] { surface, upperFloor })
                 {
                     for (int x = -3; x <= 3; x++)
@@ -1303,6 +1316,23 @@ namespace ZLevelsValidation
         }
 
         // A stair pair at one cell: a stairs down on the surface and the stairs up below it, as SetUpLowerStairs makes them.
+        // True when every cell within the radius holds no thing that cannot be destroyed, so ClearCell can clear it without an error.
+        private static bool AreaFree(Map map, IntVec3 center, int radius)
+        {
+            for (int x = -radius; x <= radius; x++)
+            {
+                for (int z = -radius; z <= radius; z++)
+                {
+                    IntVec3 cell = center + new IntVec3(x, 0, z);
+                    if (!cell.InBounds(map) || cell.GetThingList(map).Any(thing => !thing.def.destroyable))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
         private static void SpawnStairPair(ZLevelsManager tracker, Map surface, Map lower, IntVec3 cell)
         {
             ClearCell(surface, cell);
