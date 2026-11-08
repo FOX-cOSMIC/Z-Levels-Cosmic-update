@@ -8,6 +8,8 @@ ilspycmd -t <Namespace.Type> "C:/SteamLibrary/steamapps/common/RimWorld/Assembly
 
 Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
 
+Re-checked against RimWorld 1.7.5000 rev1275 on 2026-11-08, the build the mod targets now (ADR-0010). A script found all 118 names from the sections below in the 1.7.5000 decompile or the mod source. 117 sit in their type's file. The other is `Pawn.ReserveSittableOrSpot`, an extension method in `Verse.AI/ReservationUtility.cs` (line 44). The check covers names only, not parameter lists. Five sampled line numbers also match: `JobGiver_Work.TryIssueJobPackage` (49), `ReservationUtility.ReserveSittableOrSpot` (44), `Pawn.GetGizmos` (3353), `Command.groupKey` (37) and `Room.Temperature` (87). The other line numbers were not re-checked, so where they differ they refer to the 4998 decompile. The Harmony attributes bind at startup on 1.7.5000 rev1275: the core validation run `20261108-114126` logged no error from the mod's `PatchAll`. The names read by reflection were checked by hand and are declared on that build: the fields `wealthItems`, `wealthBuildings` and `wealthFloorsOnly` of `WealthWatcher`, `JobDriver.TryMakePreToilReservations(bool)` (`Verse.AI/JobDriver.cs`, line 245), `ListerThings.ThingsOfDef(ThingDef)`, `JobGiver_AIFightEnemy.TryGiveJob(Pawn)`, and the mod's own `MapComponentZLevel.MapComponentTick`. `Rimatomics.CoolingNet:Tick` belongs to the Rimatomics mod, not to RimWorld, so only the Rimatomics runs check it.
+
 ## Map generation
 
 - `RiverMaker` and `BeachMaker` do not exist in 1.7. The 1.6 code that used them fails to compile (CS0103). Rivers and coasts now come from `RimWorld.TileMutatorWorker` subclasses (`TileMutatorWorker_River`, `TileMutatorWorker_Coast`).
