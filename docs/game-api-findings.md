@@ -1,6 +1,6 @@
 # RimWorld 1.7 API findings for Z-Levels
 
-Each fact below was confirmed against the installed game (RimWorld 1.7.4990 rev1069) and cites where it was read. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
+Each fact below cites where it was read. The names were re-checked against RimWorld 1.7.5000 rev1275, the target in ADR-0010 and decision D10, on 2026-11-08. That re-check covers names, not parameter lists or line numbers. A section that gives line numbers from an earlier build says which build. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
 
 ```
 ilspycmd -t <Namespace.Type> "C:/SteamLibrary/steamapps/common/RimWorld/Assembly-CSharp.dll" -o .artifacts/ilspy/<name>
