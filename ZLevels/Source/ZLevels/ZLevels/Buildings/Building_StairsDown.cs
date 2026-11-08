@@ -62,13 +62,8 @@ namespace ZLevels
                             }
                         }
                     }
-                    if (!this.Position.GetThingList(mapBelow).Any(x => x.def == ZLevelsDefOf.ZL_StairsUp))
-                    {
-                        var stairsToSpawn = ThingMaker.MakeThing(ZLevelsDefOf.ZL_StairsUp, this.Stuff);
-                        mapBelow.terrainGrid.SetTerrain(this.Position, ZLevelsDefOf.ZL_OutsideTerrainTwo);
-                        GenPlace.TryPlaceThing(stairsToSpawn, this.Position, mapBelow, ThingPlaceMode.Direct);
-                        stairsToSpawn.SetFaction(this.Faction);
-                    }
+                    // The partner is the up piece of this kind, on the floor below, on the same cells (WayUpKinds.SpawnPartner).
+                    WayUpKinds.SpawnPartner(this, mapBelow, setOutsideTerrain: true);
                     FloodFillerFog.FloodUnfog(this.Position, mapBelow);
                     mapBelow.fogGrid.FloodUnfogAdjacent(this.Position);
                 }

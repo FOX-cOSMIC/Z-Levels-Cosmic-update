@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Floor Mods Evidence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html">The short answer</a>
+  <a href="how-they-work.html">How each mod works</a>
+  <a href="side-by-side.html">Side by side</a>
+  <a href="rebuild.html">Does it need a rebuild?</a>
+  <a href="ideas.html">Ideas from MultiFloors</a>
+  <a href="evidence.html" aria-current="page">Evidence and word list</a>
+</nav>
+
+<h1>Evidence and word list</h1>
+<p class="lede">How I checked this, where each fact came from, and what the technical words mean.</p>
+
+<h2>Word list</h2>
+<div class="table-box"><table>
+  <tbody>
+    <tr><th>Decompile</th><td>Turning a mod's finished program file back into readable code. It is like working out a recipe from the cake. The steps survive and the author's notes do not.</td></tr>
+    <tr><th>Harmony</th><td>The standard tool mods use to add patches to the game.</td></tr>
+    <tr><th>Prepatcher</th><td>A helper mod that adds extra storage slots to the game's objects. MultiFloors uses it for fast lookups. Its author says the 1.7 game now includes this ability.</td></tr>
+    <tr><th>Patch (prefix, postfix, finalizer)</th><td>A step added before a game rule, after it, or as clean-up that runs even after a failure.</td></tr>
+    <tr><th>Transpiler</th><td>A patch that rewrites the inside of a game rule.</td></tr>
+    <tr><th>Empty catch</th><td>The "empty error trap" in this report. Code that catches a failure and does nothing with it.</td></tr>
+    <tr><th>WorkGiver</th><td>One job type on the notice board. The base game defines 97.</td></tr>
+    <tr><th>Region</th><td>A patch of connected cells. The game uses regions to answer "can I reach that?" without walking the whole route.</td></tr>
+    <tr><th>Pathfinding</th><td>Working out the actual walking route on a map.</td></tr>
+    <tr><th>TPS</th><td>Ticks per second, the heartbeat rate. 60 is the target at normal speed.</td></tr>
+    <tr><th>Vibe coding</th><td>An informal, often critical term for making software with AI while reading little of what it writes. It does not describe a test you can run on the code.</td></tr>
+  </tbody>
+</table></div>
+
+<h2>How I checked</h2>
+<ol>
+  <li>Read the public Steam pages, changelogs, and bug threads, using your browser for pages that blocked automated reading.</li>
+  <li>Downloaded the mods anonymously with SteamCMD into a temporary folder. Nothing went into your game's Mods folder, your subscriptions, or your mod list. I did not start the game. Your installed MultiFloors, in <code>C:\SteamLibrary\steamapps\workshop\content\294100\3384660931</code>, matches the analysed copy file for file: all 304 files have the same SHA-256 hash.</li>
+  <li>Decompiled the main file of each mod with <code>ilspycmd</code>, including your own built <code>ZLevels.dll</code>, so all five counts use the same method.</li>
+  <li>Sent one reader through each codebase with the same questions. Each had to cite file and line.</li>
+  <li>Rechecked the claims this report leans on against the code myself. Those are listed below. The remaining citations come from the readers and I did not re-read each one.</li>
+</ol>
+
+<h2>Rechecked by hand</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Claim</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><th>Z-Levels loops every floor inside every job type</th><td><code>JobPatches.cs:2021-2024</code></td></tr>
+    <tr><th>Z-Levels builds a log sentence in that loop</th><td><code>JobPatches.cs:2027</code>, with the off-switch commented out at <code>ZLogger.cs:11, 17</code></td></tr>
+    <tr><th>All floors' items are offered at each floor</th><td><code>JobPatches.cs:944-955</code></td></tr>
+    <tr><th>Each storage lookup walks all floors</th><td><code>JobPatches.cs:1460-1468</code></td></tr>
+    <tr><th>A reservation check loops all tracked colonists</th><td><code>ReachAndReservationPatches.cs:201-209</code></td></tr>
+    <tr><th>The move back depends on a later step</th><td><code>ReachAndReservationPatches.cs:62, 110</code></td></tr>
+    <tr><th>The route finder's only starter is commented out</th><td><code>FloatMenuPatches.cs:196</code>, and every <code>ZL_GoToLocation</code> reference was checked</td></tr>
+    <tr><th>The graphics shortcut is switched off</th><td><code>MapRenderer/RenderPatches.cs:224</code></td></tr>
+    <tr><th>The job copy lacks newer 1.7 checks</th><td><code>JobPatches.cs:2321-2349</code> against <code>.artifacts/decomp-1.7.4998</code>, <code>JobGiver_Work.cs</code></td></tr>
+    <tr><th>MultiFloors runs a reduced update on extra floors</th><td><code>HarmonyPatch_LevelMapPreTick.cs:12-40</code></td></tr>
+    <tr><th>MultiFloors has no patches aimed at the reach and reservation classes</th><td>Text search of all decompiled files, zero hits</td></tr>
+    <tr><th>MultiFloors pre-computes routes between all stairs</th><td><code>TileStairPathFinder.cs:419-440</code></td></tr>
+    <tr><th>As Above patches the pathfinder, despite its description</th><td><code>Patch_PathFinder_ABRejectCrossBandSync.cs:25-36</code>, against <code>About.xml:10</code></td></tr>
+    <tr><th>Patch and catch counts for all five mods</th><td>My own counting scripts over the decompiled files</td></tr>
+  </tbody>
+</table></div>
+
+<h2>Public sources</h2>
+<ul>
+  <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3384660931">MultiFloors on Steam</a>, with its <a href="https://steamcommunity.com/sharedfiles/filedetails/changelog/3384660931">changelog</a>, <a href="https://steamcommunity.com/sharedfiles/filedetails/comments/3384660931">comments</a>, and <a href="https://steamcommunity.com/workshop/filedetails/discussion/3384660931/600765159912283432">bug thread</a></li>
+  <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2127428910">Z-Levels Beta on Steam</a>, with a <a href="https://steamcommunity.com/workshop/filedetails/discussion/2127428910/2447091420211229852">bug thread</a>, and the <a href="https://github.com/RamRod6198/Z-Levels">original GitHub repository</a></li>
+  <li><a href="https://www.patreon.com/RamRodMods/about">RamRod's Patreon page</a></li>
+  <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3776015553">As Above So Below II on Steam</a>, with its <a href="https://steamcommunity.com/sharedfiles/filedetails/changelog/3776015553">changelog</a> and <a href="https://steamcommunity.com/sharedfiles/filedetails/comments/3776015553">comments</a></li>
+  <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3827217277">True Z-Levels on Steam</a></li>
+  <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3509420021">Deep And Deeper on Steam</a></li>
+</ul>
+<h3>In your repository</h3>
+<ul>
+  <li><code>docs/validation-report.md</code>, the test record and open issues</li>
+  <li><code>docs/roadmap.md</code>, the known gaps and earlier decisions</li>
+  <li><code>.artifacts/runs/</code>, the 568 test run folders</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+  <li>No speed was measured, for any mod.</li>
+  <li>The counts come from text searches. They are good for comparing sizes and may be off by a few.</li>
+  <li>Steam comments are self-selected reports from a few players. I searched samples of them and did not read every thread. I did not reach the most recent page of the MultiFloors bug thread by page number, so its newest reports may be missing.</li>
+  <li>An automated page reader reported a "removed from the community" banner on every Steam page. Your logged-in browser showed no such banner on the page I checked, so I treated the message as a reader error.</li>
+  <li>The older As Above So Below, a mod called Strata, and Z-Levels: Living World came up in searches. I did not analyse them.</li>
+  <li>The Discord messages are from your screenshot. I did not read the rest of that conversation.</li>
+</ul>
+
+<footer>Written 5 November 2026.</footer>
+</div>
+</body>
+</html>

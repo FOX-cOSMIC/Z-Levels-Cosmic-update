@@ -17,6 +17,9 @@
 		<defName>ZL_GoToMap</defName>
 		<driverClass>ZLevels.JobDriver_GoToMap</driverClass>
 		<reportString>Going to TargetA.</reportString>
+		<!-- Keeps a carried thing across the floor change, as vanilla Goto does. Without these, a thief or hauler drops it. -->
+		<dropThingBeforeJob>false</dropThingBeforeJob>
+		<carryThingAfterJob>true</carryThingAfterJob>
 	</JobDef>
 
 	<JobDef>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ideas From MultiFloors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html">The short answer</a>
+  <a href="how-they-work.html">How each mod works</a>
+  <a href="side-by-side.html">Side by side</a>
+  <a href="rebuild.html">Does it need a rebuild?</a>
+  <a href="ideas.html" aria-current="page">Ideas from MultiFloors</a>
+  <a href="evidence.html">Evidence and word list</a>
+</nav>
+
+<h1>Ideas from MultiFloors</h1>
+<p class="lede">The most valuable idea is the simplest: let the game run its normal job search, and look at other floors only when that search finds nothing. That one change could remove about 330 lines of stale copied code and most of the extra searching.</p>
+<p>I compared each idea with your current code, so everything here is a real gap. MultiFloors has no license I could find, so these are ideas to rebuild in your own code, never code to copy. None has been built or timed. Each needs a test that fails first and passes after, as your project rules require.</p>
+
+<h2>Start with these eight</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Idea</th><th>What the player gets</th><th>Why now</th><th>Size</th></tr></thead>
+  <tbody>
+    <tr><th>1. Hotkeys that work out of the box</th><td>N and M move between floors, and the camera and selected build tool stay put</td><td>Your hotkeys have no default key, so a new player has to find them in the options</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>2. A failed job no longer pauses the game</th><td>The colonist quietly looks for other work</td><td>Today a normal "someone else took it" moment logs an error and pauses the game, as in run 032903</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>3. Raids land on the ground</th><td>Raiders arrive at the surface and climb the stairs</td><td>Your code does not stop a raid from targeting a lower floor, and this is untested</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>4. Leaving means walking to the ground first</th><td>Visitors and caravans have a way out from upstairs</td><td>Your floors have no exit route (<code>MapPatches.cs:92-105</code>), and I found no code that sends a leaving colonist or visitor to the surface. What happens today is untested</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>5. "Stay on this floor" switch</th><td>A per-colonist button, so a miner stays below and skips the search entirely</td><td>It gives the player control and saves work straight away</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>6. Work filter per floor</th><td>Turn off work types on a floor, for example no cooking in the basement</td><td>It cuts the search, and players can tune their own colony</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>7. One saved list of storage</th><td>No visible change, just less work</td><td>Your code rebuilds the all-floors storage list on each lookup. MultiFloors keeps one list and updates it only when storage changes</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>8. Own floor first</th><td>Colonists stay on their floor when it has work, and the game does less searching</td><td>This is the biggest speed idea, and it removes your stale job search copy</td><td><span class="chip no">Large</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2>How MultiFloors saves work</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Idea</th><th>What MultiFloors does</th><th>What Z-Levels does today</th><th>Watch out for</th></tr></thead>
+  <tbody>
+    <tr><th>Own floor first</th><td>Runs the normal game search. If it finds nothing, it tries each other floor, nearest first, using the same normal search</td><td>Replaces the game's search with a 333-line copy that checks all floors for each job type (<code>JobPatches.cs:1987-2319</code>)</td><td>Important work upstairs could wait behind trivial work here. MultiFloors handles this with a setting: priority 1 and 2 work gets checked on all floors before lower-priority work on this floor</td></tr>
+    <tr><th>Items checked in the background</th><td>Every 2,000 heartbeats, about 33 seconds, it marks up to 200 items per floor that belong elsewhere. Colonists then treat them as normal jobs</td><td>Every haul search offers all floors' items at every floor (<code>JobPatches.cs:944-955</code>)</td><td>Items can wait up to 33 seconds before anyone notices them. MultiFloors players also report over-hauling, so a full destination must stop the marking</td></tr>
+    <tr><th>Lighter update on extra floors</th><td>Extra floors skip wind, wild spawning, weather choice, and passing ships</td><td>Each floor runs a full update</td><td>MultiFloors copies the game's whole update method to do this, which goes stale on each game patch. Skipping individual steps is safer, and speed should be measured first</td></tr>
+    <tr><th>Needs get a cool-down</th><td>A colonist is redirected for food or fun at most once per 2,000 heartbeats</td><td>Each attempt repeats the search with no cool-down (<code>JobPatches.cs:350, 739</code>)</td><td>A very hungry colonist should skip the wait</td></tr>
+    <tr><th>Nothing extra until floors exist</th><td>Its checks stop early in a colony with no extra floors</td><td>Each patch still runs, and the loop has one floor to walk</td><td>Low risk</td></tr>
+    <tr><th>Spread out the regular chores</th><td>Each floor runs its regular chores on a different heartbeat, which avoids a spike</td><td>Chores such as the stair recheck are not spread out</td><td>Low risk</td></tr>
+    <tr><th>Saved stair routes</th><td>Works out the best route between all stairs once, and redoes it only when stairs change</td><td>Picks the nearest stair in a straight line, which may not be walkable or the shortest way</td><td>MultiFloors' table does not notice new walls. Yours should recheck when a route fails</td></tr>
+    <tr><th>Leave the busiest questions alone</th><td>Adds no patches to "can I reach it?", "is it taken?", or "who do I attack?"</td><td>Patches all three</td><td>This is a big change. Do it after own floor first, because that change removes much of the need for these patches</td></tr>
+  </tbody>
+</table></div>
+
+<h2>How MultiFloors avoids trouble</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Idea</th><th>What MultiFloors does</th><th>What Z-Levels does today</th><th>Watch out for</th></tr></thead>
+  <tbody>
+    <tr><th>Check the job on arrival</th><td>Holds the real job until the colonist reaches the floor, then checks whether it is still free. If not, the colonist searches again</td><td>A failure logs an error and pauses the game (<code>ZLevelsManager.cs:1258-1261</code>, <code>ZLogger.cs:12-16</code>)</td><td>A walk can be wasted when the job is gone, which is better than pausing the game</td></tr>
+    <tr><th>A "someone is already going" list</th><td>Stops two colonists from walking to another floor for the same job</td><td>Has a similar soft list, but your test report still records colonists competing for the same logs</td><td>MultiFloors may not always clear its list, so yours must clear an entry whenever a job ends or a map goes away</td></tr>
+    <tr><th>Always move the colonist back</th><td>Its main search has a guarded return after pretending to be on another floor</td><td>Five pairs of patches can leave a colonist on the wrong floor</td><td>MultiFloors has its own weak spots here, so take the idea and also guard the flags</td></tr>
+    <tr><th>Add-ons load only when needed</th><td>Each add-on loads only if its mod is active, through the load folder list</td><td>Your cooling add-on always loads, and it switches itself off if Rimatomics is missing</td><td>Low risk</td></tr>
+  </tbody>
+</table></div>
+
+<h2>What players could do</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Feature</th><th>In MultiFloors</th><th>Size</th></tr></thead>
+  <tbody>
+    <tr><th>Floor settings tab</th><td>A colony table sets each colonist's sleep, food, fun, and meditation floor, and shows their current floor</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>"Work on this floor" order</th><td>Right-click stairs to keep a colonist on that floor's work for 6,000 heartbeats, about 100 seconds</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>Haul to a floor</th><td>A tool marks items to carry to a chosen floor</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>Stair transfer tab</th><td>Pick colonists and items to send, or keep a set amount on the next floor, such as 200 steel</td><td><span class="chip no">Large</span></td></tr>
+    <tr><th>Workbench floor link</th><td>Link a bench to a floor so its missing ingredients get fetched. It costs less than searching every floor, and it adds a step for the player</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>Call colonists here</th><td>A button gathers chosen colonists to a spot from any floor</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>View the connected floor</th><td>A button on stairs jumps the camera to the other end</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>Better stair placement</th><td>Clear messages refuse stairs that cannot work: no roof to build on, a room under 25 cells, or stairs going down from above ground</td><td><span class="chip yes">Small</span></td></tr>
+    <tr><th>More ways up</th><td>Small and large ladders, stairs of different sizes, and powered elevators, including a freight elevator</td><td><span class="chip no">Large</span></td></tr>
+    <tr><th>Pipes between floors</th><td>Connectors move a chosen resource at a set rate. Your roadmap already lists tubes between levels</td><td><span class="chip no">Large</span></td></tr>
+    <tr><th>Heat and gas through stairs</th><td>Rooms joined by stairs slowly even out in temperature, gas, and vacuum, with a speed setting</td><td><span class="chip part">Medium</span></td></tr>
+    <tr><th>In-game guide</th><td>A tutor window explains floors in the game. Your only help is the mod description</td><td><span class="chip part">Medium</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2>Game events to check</h2>
+<p>MultiFloors has a patch for each of these. Your code may already be fine, so test first, and fix only what fails.</p>
+<ul>
+  <li>Parties, weddings, rituals, and title ceremonies held on another floor</li>
+  <li>Alerts and mood thoughts that assume everyone is on one map, such as lovers sleeping near each other</li>
+  <li>Falling objects breaking every roof above their landing spot</li>
+  <li>Thieves and kidnappers carrying their target down to the ground before leaving</li>
+  <li>Children's behaviour, mech charging, and roping animals from another floor</li>
+</ul>
+
+<h2>What not to copy</h2>
+<ul>
+  <li><b>No fighting across floors.</b> MultiFloors left it out. Your code has it, though it is untested. Testing it is worth more than removing it.</li>
+  <li><b>No colonists in the view below.</b> MultiFloors' setting says pawns are not visible from above. Yours draws them, which is a real advantage, so keep it. Its idea of drawing only the uncovered areas is still useful.</li>
+  <li><b>Rewriting the game's text.</b> MultiFloors has 46 of these patches, which is why game updates can hurt it. Add as few as you can.</li>
+  <li><b>Unlimited idle searches.</b> An idle colonist still reads every floor in MultiFloors. Add a pause before they search again, which goes further than MultiFloors does.</li>
+</ul>
+
+<h2>Bugs I found in your code along the way</h2>
+<p>These come from reading the code. Your rules call for reproducing each one in a test run before fixing it.</p>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Bug</th><th>What should happen</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><th>The rest search can crash when a colonist in a mental state has no rest target</th><td>The check tests for "nothing" and then immediately uses that nothing</td><td><code>JobPatches.cs:746</code></td></tr>
+    <tr><th>The rest search can crash when no floor gave a job</th><td>It reads the result without checking one exists. The error is caught and logged each time</td><td><code>JobPatches.cs:775</code></td></tr>
+    <tr><th>Trading can move the trader</th><td>The trader should go back to their own spot, but the code saves the player negotiator's spot instead</td><td><code>TradePatches.cs:30, 56</code></td></tr>
+    <tr><th>The mod description is out of date</th><td>It says the natural hole is in the structures tab, but that item has no build category</td><td><code>About.xml:24</code>, <code>Stairs.xml:82-105</code></td></tr>
+  </tbody>
+</table></div>
+
+<footer>Compared against the code on 5 November 2026. MultiFloors was read at its 1.6 version. Back to <a href="rebuild.html">the rebuild options</a>.</footer>
+</div>
+</body>
+</html>

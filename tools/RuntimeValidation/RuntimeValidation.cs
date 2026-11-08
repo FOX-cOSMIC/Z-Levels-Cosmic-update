@@ -11,7 +11,7 @@ using ZLevels;
 
 namespace ZLevelsValidation
 {
-    public class RuntimeValidation : GameComponent
+    public partial class RuntimeValidation : GameComponent
     {
         private int stage;
         private Pawn pawn;
@@ -238,6 +238,9 @@ namespace ZLevelsValidation
             Scribe_Values.Look(ref savedLogs, "vaultSavedLogs");
         }
 
+        // The surface staircase that stage 0 places. Stage 7 checks that the power placement leaves it standing.
+        private Building_StairsDown surfaceStairsAtStart;
+
         public override void GameComponentUpdate()
         {
             if (!GenCommandLine.CommandLineArgPassed("zlevelsvalidation") || finished)
@@ -333,6 +336,338 @@ namespace ZLevelsValidation
                     RunCoolingLinkTick();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsreservationrefused"))
+                {
+                    // The game ignores a pause while the screen fades in, so the check waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunReservationRefusedCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbackgroundhaul"))
+                {
+                    finished = true;
+                    RunBackgroundHaulCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsraidground"))
+                {
+                    finished = true;
+                    RunRaidGroundCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsleavefromlower"))
+                {
+                    // The walk takes game time, so the check runs over several frames. It waits until the player has control.
+                    if (!PlayerControlReady())
+                        return;
+                    RunLeaveFromLowerTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsskyfallerroof"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunSkyfallerRoofTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsmoodotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunMoodOtherFloorCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelseventsotherfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunEventsOtherFloorTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelshaulfloor"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunHaulToFloorTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsbenchlink"))
+                {
+                    if (!reloaded)
+                    {
+                        if (!benchLinkSaved)
+                        {
+                            benchLinkSaved = true;
+                            RunBenchLinkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (benchLinkChecked)
+                    {
+                        return;
+                    }
+                    benchLinkChecked = true;
+                    RunBenchLinkAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscallcolonists"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCallColonistsTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsequalize"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunStairsEqualizeCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorsguide"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorsGuideCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelswayups"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunWayUpsTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorpipe"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunFloorPipeCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairtransfer"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunStairTransferTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsthiefcarry"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunThiefCarryTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschildanimalmech"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    finished = true;
+                    RunChildAnimalMechCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelscrossfloorfight"))
+                {
+                    if (!PlayerControlReady())
+                        return;
+                    RunCrossFloorFightTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsjobtakenonarrival"))
+                {
+                    // The walk takes game time, so the check runs over several frames. It waits until the player has control, as the reservation check does.
+                    if (!PlayerControlReady())
+                        return;
+                    RunJobTakenOnArrivalTick();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsjobtargets"))
+                {
+                    finished = true;
+                    RunJobTargetCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsownfloorfirst"))
+                {
+                    finished = true;
+                    RunOwnFloorFirstCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelslighterfloors"))
+                {
+                    finished = true;
+                    RunLighterFloorsCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelssearchtiming"))
+                {
+                    finished = true;
+                    RunSearchTimingCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsworksearchprofile"))
+                {
+                    finished = true;
+                    RunWorkSearchProfile();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairplacement"))
+                {
+                    finished = true;
+                    RunStairPlacementCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairsview"))
+                {
+                    finished = true;
+                    RunStairsViewCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsonefloorcolony"))
+                {
+                    finished = true;
+                    RunOneFloorColonyCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelschorespread"))
+                {
+                    finished = true;
+                    RunChoreSpreadCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsaddonload"))
+                {
+                    finished = true;
+                    RunAddonLoadCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstairroutes"))
+                {
+                    finished = true;
+                    RunStairRoutesCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorwalk"))
+                {
+                    finished = true;
+                    RunFloorWalkCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstorageindex"))
+                {
+                    finished = true;
+                    RunStorageIndexCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorguard"))
+                {
+                    finished = true;
+                    RunFloorGuardCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstaleclaims"))
+                {
+                    finished = true;
+                    RunStaleClaimsCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsidlesearchpause"))
+                {
+                    finished = true;
+                    RunIdleSearchPauseCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsneedcooldown"))
+                {
+                    finished = true;
+                    RunNeedCooldownCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsworkonfloororder"))
+                {
+                    finished = true;
+                    RunWorkOnFloorOrderCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorwork"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!floorWorkSaved)
+                        {
+                            floorWorkSaved = true;
+                            RunFloorWorkBeforeSave();
+                        }
+                        return;
+                    }
+                    if (floorWorkChecked) return;
+                    floorWorkChecked = true;
+                    finished = true;
+                    RunFloorWorkAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorstab"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!floorsTabSaved)
+                        {
+                            floorsTabSaved = true;
+                            RunFloorsTabBeforeSave();
+                        }
+                        return;
+                    }
+                    if (floorsTabChecked) return;
+                    floorsTabChecked = true;
+                    finished = true;
+                    RunFloorsTabAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsstayonfloor"))
+                {
+                    // The instance that saves waits here until the load replaces it. The instance that the load creates runs the check once.
+                    if (!reloaded)
+                    {
+                        if (!stayOnFloorSaved)
+                        {
+                            stayOnFloorSaved = true;
+                            RunStayOnFloorBeforeSave();
+                        }
+                        return;
+                    }
+                    if (stayOnFloorChecked) return;
+                    stayOnFloorChecked = true;
+                    finished = true;
+                    RunStayOnFloorAfterReload();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsfloorhotkeys"))
+                {
+                    finished = true;
+                    RunFloorHotkeysCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelstradereturn"))
+                {
+                    finished = true;
+                    RunTraderReturnCheck();
+                    return;
+                }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsrestsearchnull"))
+                {
+                    finished = true;
+                    RunRestSearchNullCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelssocialrelaxqueue"))
                 {
                     finished = true;
@@ -369,6 +704,8 @@ namespace ZLevelsValidation
                         Record("fresh colony", "PASS");
                         Record("validation colonist can haul, mine and build", "PASS: " + pawn.LabelShort);
                         var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                        surfaceStairsAtStart = down;
+                        Record("surface stairs placed", "stairs " + down.Position + " colonist " + pawn.Position + " surface centre " + surface.Center);
                         Next(1);
                         down.GiveJob(pawn, down);
                         break;
@@ -438,6 +775,7 @@ namespace ZLevelsValidation
                     case 7:
                         if (pawn.Map != surface) return;
                         powerCell = surface.Center + new IntVec3(12, 0, 0);
+                        Record("power placement", "transmitter " + powerCell + "; conduit row z " + powerCell.z + "; surface stairs " + surfaceStairsAtStart.Position);
                         var transmitterDef = DefDatabase<ThingDef>.GetNamed("ZL_PowerTransmitterColumn");
                         surfaceTransmitter = SpawnBuilding(transmitterDef, surface, powerCell, ThingDefOf.Steel).GetComp<CompPowerZTransmitter>();
                         lowerTransmitter = SpawnBuilding(transmitterDef, lower, powerCell, ThingDefOf.Steel).GetComp<CompPowerZTransmitter>();
@@ -447,6 +785,7 @@ namespace ZLevelsValidation
                         lamp = lampBuilding.GetComp<CompPowerTrader>();
                         ConnectWithConduit(surface, powerCell, powerSource);
                         ConnectWithConduit(lower, powerCell, lampBuilding);
+                        Record("surface stairs survive power placement", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the power placement removed the surface stairs placed at " + surfaceStairsAtStart.Position);
                         Next(8);
                         break;
                     case 8:
@@ -474,6 +813,7 @@ namespace ZLevelsValidation
                             break;
                         }
                         powerSource.Destroy(DestroyMode.Vanish);
+                        Record("surface stairs after the generator is removed", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs are gone once the generator is removed");
                         Next(9);
                         break;
                     case 10:
@@ -517,12 +857,14 @@ namespace ZLevelsValidation
                         ScreenshotTaker.TakeNonSteamShot("zlevels-surface-hole");
                         QueueShotRow("surface hole screenshot", "zlevels-surface-hole");
                         powerSource.Destroy(DestroyMode.Vanish);
+                        Record("surface stairs after the generator is removed", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs are gone once the generator is removed");
                         Next(9);
                         break;
                     case 9:
                         if (Find.TickManager.TicksGame - stageTick < 600) return;
                         Require(!lamp.PowerOn, "lower-floor lamp unpowered after generator removal");
                         Record("cross-level power loss without source", "PASS");
+                        Record("surface stairs at stage 9", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs placed at " + surfaceStairsAtStart.Position + " are gone at stage 9");
                         var downToLower = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
                         Next(17);
                         downToLower.GiveJob(pawn, downToLower);
@@ -2129,7 +2471,13 @@ namespace ZLevelsValidation
         private static void ClearCell(Map map, IntVec3 cell)
         {
             foreach (var thing in cell.GetThingList(map).ToList())
-                if (!(thing is Pawn)) thing.Destroy(DestroyMode.Vanish);
+            {
+                if (thing is Pawn) continue;
+                // Destroy refuses a thing whose def is not destroyable, such as a natural steam geyser, and logs an error. Remove that thing from the
+                // map instead, so that the cell is clear.
+                if (thing.def.destroyable) thing.Destroy(DestroyMode.Vanish);
+                else thing.DeSpawn(DestroyMode.Vanish);
+            }
         }
 
         // The unforced haul test forbids the colony's other wood, so it cannot be used. The campfire rebuild needs the rest of its logs
@@ -4765,21 +5113,35 @@ namespace ZLevelsValidation
                 {
                     Record("combat containment: TryFindNewTarget", "FAIL: " + DescribeOrTypeName(exception));
                 }
-                // The stairs are on the lower level, at the same tile as the turret. The shoot line check moves them up for the call.
+                // A fault inside the attack search must not leave its flag on. The flag makes the search look on other levels, so a flag left on by a
+                // fault would search them in later, unrelated searches. A null searcher makes the vanilla search throw, and the flag must be off after it.
+                CombatPatches_BestAttackTarget_Patch.multiMapSearch = false;
+                bool searchFaulted = false;
+                try
+                {
+                    AttackTargetFinder.BestShootTargetFromCurrentPosition(null, TargetScanFlags.NeedLOSToAll, null);
+                }
+                catch (Exception)
+                {
+                    searchFaulted = true;
+                }
+                bool flagOff = !CombatPatches_BestAttackTarget_Patch.multiMapSearch;
+                Record("combat containment: a fault in the attack search leaves the search flag off", searchFaulted && flagOff ? "PASS: the search threw and the flag is off" : "FAIL: the search threw " + searchFaulted + " and the flag is " + (flagOff ? "off" : "on"));
+                // The stairs are on the lower level, at the same tile as the turret. A line to them is refused, and nothing is moved to take it.
                 Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
                 Map ownMap = stairs.Map;
                 try
                 {
                     bool line = gun.AttackVerb.TryFindShootLineFromTo(gun.Position, new LocalTargetInfo(stairs), out ShootLine resultingLine);
-                    if (stairs.Map == ownMap) Record("combat containment: shoot line restores target", "PASS: target back on its own map, shoot line " + line);
-                    else Record("combat containment: shoot line restores target", "FAIL: target left on " + stairs.Map + " after the call, not on " + ownMap);
+                    if (stairs.Map == ownMap && !line) Record("combat containment: shoot line to another level is refused", "PASS: the line was refused and the target stayed on its own map");
+                    else Record("combat containment: shoot line to another level is refused", "FAIL: the line " + line + "; target on " + stairs.Map + ", own map " + ownMap);
                 }
                 catch (Exception exception)
                 {
-                    Record("combat containment: shoot line restores target", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
+                    Record("combat containment: shoot line to another level is refused", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
                 }
-                // TryCastShot. The caster is a turret on the surface. The target is a second turret on the lower level at the same cell, so the
-                // Prefix moves the target up to the caster's map. The Postfix puts it back, and the finalizer does after a fault.
+                // TryCastShot. The caster is a turret on the surface. The target is a second turret on the lower level at the same cell. The cast is
+                // refused, and the Prefix moves nothing.
                 Thing castCaster = null;
                 Thing castTarget = null;
                 try
@@ -4789,8 +5151,6 @@ namespace ZLevelsValidation
                     castTarget = SpawnMiniTurret(turretDef, castCell, lower);
                     Verb castVerb = ((Building_TurretGun)castCaster).AttackVerb;
                     typeof(Verb).GetField("currentTarget", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(castVerb, new LocalTargetInfo(castTarget));
-                    // The Prefix sets teleportBack when it moves a thing. Clearing it first makes the flag a record of this call alone.
-                    TryCastShot_Patch.teleportBack = false;
                     bool returned = false;
                     Exception thrown = null;
                     try
@@ -4806,18 +5166,17 @@ namespace ZLevelsValidation
                     {
                         thrown = exception;
                     }
-                    bool teleported = TryCastShot_Patch.teleportBack;
                     bool targetHome = castTarget.Map == lower;
                     bool casterHome = castCaster.Map == surface;
                     string placement = "; target on " + castTarget.Map + ", back on own map: " + targetHome + "; caster on " + castCaster.Map + ", back on own map: " + casterHome;
-                    if (thrown != null) Record("combat containment: TryCastShot restores target", "FAIL: " + DescribeOrTypeName(thrown) + placement);
-                    else if (!teleported) Record("combat containment: TryCastShot restores target", "FAIL: the Prefix did not teleport, so this row proves nothing" + placement);
-                    else if (!targetHome || !casterHome) Record("combat containment: TryCastShot restores target", "FAIL: a thing was left on the wrong map" + placement);
-                    else Record("combat containment: TryCastShot restores target", "PASS: target and caster back on their own maps, prefix teleported, returned " + returned);
+                    if (thrown != null) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: " + DescribeOrTypeName(thrown) + placement);
+                    else if (returned) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: the cast across levels was not refused" + placement);
+                    else if (!targetHome || !casterHome) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: a thing was left on the wrong map" + placement);
+                    else Record("combat containment: TryCastShot refuses a cross-level cast", "PASS: the cast across levels was refused and nothing moved; returned " + returned + placement);
                 }
                 catch (Exception exception)
                 {
-                    Record("combat containment: TryCastShot restores target", "FAIL: setup: " + DescribeOrTypeName(exception));
+                    Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: setup: " + DescribeOrTypeName(exception));
                 }
                 finally
                 {

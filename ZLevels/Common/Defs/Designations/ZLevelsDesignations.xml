@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+
+  <DesignationCategoryDef>
+    <defName>ZL_Floors</defName>
+    <label>floors</label>
+    <order>950</order>
+    <specialDesignatorClasses>
+      <li>ZLevels.Designator_HaulToFloor</li>
+    </specialDesignatorClasses>
+  </DesignationCategoryDef>
+
+</Defs>

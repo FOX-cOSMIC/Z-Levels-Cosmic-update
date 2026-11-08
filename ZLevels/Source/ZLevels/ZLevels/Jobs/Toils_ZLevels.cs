@@ -42,12 +42,57 @@ namespace ZLevels
             //ToilFailConditions.FailOnCannotTouch<Toil>(useStairs, TargetIndex.C, PathEndMode.OnCell);
 
             Toil teleport = GetTeleport(pawn, dest, instance, setStairs);
+            Toil arrival = GetArrivalCheck(pawn, instance);
 
             yield return setStairs;
             yield return goToStairs;
+            yield return arrival;
             yield return useStairs;
             yield return teleport;
             yield return end;
+        }
+
+        // Idea "check the job on arrival". The colonist's main job is checked when the colonist reaches the stairs. A target that is gone ends the
+        // job, the job tracker is reset, and the colonist searches again.
+        internal static Toil GetArrivalCheck(Pawn pawn, JobDriver instance)
+        {
+            return new Toil
+            {
+                defaultCompleteMode = ToilCompleteMode.Instant,
+                initAction = delegate ()
+                {
+                    if (MainJobTargetIsGone(pawn))
+                    {
+                        ZLogger.Message(pawn + " reached the stairs and its job's target is gone; the job ends and the colonist searches again");
+                        ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                        instance.EndJobWith(JobCondition.Incompletable);
+                    }
+                }
+            };
+        }
+
+        // The target of the colonist's main job is gone when it is destroyed, or when it is neither spawned nor held by the colonist. A target the
+        // colonist holds is still in use. A main job with no thing as its target is never gone.
+        internal static bool MainJobTargetIsGone(Pawn pawn)
+        {
+            if (ZUtils.ZTracker.jobTracker == null || !ZUtils.ZTracker.jobTracker.TryGetValue(pawn, out JobTracker tracker) || tracker.mainJob == null)
+            {
+                return false;
+            }
+            if (!tracker.mainJob.targetA.HasThing)
+            {
+                return false;
+            }
+            Thing target = tracker.mainJob.targetA.Thing;
+            if (target.Destroyed)
+            {
+                return true;
+            }
+            if (target.Spawned)
+            {
+                return false;
+            }
+            return target.ParentHolder != pawn.carryTracker && target.ParentHolder != pawn.inventory;
         }
 
         internal static Toil GetSetStairs(Pawn pawn, TargetInfo targetInfo, JobDriver_ZLevels instance)
