@@ -5085,21 +5085,21 @@ namespace ZLevelsValidation
                 {
                     Record("combat containment: TryFindNewTarget", "FAIL: " + DescribeOrTypeName(exception));
                 }
-                // The stairs are on the lower level, at the same tile as the turret. The shoot line check moves them up for the call.
+                // The stairs are on the lower level, at the same tile as the turret. A line to them is refused, and nothing is moved to take it.
                 Building_StairsUp stairs = lower.listerThings.AllThings.OfType<Building_StairsUp>().First();
                 Map ownMap = stairs.Map;
                 try
                 {
                     bool line = gun.AttackVerb.TryFindShootLineFromTo(gun.Position, new LocalTargetInfo(stairs), out ShootLine resultingLine);
-                    if (stairs.Map == ownMap) Record("combat containment: shoot line restores target", "PASS: target back on its own map, shoot line " + line);
-                    else Record("combat containment: shoot line restores target", "FAIL: target left on " + stairs.Map + " after the call, not on " + ownMap);
+                    if (stairs.Map == ownMap && !line) Record("combat containment: shoot line to another level is refused", "PASS: the line was refused and the target stayed on its own map");
+                    else Record("combat containment: shoot line to another level is refused", "FAIL: the line " + line + "; target on " + stairs.Map + ", own map " + ownMap);
                 }
                 catch (Exception exception)
                 {
-                    Record("combat containment: shoot line restores target", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
+                    Record("combat containment: shoot line to another level is refused", "FAIL: " + DescribeOrTypeName(exception) + "; target on " + stairs.Map + ", back on own map: " + (stairs.Map == ownMap));
                 }
-                // TryCastShot. The caster is a turret on the surface. The target is a second turret on the lower level at the same cell, so the
-                // Prefix moves the target up to the caster's map. The Postfix puts it back, and the finalizer does after a fault.
+                // TryCastShot. The caster is a turret on the surface. The target is a second turret on the lower level at the same cell. The cast is
+                // refused, and the Prefix moves nothing.
                 Thing castCaster = null;
                 Thing castTarget = null;
                 try
@@ -5109,8 +5109,6 @@ namespace ZLevelsValidation
                     castTarget = SpawnMiniTurret(turretDef, castCell, lower);
                     Verb castVerb = ((Building_TurretGun)castCaster).AttackVerb;
                     typeof(Verb).GetField("currentTarget", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(castVerb, new LocalTargetInfo(castTarget));
-                    // The Prefix sets teleportBack when it moves a thing. Clearing it first makes the flag a record of this call alone.
-                    TryCastShot_Patch.teleportBack = false;
                     bool returned = false;
                     Exception thrown = null;
                     try
@@ -5126,18 +5124,17 @@ namespace ZLevelsValidation
                     {
                         thrown = exception;
                     }
-                    bool teleported = TryCastShot_Patch.teleportBack;
                     bool targetHome = castTarget.Map == lower;
                     bool casterHome = castCaster.Map == surface;
                     string placement = "; target on " + castTarget.Map + ", back on own map: " + targetHome + "; caster on " + castCaster.Map + ", back on own map: " + casterHome;
-                    if (thrown != null) Record("combat containment: TryCastShot restores target", "FAIL: " + DescribeOrTypeName(thrown) + placement);
-                    else if (!teleported) Record("combat containment: TryCastShot restores target", "FAIL: the Prefix did not teleport, so this row proves nothing" + placement);
-                    else if (!targetHome || !casterHome) Record("combat containment: TryCastShot restores target", "FAIL: a thing was left on the wrong map" + placement);
-                    else Record("combat containment: TryCastShot restores target", "PASS: target and caster back on their own maps, prefix teleported, returned " + returned);
+                    if (thrown != null) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: " + DescribeOrTypeName(thrown) + placement);
+                    else if (returned) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: the cast across levels was not refused" + placement);
+                    else if (!targetHome || !casterHome) Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: a thing was left on the wrong map" + placement);
+                    else Record("combat containment: TryCastShot refuses a cross-level cast", "PASS: the cast across levels was refused and nothing moved; returned " + returned + placement);
                 }
                 catch (Exception exception)
                 {
-                    Record("combat containment: TryCastShot restores target", "FAIL: setup: " + DescribeOrTypeName(exception));
+                    Record("combat containment: TryCastShot refuses a cross-level cast", "FAIL: setup: " + DescribeOrTypeName(exception));
                 }
                 finally
                 {

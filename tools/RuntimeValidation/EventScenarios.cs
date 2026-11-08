@@ -646,6 +646,8 @@ namespace ZLevelsValidation
             fightDueTick = Find.TickManager.TicksGame + 1800;
             fightShotStart = Find.TickManager.TicksGame;
             fightTargetLast = fightTargetBefore;
+            CheckOpenAirShot();
+            CheckHostileFindsColonist(tracker);
             // The shooter holds its cell on an attack job. AttackStatic stops the pawn's movement at its start, so the hostile does not walk
             // up the stairs to reach the colonist, and every shot comes from the lower floor.
             Job hold = JobMaker.MakeJob(JobDefOf.AttackStatic, fightTarget);
@@ -714,6 +716,77 @@ namespace ZLevelsValidation
             // A colonist that the shots killed has already left the map, so only pawns that are still spawned are despawned here.
             if (fightShooter.Spawned) fightShooter.DeSpawn(DestroyMode.Vanish);
             if (fightTarget.Spawned) fightTarget.DeSpawn(DestroyMode.Vanish);
+        }
+
+        // The shot through open air. The surface cells on the line from the stairs to the colonist, other than its two ends, are made open air
+        // for the check. The verb of the shooter's revolver is then asked for its line, and the cells are put back in the finally block. The
+        // rule refuses every line between levels, so the line must be refused. The row fails when the line is allowed.
+        private bool fightOpenAirRefused;
+
+        private void CheckOpenAirShot()
+        {
+            Verb verb = fightShooter.TryGetAttackVerb(fightTarget, allowManualCastWeapons: true);
+            if (verb == null)
+            {
+                fightOpenAirRefused = false;
+                Record("a shot from the lower floor through open air is refused, as the rule says", "FAIL: the shooter has no attack verb at the colonist");
+                return;
+            }
+            Dictionary<IntVec3, TerrainDef> ground = new Dictionary<IntVec3, TerrainDef>();
+            bool allowed;
+            bool canHit;
+            try
+            {
+                foreach (IntVec3 cell in GenSight.PointsOnLineOfSight(fightStairs, fightTarget.Position))
+                {
+                    if (cell == fightStairs || cell == fightTarget.Position || !cell.InBounds(fightSurface))
+                    {
+                        continue;
+                    }
+                    ground[cell] = cell.GetTerrain(fightSurface);
+                    fightSurface.terrainGrid.SetTerrain(cell, ZLevelsDefOf.ZL_OutsideTerrain);
+                }
+                allowed = verb.TryFindShootLineFromTo(fightShooter.Position, new LocalTargetInfo(fightTarget), out ShootLine line);
+                // CanHitTarget is the gate that starts a shot, so it is asked too. It starts nothing.
+                canHit = verb.CanHitTarget(new LocalTargetInfo(fightTarget));
+            }
+            finally
+            {
+                foreach (KeyValuePair<IntVec3, TerrainDef> cell in ground)
+                {
+                    fightSurface.terrainGrid.SetTerrain(cell.Key, cell.Value);
+                }
+            }
+            fightOpenAirRefused = ground.Count > 0 && !allowed && !canHit;
+            string detail = ground.Count + " open cells on the line; the line was " + (allowed ? "allowed" : "refused") + "; CanHitTarget " + canHit;
+            Record("a shot from the lower floor through open air is refused, as the rule says", fightOpenAirRefused
+                ? "PASS: the shot is refused; " + detail
+                : "FAIL: " + (ground.Count == 0 ? "the line has no cells between the stairs and the colonist" : "the shot would get through levels") + "; " + detail);
+        }
+
+        // The search for a colonist on another floor. The colony AI's job giver is asked for a job for the hostile on the lower floor. Vanilla
+        // searches one map, so the surface colonist is found only by the attack loop in CombatPatches.cs. The row fails when no job goes to the
+        // colonist. The tracker entry the search leaves is reset afterwards.
+        private bool fightFoundColonist;
+
+        private void CheckHostileFindsColonist(ZLevelsManager tracker)
+        {
+            // TryGiveJob is protected, so it is reached through Traverse. The Harmony patches on it still run. The target is the one the tracker
+            // holds for the hostile. It may be any colonist on the surface, since the search takes the first one it finds.
+            JobGiver_AIFightEnemies giver = new JobGiver_AIFightEnemies();
+            Job found = HarmonyLib.Traverse.Create(giver).Method("TryGiveJob", new object[] { fightShooter }).GetValue<Job>();
+            Thing sought = null;
+            if (found != null && tracker.jobTracker != null && tracker.jobTracker.TryGetValue(fightShooter, out JobTracker record))
+            {
+                sought = record.targetDest.Thing;
+            }
+            tracker.ResetJobTrackerFor(fightShooter);
+            Pawn colonist = sought as Pawn;
+            fightFoundColonist = colonist != null && colonist.Faction == Faction.OfPlayer && colonist.MapHeld == fightSurface;
+            string target = sought == null ? "none" : sought.LabelShort + " on " + sought.MapHeld;
+            Record("a hostile on the lower floor finds a colonist on the surface, as the search should", fightFoundColonist
+                ? "PASS: the search sends the hostile after a colonist on the surface, " + target + "; the first job is " + DescribeJob(found)
+                : "FAIL: no job sends the hostile after a colonist on the surface; the target is " + target + "; the first job is " + DescribeJob(found));
         }
 
         // Clears the surface cells one cell either side of the line from the stairs to the shot's target, and returns what was there. A rock or
@@ -836,7 +909,7 @@ namespace ZLevelsValidation
             Record("melee on one floor is taken, as a control", taken
                 ? "PASS: the attack job was taken; the hostile " + (landed ? "lost health" : "took no damage") + "; jobs seen: " + seen
                 : "FAIL: the attack job was never taken on one floor; jobs seen: " + seen + "; the colonist's job is " + DescribeJob(fightControlColonist.CurJob));
-            bool ok = fightShotRefused && fightMeleeRefused && taken;
+            bool ok = fightShotRefused && fightOpenAirRefused && fightFoundColonist && fightMeleeRefused && taken;
             Record("cross floor fight", ok ? "PASS" : "FAIL: a row above failed");
             finished = true;
             Root.Shutdown();

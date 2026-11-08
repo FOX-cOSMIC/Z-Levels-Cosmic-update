@@ -204,101 +204,26 @@ namespace ZLevels
     [HarmonyPatch(typeof(Verb_LaunchProjectile), "TryCastShot")]
     public static class TryCastShot_Patch
     {
-        public static Map casterOldMap;
-        public static Map targetOldMap;
-    
-        public static bool teleportBack;
-        private static Thing movedThing;
-        public static void Prefix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
+        // A shot never crosses between levels. A cast whose caster and target are on different levels of one tile is refused before the
+        // original runs. Verb.TryCastShot runs for each shot of a burst, so a target that changes level during a burst stops the burst too.
+        public static bool Prefix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
         {
-            //ZLogger.Message("__instance.caster: " + __instance.caster);
-            //ZLogger.Message("__instance.caster.Map: " + __instance.caster.Map);
-            //ZLogger.Message("__instance.caster.Map.Tile: " + __instance.caster.Map.Tile);
-            //
-            //ZLogger.Message("___currentTarget.Thing: " + ___currentTarget.Thing);
-            //ZLogger.Message("___currentTarget.Thing?.Map: " + ___currentTarget.Thing?.Map);
-            //ZLogger.Message("___currentTarget.Thing?.Map.Tile: " + ___currentTarget.Thing?.Map.Tile);
-        
             try
             {
-                if (__instance.caster.Map != ___currentTarget.Thing?.Map && __instance.caster.Map.Tile == ___currentTarget.Thing?.Map?.Tile)
+                Map casterMap = __instance.caster.Map;
+                Map targetMap = ___currentTarget.Thing?.Map;
+                if (casterMap != targetMap && casterMap.Tile == targetMap?.Tile && ZUtils.ZTracker.GetZIndexFor(casterMap) != ZUtils.ZTracker.GetZIndexFor(targetMap))
                 {
-                    var ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
-                    var ind2 = ZUtils.ZTracker.GetZIndexFor(___currentTarget.Thing.Map);
-                    if (ind1 > ind2)
-                    {
-                        teleportBack = true;
-                        targetOldMap = ___currentTarget.Thing.Map;
-                        movedThing = ___currentTarget.Thing;
-                        ZUtils.TeleportThing(___currentTarget.Thing, __instance.caster.Map, ___currentTarget.Thing.Position);
-                        RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
-                    }
-                    else if (ind1 < ind2)
-                    {
-                        teleportBack = true;
-                        casterOldMap = __instance.caster.Map;
-                        movedThing = __instance.caster;
-                        ZUtils.TeleportThing(__instance.caster, ___currentTarget.Thing.Map, __instance.caster.Position);
-                        RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = false;
-                    }
+                    __result = false;
+                    return false;
                 }
             }
             catch (Exception exception)
             {
-                // A teleport that happened is undone by Postfix, because teleportBack and the old map are already set. The fault is logged.
+                // The original runs, so this Prefix returns true. __result is left for the original to write.
                 CombatFaults.Log("Verb_LaunchProjectile.TryCastShot.Prefix", exception);
             }
-        }
-        
-        public static void Postfix(Verb_LaunchProjectile __instance, LocalTargetInfo ___currentTarget, ref bool __result)
-        {
-            try
-            {
-                // Nothing is decided on this path. The undo of the Prefix's teleport is in the finally, so it runs on every exit.
-            }
-            finally
-            {
-                if (teleportBack)
-                {
-                    UndoTeleport();
-                }
-            }
-        }
-
-        // Puts back the thing that the Prefix moved, then clears the pending move. The Postfix calls it on the normal path. The finalizer
-        // calls it after a fault in the Prefix or in the original method, because the Postfix does not run then. It does nothing when no move is pending.
-        private static void UndoTeleport()
-        {
-            try
-            {
-                if (movedThing != null)
-                {
-                    Map home = targetOldMap ?? casterOldMap;
-                    if (home != null)
-                    {
-                        ZUtils.TeleportThing(movedThing, home, movedThing.Position);
-                    }
-                    RoofAndFloorPatches.Patch_SpawnSetup.doTeleport = true;
-                }
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("Verb_LaunchProjectile.TryCastShot.UndoTeleport", exception);
-            }
-            finally
-            {
-                movedThing = null;
-                targetOldMap = null;
-                casterOldMap = null;
-            }
-        }
-
-        // Runs after a fault in the Prefix or in the original method. Harmony passes __exception by value, so this cannot clear it,
-        // and the exception still reaches the caller.
-        [HarmonyFinalizer]
-        private static void Finalizer(Exception __exception)
-        {
-            UndoTeleport();
+            return true;
         }
     }
     
@@ -349,208 +274,6 @@ namespace ZLevels
         }
     }
     
-    
-    [HarmonyPatch(typeof(Verb), "TryFindShootLineFromTo")]
-    public static class TryFindShootLineFromTo_Patch
-    {
-        public static Map oldMap1;
-        public static Map oldMap2;
-        public static bool teleportBack;
-        private static Thing movedThing;
-        public static int ind1 = 0;
-        public static int ind2 = 0;
-        public static void Prefix(Verb __instance, IntVec3 root, LocalTargetInfo targ, ref ShootLine resultingLine, ref bool __result)
-        {
-            try
-            {
-                if (__instance.caster?.Map != targ.Thing?.Map && __instance.caster?.Map?.Tile == targ.Thing?.Map?.Tile)
-                {
-                    ind1 = ZUtils.ZTracker.GetZIndexFor(__instance.caster.Map);
-                    ind2 = ZUtils.ZTracker.GetZIndexFor(targ.Thing.Map);
-                    if (ind1 > ind2)
-                    {
-                        teleportBack = true;
-                        oldMap1 = targ.Thing.Map;
-                        movedThing = targ.Thing;
-                        ZUtils.TeleportThing(targ.Thing, __instance.caster.Map, targ.Thing.Position);
-                    }
-                    else if (ind1 < ind2)
-                    {
-                        teleportBack = true;
-                        oldMap2 = __instance.caster.Map;
-                        movedThing = __instance.caster;
-                        ZUtils.TeleportThing(__instance.caster, targ.Thing.Map, __instance.caster.Position);
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                // A teleport that happened is undone by Postfix, because teleportBack and the old map are already set. The fault is logged.
-                CombatFaults.Log("Verb.TryFindShootLineFromTo.Prefix", exception);
-            }
-        }
-        public static void Postfix(Verb __instance, IntVec3 root, LocalTargetInfo targ, ref ShootLine resultingLine, ref bool __result)
-        {
-            if (teleportBack)
-            {
-                try
-                {
-                    if (__result)
-                    {
-                        if (ind1 > ind2 && !IsVoidsEverywhereInShootingLine(resultingLine, __instance.caster.Map, __instance.caster, targ.Thing))
-                        {
-                            __result = false;
-                        }
-                        else if (ind1 < ind2 && !IsVoidsEverywhereInShootingLineInBackWard(resultingLine, targ.Thing.Map, __instance.caster, targ.Thing))
-                        {
-                            __result = false;
-                        }
-                    }
-                }
-                catch (Exception exception)
-                {
-                    // The verdict stays as the game set it. The finally below still puts the teleported thing back.
-                    CombatFaults.Log("Verb.TryFindShootLineFromTo.Postfix", exception);
-                }
-                finally
-                {
-                    // The Prefix moved the target or the caster to another map. It goes back here on every exit.
-                    UndoTeleport();
-                }
-            }
-        }
-
-        // Puts back the thing that the Prefix moved, then clears the state of the call. The Postfix calls it on the normal path. The finalizer
-        // calls it after a fault in the Prefix or in the original method, because the Postfix does not run then. It does nothing when no move is pending.
-        private static void UndoTeleport()
-        {
-            try
-            {
-                if (movedThing != null)
-                {
-                    Map home = oldMap1 ?? oldMap2;
-                    if (home != null)
-                    {
-                        ZUtils.TeleportThing(movedThing, home, movedThing.Position);
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                CombatFaults.Log("Verb.TryFindShootLineFromTo.UndoTeleport", exception);
-            }
-            finally
-            {
-                movedThing = null;
-                oldMap1 = null;
-                oldMap2 = null;
-                ind1 = 0;
-                ind2 = 0;
-                teleportBack = false;
-            }
-        }
-
-        // Runs after a fault in the Prefix or in the original method. Harmony passes __exception by value, so this cannot clear it,
-        // and the exception still reaches the caller.
-        [HarmonyFinalizer]
-        private static void Finalizer(Exception __exception)
-        {
-            UndoTeleport();
-        }
-
-        public static bool IsVoidsEverywhereInShootingLine(ShootLine resultingLine, Map map, Thing caster, Thing target)
-        {
-            var points = resultingLine.Points().ToList();
-            if (points.Count > 2)
-            {
-                for (int i = 0; i < points.Count; i++)
-                {
-                    if (IntVec3Utility.DistanceTo(caster.Position, points[i]) >= 2)
-                    {
-                        if (points[i].GetTerrain(map) != ZLevelsDefOf.ZL_OutsideTerrain)
-                        {
-                            ZLogger.Message("1: " + caster + " - " + i + " - " + points[i] + " - " + points[i].GetTerrain(map) + " - " + map);
-                            return false;
-                        }
-                    }
-                }
-                if (resultingLine.dest.GetCover(map)?.def?.Fillage == FillCategory.Full)
-                {
-                    ZLogger.Message("3: " + caster + " - " + resultingLine.dest + " - " + resultingLine.dest.GetCover(map) + " - " + map);
-                    return false;
-                }
-            }
-            else
-            {
-                for (int i = 0; i < points.Count; i++)
-                {
-                    if (points[i] != resultingLine.Source)
-                    {
-                        if (points[i].GetTerrain(map) != ZLevelsDefOf.ZL_OutsideTerrain)
-                        {
-                            ZLogger.Message("4: " + caster + " - " + i + " - " + points[i] + " - " + points[i].GetTerrain(map) + " - " + map);
-                            return false;
-                        }
-                    }
-                }
-                if (resultingLine.dest.GetCover(map)?.def?.Fillage == FillCategory.Full)
-                {
-                    ZLogger.Message("5: " + caster + " - " + resultingLine.dest + " - " + resultingLine.dest.GetCover(map) + " - " + map);
-                    return false;
-                }
-            }
-            return true;
-        }
-    
-        public static bool IsVoidsEverywhereInShootingLineInBackWard(ShootLine resultingLine, Map map, Thing caster, Thing target)
-        {
-            var points = resultingLine.Points().ToList();
-            if (points.Count > 2)
-            {
-                for (int i = points.Count - 1; i >= 0; i--)
-                {
-                    if (IntVec3Utility.DistanceTo(target.Position, points[i]) >= 2)
-                    {
-                        if (i < points.Count - 1 && points[i].GetTerrain(map) != ZLevelsDefOf.ZL_OutsideTerrain)
-                        {
-                            //ZLogger.Message("6: " + caster + " - " + " - " + i + " - " + points.Count + " - " + points[i] + " - " + points[i].GetTerrain(map) + " - " + map);
-                            return false;
-                        }
-                        else if (i == points.Count - 1 && points[i].GetCover(map)?.def?.Fillage == FillCategory.Full)
-                        {
-                            ZLogger.Message("7: " + caster + " - " + i + " - " + points.Count + " - " + points[i] + " - " + points[i].GetCover(map) + " - " + map);
-                            return false;
-                        }
-                    }
-                }
-                if (resultingLine.dest.GetCover(map)?.def?.Fillage == FillCategory.Full)
-                {
-                    ZLogger.Message("8: " + caster + " - " + resultingLine.dest + " - " + resultingLine.dest.GetCover(map) + " - " + map);
-                    return false;
-                }
-            }
-            else
-            {
-                for (int i = points.Count - 1; i >= 0; i--)
-                {
-                    if (points[i] != resultingLine.Dest)
-                    {
-                        if (points[i].GetTerrain(map) != ZLevelsDefOf.ZL_OutsideTerrain)
-                        {
-                            ZLogger.Message("9: " + caster + " - " + i + " - " + points.Count + " - " + points[i] + " - " + points[i].GetTerrain(map) + " - " + map);
-                            return false;
-                        }
-                    }
-                }
-                if (resultingLine.dest.GetCover(map)?.def?.Fillage == FillCategory.Full)
-                {
-                    ZLogger.Message("10: " + caster + " - " + resultingLine.dest + " - " + resultingLine.dest.GetCover(map) + " - " + map);
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
     
     [HarmonyPatch(typeof(JobGiver_ConfigurableHostilityResponse), "TryGiveJob")]
     public class JobGiver_ConfigurableHostilityResponsePatch
