@@ -16,6 +16,7 @@ namespace ZLevels
         {
             public List<Building_Stairs> Candidates;
             public Building_Stairs Chosen;
+            public int Tick;
         }
 
         private static readonly Dictionary<(Map, IntVec3, bool), Route> routes = new Dictionary<(Map, IntVec3, bool), Route>();
@@ -28,7 +29,7 @@ namespace ZLevels
         {
             List<Building_Stairs> candidates = goingUp ? ZUtils.ZTracker.GetStairsUpFor(from) : ZUtils.ZTracker.GetStairsDownFor(from);
             var key = (from, cell, goingUp);
-            if (routes.TryGetValue(key, out Route saved) && SameStairs(saved.Candidates, candidates))
+            if (routes.TryGetValue(key, out Route saved) && SameStairs(saved.Candidates, candidates) && !NoRouteExpired(saved))
             {
                 return saved.Chosen;
             }
@@ -51,7 +52,7 @@ namespace ZLevels
                 }
                 path.ReleaseToPool();
             }
-            routes[key] = new Route { Candidates = candidates.ToList(), Chosen = chosen };
+            routes[key] = new Route { Candidates = candidates.ToList(), Chosen = chosen, Tick = Find.TickManager.TicksGame };
             return chosen;
         }
 
@@ -77,6 +78,13 @@ namespace ZLevels
         public static void Clear()
         {
             routes.Clear();
+        }
+
+        // A decision that found no stair is checked again after one idle pause. Walls and doors change the walks but not the stair list, so a
+        // no-route decision would keep a route closed after it opens. A decision that chose a stair stays until its walk fails (MarkFailed).
+        private static bool NoRouteExpired(Route saved)
+        {
+            return saved.Chosen == null && Find.TickManager.TicksGame - saved.Tick >= FloorPolicy.IdlePauseTicks;
         }
 
         private static bool SameStairs(List<Building_Stairs> saved, List<Building_Stairs> now)
