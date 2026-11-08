@@ -266,6 +266,10 @@ namespace ZLevelsValidation
                 // The surface cells are placed around the stairs, as the food scenario places its surface colonists. The surface centre
                 // had no reachable cell in run 20261106-173830.
                 IntVec3 middle = OnMapCell(surface, stairs.Position + new IntVec3(10, 0, 0));
+                // The surface colonists and furniture below stand up to 8.5 cells from the middle, and each of their origins has to be open.
+                // CarveAround keeps its centre, so the middle is opened as well. The stairs are ten cells from the middle, outside this radius.
+                CarveAround(surface, middle, 9f);
+                OpenSearchOrigin(surface, middle);
 
                 // A colonist on each floor, for the tab's current floor column.
                 Pawn lowerColonist = SpawnPawnAt(lower, TakeCellNear(lower, OnMapCell(lower, stairs.Position + new IntVec3(3, 0, 0)), lowerUsed));

@@ -146,14 +146,20 @@ namespace ZLevelsValidation
                 Map surface = Find.CurrentMap;
                 ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
                 RequireFloors(tracker, surface, 1);
-                SetUpLowerStairs(surface, tracker, out Map lower);
+                Building_StairsUp stairs = SetUpLowerStairs(surface, tracker, out Map lower);
                 RequireFloors(tracker, surface, 2);
                 CarveAround(lower, lower.Center, 6f);
+                // The surface origin sits ten cells from the stairs, as the floors tab's does. A rock centre under a roof has no reachable cell,
+                // and carving keeps the centre, so the origin is opened as well.
+                IntVec3 surfaceOrigin = OnMapCell(surface, stairs.Position + new IntVec3(10, 0, 0));
+                CarveAround(surface, surfaceOrigin, 6f);
+                OpenSearchOrigin(surface, surfaceOrigin);
                 IntVec3 lowerCell = FindReachableCellNear(lower, lower.Center, new List<IntVec3>());
-                IntVec3 surfaceCell = FindReachableCellNear(surface, surface.Center, new List<IntVec3>());
+                IntVec3 surfaceCell = FindReachableCellNear(surface, surfaceOrigin, new List<IntVec3>());
                 if (!lowerCell.IsValid || !surfaceCell.IsValid)
                 {
-                    throw new InvalidOperationException("no reachable cell for a lover on each floor");
+                    throw new InvalidOperationException("no reachable cell for a lover on each floor; lower " + DescribeSearchOrigin(lower, lower.Center)
+                        + "; surface " + DescribeSearchOrigin(surface, surfaceOrigin));
                 }
                 Pawn lowerLover = SpawnPawnAt(lower, lowerCell);
                 Pawn surfaceLover = SpawnPawnAt(surface, surfaceCell);
@@ -301,7 +307,7 @@ namespace ZLevelsValidation
             IntVec3 cell = FindReachableCellNear(map, near, used);
             if (!cell.IsValid)
             {
-                throw new InvalidOperationException("no reachable cell near " + near + " on " + map);
+                throw new InvalidOperationException("no reachable cell near " + near + " on " + map + "; " + DescribeSearchOrigin(map, near));
             }
             used.Add(cell);
             return cell;

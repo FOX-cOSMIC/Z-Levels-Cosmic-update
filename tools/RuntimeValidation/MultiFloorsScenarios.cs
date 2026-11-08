@@ -578,6 +578,23 @@ namespace ZLevelsValidation
             return IntVec3.Invalid;
         }
 
+        // What a reachable search sees from its origin: the origin's own cell, and how many open cells within six of it the search reaches from there.
+        // A failure that names these tells a closed area apart from a failed reachability read.
+        private static string DescribeSearchOrigin(Map map, IntVec3 near)
+        {
+            if (!near.InBounds(map)) return "origin " + near + " is off " + map;
+            int open = 0;
+            int reachable = 0;
+            foreach (IntVec3 cell in GenRadial.RadialCellsAround(near, 6f, false))
+            {
+                if (!cell.InBounds(map) || !cell.Standable(map) || cell.GetEdifice(map) != null || cell.GetFirstItem(map) != null) continue;
+                open++;
+                if (map.reachability.CanReach(near, cell, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) reachable++;
+            }
+            return "origin " + near + " has terrain " + near.GetTerrain(map).defName + ", standable " + near.Standable(map) + ", roofed " + near.Roofed(map)
+                + ", edifice " + (near.GetEdifice(map)?.def.defName ?? "none") + "; open cells within 6: " + open + ", reachable from it: " + reachable;
+        }
+
         private static Pawn SpawnPawnAt(Map map, IntVec3 cell)
         {
             Pawn pawn = PawnGenerator.GeneratePawn(PawnKindDefOf.Colonist, Faction.OfPlayer);
@@ -821,6 +838,13 @@ namespace ZLevelsValidation
                 ClearCell(map, cell);
                 map.terrainGrid.SetTerrain(cell, TerrainDefOf.Concrete);
             }
+        }
+
+        // Opens the cell that a reachable search starts from. CarveAround keeps its centre, and a rock centre has no reachable cell.
+        private static void OpenSearchOrigin(Map map, IntVec3 origin)
+        {
+            ClearCell(map, origin);
+            map.terrainGrid.SetTerrain(origin, TerrainDefOf.Concrete);
         }
 
         private static void DestroySurfaceFood(Map map)

@@ -24,11 +24,13 @@ namespace ZLevelsValidation
         private const int PatchTimingRounds = 3;
 
         // One method that a mod patch added to a game method.
+        private enum PatchKind { Prefix, Postfix, Finalizer }
+
         private struct PatchPiece
         {
             public MethodBase Original;
             public MethodInfo Method;
-            public bool Prefix;
+            public PatchKind Kind;
         }
 
         // One mod patch as a unit. Its pieces are removed and applied together.
@@ -220,12 +222,14 @@ namespace ZLevelsValidation
                 Toggle("CanReserveStack", false,
                     GameMethod(typeof(ReservationManager), "CanReserveStack", new[] { typeof(Pawn), typeof(LocalTargetInfo), typeof(int), typeof(ReservationLayerDef), typeof(bool) }),
                     typeof(ReservationManager_CanReserveStack_Patch), true),
-                Toggle("BestShootTargetFromCurrentPosition", true,
+                // These two search patches restore their flag in a finalizer, which runs even when the vanilla search throws, so their toggles take
+                // the finalizer and not a postfix.
+                FinalizerToggle("BestShootTargetFromCurrentPosition", true,
                     GameMethod(typeof(AttackTargetFinder), "BestShootTargetFromCurrentPosition", new[] { typeof(IAttackTargetSearcher), typeof(TargetScanFlags), typeof(Predicate<Thing>), typeof(float), typeof(float) }),
-                    typeof(BestShootTargetFromCurrentPosition_Patch), true),
-                Toggle("FindAttackTarget", true,
+                    typeof(BestShootTargetFromCurrentPosition_Patch)),
+                FinalizerToggle("FindAttackTarget", true,
                     GameMethod(typeof(JobGiver_AIFightEnemy), "FindAttackTarget", new[] { typeof(Pawn) }),
-                    typeof(FindAttackTarget_Patch), true),
+                    typeof(FindAttackTarget_Patch)),
                 Toggle("BestAttackTarget", true,
                     GameMethod(typeof(AttackTargetFinder), "BestAttackTarget", new[] { typeof(IAttackTargetSearcher), typeof(TargetScanFlags), typeof(Predicate<Thing>), typeof(float), typeof(float), typeof(IntVec3), typeof(float), typeof(bool), typeof(bool), typeof(bool), typeof(bool) }),
                     typeof(CombatPatches_BestAttackTarget_Patch), false),
@@ -242,16 +246,25 @@ namespace ZLevelsValidation
         private static PatchToggle Toggle(string name, bool attack, MethodInfo original, Type patchClass, bool hasPostfix)
         {
             PatchToggle toggle = new PatchToggle { Name = name, Attack = attack };
-            toggle.Pieces.Add(Piece(original, patchClass, "Prefix", true));
-            if (hasPostfix) toggle.Pieces.Add(Piece(original, patchClass, "Postfix", false));
+            toggle.Pieces.Add(Piece(original, patchClass, "Prefix", PatchKind.Prefix));
+            if (hasPostfix) toggle.Pieces.Add(Piece(original, patchClass, "Postfix", PatchKind.Postfix));
             return toggle;
         }
 
-        private static PatchPiece Piece(MethodInfo original, Type patchClass, string methodName, bool prefix)
+        // A toggle for a patch class whose state is restored by a finalizer, not by a postfix.
+        private static PatchToggle FinalizerToggle(string name, bool attack, MethodInfo original, Type patchClass)
+        {
+            PatchToggle toggle = new PatchToggle { Name = name, Attack = attack };
+            toggle.Pieces.Add(Piece(original, patchClass, "Prefix", PatchKind.Prefix));
+            toggle.Pieces.Add(Piece(original, patchClass, "Finalizer", PatchKind.Finalizer));
+            return toggle;
+        }
+
+        private static PatchPiece Piece(MethodInfo original, Type patchClass, string methodName, PatchKind kind)
         {
             MethodInfo patch = patchClass.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
             if (patch == null) throw new InvalidOperationException(patchClass.Name + "." + methodName + " was not found");
-            return new PatchPiece { Original = original, Method = patch, Prefix = prefix };
+            return new PatchPiece { Original = original, Method = patch, Kind = kind };
         }
 
         private static void Remove(Harmony harmony, PatchToggle toggle)
@@ -264,8 +277,9 @@ namespace ZLevelsValidation
             foreach (PatchPiece piece in toggle.Pieces)
             {
                 if (IsApplied(piece)) continue;
-                if (piece.Prefix) harmony.Patch(piece.Original, prefix: new HarmonyMethod(piece.Method));
-                else harmony.Patch(piece.Original, postfix: new HarmonyMethod(piece.Method));
+                if (piece.Kind == PatchKind.Prefix) harmony.Patch(piece.Original, prefix: new HarmonyMethod(piece.Method));
+                else if (piece.Kind == PatchKind.Postfix) harmony.Patch(piece.Original, postfix: new HarmonyMethod(piece.Method));
+                else harmony.Patch(piece.Original, finalizer: new HarmonyMethod(piece.Method));
             }
         }
 
@@ -283,7 +297,7 @@ namespace ZLevelsValidation
         {
             var info = Harmony.GetPatchInfo(piece.Original);
             if (info == null) return false;
-            var patches = piece.Prefix ? info.Prefixes : info.Postfixes;
+            var patches = piece.Kind == PatchKind.Prefix ? info.Prefixes : piece.Kind == PatchKind.Postfix ? info.Postfixes : info.Finalizers;
             return patches.Any(patch => patch.PatchMethod == piece.Method);
         }
     }

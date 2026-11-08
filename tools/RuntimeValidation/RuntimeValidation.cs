@@ -238,6 +238,9 @@ namespace ZLevelsValidation
             Scribe_Values.Look(ref savedLogs, "vaultSavedLogs");
         }
 
+        // The surface staircase that stage 0 places. Stage 7 checks that the power placement leaves it standing.
+        private Building_StairsDown surfaceStairsAtStart;
+
         public override void GameComponentUpdate()
         {
             if (!GenCommandLine.CommandLineArgPassed("zlevelsvalidation") || finished)
@@ -701,6 +704,8 @@ namespace ZLevelsValidation
                         Record("fresh colony", "PASS");
                         Record("validation colonist can haul, mine and build", "PASS: " + pawn.LabelShort);
                         var down = SpawnStair<Building_StairsDown>(ZLevelsDefOf.ZL_StairsDown, pawn.Position + new IntVec3(3, 0, 0));
+                        surfaceStairsAtStart = down;
+                        Record("surface stairs placed", "stairs " + down.Position + " colonist " + pawn.Position + " surface centre " + surface.Center);
                         Next(1);
                         down.GiveJob(pawn, down);
                         break;
@@ -770,6 +775,7 @@ namespace ZLevelsValidation
                     case 7:
                         if (pawn.Map != surface) return;
                         powerCell = surface.Center + new IntVec3(12, 0, 0);
+                        Record("power placement", "transmitter " + powerCell + "; conduit row z " + powerCell.z + "; surface stairs " + surfaceStairsAtStart.Position);
                         var transmitterDef = DefDatabase<ThingDef>.GetNamed("ZL_PowerTransmitterColumn");
                         surfaceTransmitter = SpawnBuilding(transmitterDef, surface, powerCell, ThingDefOf.Steel).GetComp<CompPowerZTransmitter>();
                         lowerTransmitter = SpawnBuilding(transmitterDef, lower, powerCell, ThingDefOf.Steel).GetComp<CompPowerZTransmitter>();
@@ -779,6 +785,7 @@ namespace ZLevelsValidation
                         lamp = lampBuilding.GetComp<CompPowerTrader>();
                         ConnectWithConduit(surface, powerCell, powerSource);
                         ConnectWithConduit(lower, powerCell, lampBuilding);
+                        Record("surface stairs survive power placement", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the power placement removed the surface stairs placed at " + surfaceStairsAtStart.Position);
                         Next(8);
                         break;
                     case 8:
@@ -806,6 +813,7 @@ namespace ZLevelsValidation
                             break;
                         }
                         powerSource.Destroy(DestroyMode.Vanish);
+                        Record("surface stairs after the generator is removed", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs are gone once the generator is removed");
                         Next(9);
                         break;
                     case 10:
@@ -849,12 +857,14 @@ namespace ZLevelsValidation
                         ScreenshotTaker.TakeNonSteamShot("zlevels-surface-hole");
                         QueueShotRow("surface hole screenshot", "zlevels-surface-hole");
                         powerSource.Destroy(DestroyMode.Vanish);
+                        Record("surface stairs after the generator is removed", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs are gone once the generator is removed");
                         Next(9);
                         break;
                     case 9:
                         if (Find.TickManager.TicksGame - stageTick < 600) return;
                         Require(!lamp.PowerOn, "lower-floor lamp unpowered after generator removal");
                         Record("cross-level power loss without source", "PASS");
+                        Record("surface stairs at stage 9", surfaceStairsAtStart.Spawned ? "PASS" : "FAIL: the surface stairs placed at " + surfaceStairsAtStart.Position + " are gone at stage 9");
                         var downToLower = surface.listerThings.AllThings.OfType<Building_StairsDown>().First();
                         Next(17);
                         downToLower.GiveJob(pawn, downToLower);
