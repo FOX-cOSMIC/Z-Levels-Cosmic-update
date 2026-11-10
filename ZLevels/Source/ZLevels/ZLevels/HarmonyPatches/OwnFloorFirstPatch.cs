@@ -35,7 +35,26 @@ namespace ZLevels
         // While it is set, the vanilla search checks only the work givers it accepts (see PawnCanUseWorkGiverPatch). Null accepts every giver.
         internal static Func<WorkGiver, bool> GiverFilter;
 
+        // The caller (JobPatches.TryIssueJobPackagePatch) resets the colonist's tracker just before the search. A search that throws must not leave
+        // its floor state behind (review item Q3). The tracker would keep the job's floor and the cells the search filed under the floor where it
+        // failed. ZUtils.currentLookedIntoMap would keep that floor, so the cells built afterwards would be filed there too, and the colonist's reach
+        // to them would be answered on that floor. On an exception the field goes back to the own floor, and the tracker is reset to the empty start,
+        // as the caller resets it after a search that finds nothing. The exception goes on to the caller, which logs it.
         internal static ThinkResult Search(JobGiver_Work instance, bool emergency, Pawn pawn, JobIssueParams jobParams, JobTracker jobTracker, Map oldMap, IntVec3 oldPosition)
+        {
+            try
+            {
+                return SearchFloors(instance, emergency, pawn, jobParams, jobTracker, oldMap, oldPosition);
+            }
+            catch
+            {
+                ZUtils.currentLookedIntoMap = oldMap;
+                ZUtils.ZTracker.ResetJobTrackerFor(pawn);
+                throw;
+            }
+        }
+
+        private static ThinkResult SearchFloors(JobGiver_Work instance, bool emergency, Pawn pawn, JobIssueParams jobParams, JobTracker jobTracker, Map oldMap, IntVec3 oldPosition)
         {
             int threshold = ZLevelsMod.settings.WorkGiverHighPriorityThreshold;
             List<WorkGiver> givers = emergency ? pawn.workSettings.WorkGiversInOrderEmergency : pawn.workSettings.WorkGiversInOrderNormal;
@@ -128,6 +147,15 @@ namespace ZLevels
                 {
                     return RunVanillaSearch(instance, pawn, jobParams, jobTracker, ownMap, giver => true);
                 }
+            }
+            catch
+            {
+                // A search that throws leaves what a search that finds nothing leaves: no job floor, and the floor field on the own floor (review
+                // item Q3). The tracker is not reset. This search does not start from an empty tracker, and the tracker may hold the cells of a job
+                // the colonist is doing. The exception goes on to the caller, which logs it.
+                jobTracker.mapDest = null;
+                ZUtils.currentLookedIntoMap = ownMap;
+                throw;
             }
             finally
             {
