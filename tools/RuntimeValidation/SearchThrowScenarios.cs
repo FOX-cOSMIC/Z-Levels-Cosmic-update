@@ -27,6 +27,15 @@ namespace ZLevelsValidation
     public partial class RuntimeValidation
     {
         private const string SearchThrowMessage = "Z-Levels search throw test: the work search failed on its floor";
+        // The start of the error each catch in JobPatches.TryIssueJobPackagePatch.Prefix logs. ZLogger adds the "[Z-Levels] " prefix.
+        private const string FullSearchErrorStart = "[Z-Levels] Exception in TryIssueJobPackagePatch: ";
+        private const string PausedSearchErrorStart = "[Z-Levels] Exception in the paused own-floor search: ";
+
+        // True when the log probe kept exactly one error, and it starts with the given text.
+        private static bool KeptOneFrom(string start)
+        {
+            return SearchThrowLogProbe.Kept.Count == 1 && SearchThrowLogProbe.Kept[0].StartsWith(start, StringComparison.Ordinal);
+        }
 
         // The harness prefix on the vanilla search, and what it saw. Armed only around the calls of the scenario.
         internal static class SearchThrowProbe
@@ -237,8 +246,10 @@ namespace ZLevelsValidation
                 bool idleAllowed = tracker.floorPolicy.IdleSearchAllowed(colonist, Find.TickManager.TicksGame);
                 Record("the idle pause is off before the search through the prefix", idleAllowed ? "PASS" : "FAIL: the idle pause is on");
                 PrefixCall prefixFull = CallThroughPrefix(colonist, lower, cell, null);
-                bool prefixFullOk = prefixFull.Escaped == null && prefixFull.Job == null && SearchThrowProbe.Throws == 1 && SearchThrowProbe.OuterOriginalRuns == 0 && SearchThrowLogProbe.Kept.Count == 1;
-                Record("through the prefix, the failed search gives no job and logs one error", prefixFullOk ? "PASS" : "FAIL: " + prefixFull.Describe());
+                // The one error must come from the full search's catch in the prefix (review nit N1).
+                bool prefixFullOk = prefixFull.Escaped == null && prefixFull.Job == null && SearchThrowProbe.Throws == 1 && SearchThrowProbe.OuterOriginalRuns == 0
+                    && KeptOneFrom(FullSearchErrorStart);
+                Record("through the prefix, the failed search gives no job and logs one error", prefixFullOk ? "PASS" : "FAIL: " + prefixFull.Describe() + "; first kept error: " + FirstLine(SearchThrowLogProbe.Kept));
                 Record("error logged by the prefix", "INFO: " + FirstLine(SearchThrowLogProbe.Kept));
                 Map lookedAfterPrefix = lookedInto();
                 List<IntVec3> filedBelowPrefix = FiledUnder(jobTracker, lower);
@@ -271,8 +282,9 @@ namespace ZLevelsValidation
                 PrefixCall prefixPaused = CallThroughPrefix(colonist, surface, IntVec3.Invalid, lower);
                 bool prefixPausedOk = prefixPaused.Escaped == null && prefixPaused.Job == null && SearchThrowProbe.Throws == 1 && SearchThrowProbe.OuterOriginalRuns == 0;
                 Record("through the prefix, a failed paused search gives no job and runs no second search", prefixPausedOk ? "PASS" : "FAIL: " + prefixPaused.Describe());
-                bool pausedLoggedOnce = SearchThrowLogProbe.Kept.Count == 1;
-                Record("through the prefix, a failed paused search logs one error", pausedLoggedOnce ? "PASS" : "FAIL: " + SearchThrowLogProbe.Kept.Count + " errors with the probe's message");
+                // The one error must come from the paused search's catch in the prefix, not from the prefix's outer catch (review nit N1).
+                bool pausedLoggedOnce = KeptOneFrom(PausedSearchErrorStart);
+                Record("through the prefix, a failed paused search logs one error from its own catch", pausedLoggedOnce ? "PASS" : "FAIL: " + SearchThrowLogProbe.Kept.Count + " errors with the probe's message; first: " + FirstLine(SearchThrowLogProbe.Kept));
                 Record("error logged for the paused search", "INFO: " + FirstLine(SearchThrowLogProbe.Kept));
                 Map lookedAfterPaused = lookedInto();
                 bool pausedStateOk = jobTracker.mapDest == null && lookedAfterPaused == surface;
