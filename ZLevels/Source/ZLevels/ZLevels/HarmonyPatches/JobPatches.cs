@@ -1281,7 +1281,17 @@ namespace ZLevels
                         // is not paused. A paused search still checks only the own floor, with that floor's lock and work settings.
                         if (!___emergency && !ZTracker.floorPolicy.IdleSearchAllowed(pawn, Find.TickManager.TicksGame))
                         {
-                            __result = OwnFloorFirstSearch.SearchOwnFloorOnly(__instance, pawn, jobParams, jobTracker);
+                            // A paused search that throws gives no job this time, as the full search below does. Without this catch, the outer
+                            // catch let the vanilla search run again, without the paused search's floor limits (review finding R1).
+                            try
+                            {
+                                __result = OwnFloorFirstSearch.SearchOwnFloorOnly(__instance, pawn, jobParams, jobTracker);
+                            }
+                            catch (Exception ex)
+                            {
+                                __result = ThinkResult.NoJob;
+                                ZLogger.Error("Exception in the paused own-floor search: " + ex);
+                            }
                             return false;
                         }
                         ThinkResult result;
