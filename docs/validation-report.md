@@ -2517,7 +2517,7 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 
 - The own-floor gate's effect on the storage path is unproven. The storage rows pass with the gate removed (run `204222`).
 - Removing the gate changes one later row, the marked item after the pause. The cause is not established.
-- Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` at lines 158 to 162 resets `VanillaCallRunning` and `GiverFilter`, and nothing else. If the search throws, `mapDest` and `currentLookedIntoMap` stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet.
+- Q3 is deferred. `RunVanillaSearch` in `ZLevels/Source/ZLevels/ZLevels/HarmonyPatches/OwnFloorFirstPatch.cs` sets `jobTracker.mapDest` at line 146 and `ZUtils.currentLookedIntoMap` at line 149, both before its `try`. The `finally` at lines 158 to 162 resets `VanillaCallRunning` and `GiverFilter`, and nothing else. If the search throws, `mapDest` and `currentLookedIntoMap` stay set. `ReachAndReservationPatches.cs` line 29 reads the global field, so a cell can take the wrong floor until the next search. Fixing it changes product code, so it needs a full regression. No validation scenario makes the search throw, so the fix would have no red run yet. Fixed on 2026-11-10, see "Q3 and D13: floor state after a work search (2026-11-10)".
 - No CI runs on the PR at the heads named here. On 2026-11-08, `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/commits/6e6bc2334a2965f6f6c5b34e76b61e158c3cbf9b/check-runs` returned 0 check runs for `6e6bc23`. The same call for `6a75262576e51633b247f90cea6b3175e1dc6401` returned 0 check runs. These calls cover the heads that were pushed when they ran, and no later head. `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/commits/6e6bc2334a2965f6f6c5b34e76b61e158c3cbf9b/check-suites` and `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/commits/6a75262576e51633b247f90cea6b3175e1dc6401/check-suites` each returned one suite from the app `cloudflare-workers-and-pages`, queued, with no runs. The suite for `6a75262` has `created_at` 2026-11-08T21:35:04Z. `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/branches/zlevels-1.7/protection` returned 404. `git ls-tree -r --name-only origin/multifloors-ideas -- .github` printed nothing. All seven PRs into `zlevels-1.7` returned 0 check runs on their heads. The heads were PR 1 `0b8930f`, PR 2 `8591121`, PR 3 `e7427dc`, PR 4 `b2cfb63` (open), PR 5 `11de179`, PR 6 `60b31d1`, and PR 7 `c43b6b2` (open). The list came from `gh api "repos/FOX-cOSMIC/Z-Levels-Cosmic-update/pulls?state=all&base=zlevels-1.7&per_page=100"`, and each head's count came from `gh api repos/FOX-cOSMIC/Z-Levels-Cosmic-update/commits/<sha>/check-runs`, run for each head listed above.
 - The geyser runs log no map seed, so the cause of the geyser is not established. The base game's own seed behaviour was not checked.
 - The cause of the ideo removal in run `213111` is open. The base game ran the ideology code without the Ideology DLC active. No Z-Levels code is in the stack.
@@ -2543,3 +2543,169 @@ The cause of `170043` is not established. The stair records that `a587c18` added
 - Clean runs on `36d3221`: `20261108-220939` and `221119` (IdleSearchPause), `221249` (core), and `221449` (RimatomicsPlusPlus).
 - Clean runs on `97dea61`: `20261108-212742` (IdleSearchPause), `212907` (EventsOtherFloor), `213832`, `213951`, and `214115` (MoodOtherFloor), `214244` (core), and `214445` (RimatomicsPlusPlus). Run `213111` (MoodOtherFloor) failed the log gate on a game message.
 - Controls: `20261108-153329` (identity `ac693f5`, dirty, the gate present) and `20261108-153516` (identity `ac693f5`, dirty, from the `gate-removal` folder, with a different built hash).
+
+## Q3 and D13: floor state after a work search (2026-11-10)
+
+Branch `fix/q3-failed-search-state`, from `zlevels-1.7` at `784b3b8`. Q3 was the deferred minor item from review rounds 5 to 7. Lucas asked on 2026-11-10 for the recommended fix. The test for it found a second, more common case, which became decision D13.
+
+### What was wrong
+
+The work search sets two things while it runs. `JobTracker.mapDest` holds the floor of the job it finds. `ZUtils.currentLookedIntoMap` holds the floor the search is looking into. The constructor patch on `LocalTargetInfo` files every cell built while a colonist's tracker is the one being filled, under the floor field (`ReachAndReservationPatches.cs`, `LocalTargetInfo_Constructor_Patch`). The reachability patch then answers that colonist's reach to the cell on the filed floor (`CanReach_Patch`).
+
+- Q3. When the vanilla search inside `OwnFloorFirstSearch` threw, the tracker kept the job's floor and the cells the search had filed under the floor where it failed. The floor field kept that floor. The colonist's reach to an open cell on its own floor was then answered on the other floor, and refused.
+- D13. A search that found nothing, with no error, left the floor field on the last other floor it searched, with the same result.
+- R1, found in review. When the paused own-floor search threw, the prefix's outer `catch` logged the error and returned true. The vanilla body then ran again without the paused search's floor limits. This was older than the Q3 work.
+
+The fix recorded in the roadmap for Q3 (a `finally` in `RunVanillaSearch`) was too narrow. For a search on another floor, the floor iterator in `ZUtils.cs` sets the field before `RunVanillaSearch` runs. Restoring the field to its value on entry gives the same floor back.
+
+### Changes
+
+- `90aa13b` (Q3). `OwnFloorFirstSearch.Search` runs the old body, now `SearchFloors`, in a `try`. On an exception it puts the floor field on the own floor, resets the tracker with `ResetJobTrackerFor`, and rethrows. `SearchOwnFloorOnly` clears the job's floor, puts the field on the own floor, and rethrows. It does not reset the tracker, which may hold the cells of a job in progress. The commit also adds the `-SearchThrowState` scenario.
+- `81c3557` (D13, option a). `Search` puts the floor field on the own floor when it returns no job.
+- `d9c872b` (review R1 to R3). The paused search's call in `JobPatches.TryIssueJobPackagePatch.Prefix` has its own `catch`, which logs the error and gives no job. The scenario also runs the failures through the Z-Levels prefix.
+- `14c0a57` (review nit N1). Each logged error must come from its own catch. Scenario only.
+- `577c91b` publishes the DLLs built from `14c0a57`.
+
+### The scenario
+
+`tools/RuntimeValidation/SearchThrowScenarios.cs`, switch `-SearchThrowState`, label `search throw state`.
+
+The setup is a surface and a lower floor joined by stairs, and one colonist beside the stairs with all work off. The own-floor passes find nothing, so a full search goes on to the lower floor. The scenario also picks a test cell: a surface cell the colonist reaches on the surface, which is not walkable on the lower floor.
+
+A harness Harmony prefix on `JobGiver_Work.TryIssueJobPackage` makes the search fail. It acts only on the vanilla call that the own-floor search makes, while `VanillaCallRunning` is true. While armed for the colonist and a floor, it files the test cell and can move the floor field. Then it throws. A postfix with `__runOriginal` counts the outer calls whose vanilla body ran after the Z-Levels prefix.
+
+For the runs through the prefix, a second harness prefix, on `Verse.Log.Error(string)`, keeps an error out of the log. It does so only while it is armed, and only when the error's text carries the scenario's own exception message. The rows require exactly one such error. Every other error reaches the log, and the log gate fails the run on it.
+
+The scenario has five parts:
+
+1. The full search, called directly, fails on the lower floor.
+2. The paused search, called directly, fails on the own floor. The probe moves the field to the lower floor first.
+3. The full search fails through the prefix.
+4. A normal search that finds nothing runs through the prefix (D13).
+5. The paused search fails through the prefix. The empty search in part 4 started the idle pause.
+
+After each part, the rows check what the search left behind:
+
+- the job's floor
+- the floor field
+- the cells filed under the lower floor
+- the colonist's reach to the test cell
+- the number of throws and logged errors
+- whether the vanilla body ran again after the Z-Levels prefix
+
+### Red and green runs
+
+| Run | Code | Result |
+|---|---|---|
+| `20261110-153748` | `784b3b8` plus the first scenario | Red. Five rows FAIL: the job's floor still `Map-1`, the floor field `Map-1`, one cell filed under `Map-1`, the reach to the cell refused, and the paused search's job floor still the surface. The INFO row shows that an empty search leaves the field on the lower floor too. |
+| `20261110-154048` | the Q3 fix, uncommitted | Green. Every row passes. |
+| `20261110-195025` | `90aa13b` plus the D13 rows | Red. The floor field is `Map-1` after an empty search, and the reach to the cell is refused. |
+| `20261110-195219` | the D13 fix, uncommitted | Green. Every row passes. |
+| `20261110-201155` | `81c3557` plus the review scenario, the paused field reset removed for this run | Red. Three rows FAIL: the paused field after a direct failure, one run of the vanilla body after the prefix, and the paused state through the prefix. |
+| `20261110-201333` | the `d9c872b` content, uncommitted | Green. Every row passes, and the log gate passes. The only ERROR line in its `Player.log` is the duplicate-mod line from mod loading, which the gate ignores. |
+| `20261110-215914` | `d9c872b` plus the N1 rows, with `JobPatches.cs` from `81c3557` | Red. The paused row now fails on the outer catch's error, and the second vanilla run fails as before. |
+| `20261110-220035` | `14c0a57`, clean | Green. Every row passes. |
+
+Every run in this table except `220035` ran with uncommitted changes, so its identity line says dirty, and names the parent commit. The regression below runs on the commit.
+
+### Full regression on `d9c872b`
+
+Run on 2026-11-10 from 20:14 to 21:57, by `%TEMP%\claude-scratch\multifloors-pr\q3-regression.sh`. It ran core, every switch in the runner's scenario list (62, now with `SearchThrowState`), and `RimatomicsPlusPlus`. That makes 64 runs. Every wrapper log reports `identity commit d9c872b`, `identity dirty: False`, and the built `ZLevels.dll` SHA-256 `9DDB7A1EE6D8966338E0BE808F225D52DF5747B25B98B7160D04F807FC804C1D`. Each run started on its first attempt. 63 runs print `Runtime validation passed`.
+
+The other run is `CoolingNoColumns`, run `204557`. It has 15 FAIL rows, as in the final regression on `a587c18`. It is a negative control, and its positive control, `uncooled core overheats`, passes in the same run. `FloorsTab` loads Royalty from a read-only copy of the user's mod list, through `-ModsConfigSource`.
+
+An earlier start on `81c3557` was stopped after 13 runs, because the review fixes changed the mod code again. Its logs are in `logs\q3-regression-81c3557-stopped`, and they are not counted here.
+
+Each row below takes the run ID from the switch's wrapper log, in `%TEMP%\claude-scratch\multifloors-pr\logs\q3-regression`, outside the repo.
+
+| Switch | Run | Result |
+|---|---|---|
+| `AddonLoad` | `20261110-210923` | PASS |
+| `BackgroundHaul` | `20261110-212342` | PASS |
+| `BenchLink` | `20261110-214534` | PASS |
+| `CallColonists` | `20261110-214704` | PASS |
+| `ChildAnimalMech` | `20261110-213559` | PASS |
+| `ChoreSpread` | `20261110-211043` | PASS |
+| `Cooling` | `20261110-204338` | PASS |
+| `CoolingNoColumns` | `20261110-204557` | FAIL, 15 rows, negative control |
+| `CoolingTwoNets` | `20261110-204817` | PASS |
+| `core (no switch)` | `20261110-201512` | PASS |
+| `CrossFloorFight` | `20261110-213724` | PASS |
+| `EventsOtherFloor` | `20261110-213230` | PASS |
+| `FloorGuard` | `20261110-210349` | PASS |
+| `FloorHotkeys` | `20261110-205512` | PASS |
+| `FloorPipe` | `20261110-215238` | PASS |
+| `FloorsGuide` | `20261110-214954` | PASS |
+| `FloorsTab` | `20261110-213949` | PASS, with `-ModsConfigSource` |
+| `FloorWalk` | `20261110-210758` | PASS |
+| `FloorWorkFilter` | `20261110-214224` | PASS |
+| `HaulToFloor` | `20261110-214359` | PASS |
+| `IdleSearchPause` | `20261110-210054` | PASS |
+| `InfestationGuard` | `20261110-201701` | PASS |
+| `JobTakenOnArrival` | `20261110-212509` | PASS |
+| `JobTargets` | `20261110-212222` | PASS |
+| `LeaveFromLower` | `20261110-212805` | PASS |
+| `LighterFloors` | `20261110-211932` | PASS |
+| `MoodOtherFloor` | `20261110-213105` | PASS |
+| `MultiBuild` | `20261110-204032` | PASS |
+| `NeedCooldown` | `20261110-205930` | PASS |
+| `OneFloorColony` | `20261110-211213` | PASS |
+| `OwnFloorFirst` | `20261110-212102` | PASS |
+| `RaidGround` | `20261110-212639` | PASS |
+| `ReservationRefused` | `20261110-205348` | PASS |
+| `RestSearchNull` | `20261110-205103` | PASS |
+| `RimatomicsPlusPlus` | `20261110-215628` | PASS |
+| `SearchThrowState` | `20261110-215517` | PASS |
+| `SearchTiming` | `20261110-211632` | PASS |
+| `SkyfallerRoof` | `20261110-212935` | PASS |
+| `SocialRelaxQueue` | `20261110-204942` | PASS |
+| `StairPlacement` | `20261110-211507` | PASS |
+| `StairRoutes` | `20261110-210639` | PASS |
+| `StairsDamage` | `20261110-204213` | PASS |
+| `StairsEqualize` | `20261110-214829` | PASS |
+| `StairsView` | `20261110-211337` | PASS |
+| `StairTransfer` | `20261110-215400` | PASS |
+| `StaleClaims` | `20261110-210224` | PASS |
+| `StaleLookup` | `20261110-201825` | PASS |
+| `StayOnFloor` | `20261110-205637` | PASS |
+| `StorageIndex` | `20261110-210509` | PASS |
+| `Supply` | `20261110-203320` | PASS |
+| `ThiefCarry` | `20261110-213435` | PASS |
+| `TraderReturn` | `20261110-205228` | PASS |
+| `UnreachableZone` | `20261110-203811` | PASS |
+| `VaultEnter` | `20261110-202216` | PASS |
+| `VaultFull` | `20261110-203154` | PASS |
+| `VaultInfestation` | `20261110-202637` | PASS |
+| `VaultLoad` | `20261110-202345` | PASS |
+| `VaultPlacement` | `20261110-201944` | PASS |
+| `VaultPocket` | `20261110-202102` | PASS |
+| `VaultRock` | `20261110-202750` | PASS |
+| `VaultSave` | `20261110-202508` | PASS |
+| `WayUps` | `20261110-215119` | PASS |
+| `WorkOnFloorOrder` | `20261110-205806` | PASS |
+| `WorkSearchProfile` | `20261110-211802` | PASS |
+
+After the regression, `14c0a57` changed the scenario only (review nit N1). On `14c0a57`, with a clean tree, `SearchThrowState` passed in run `20261110-220035` and core passed in run `20261110-220146`, with the same built `ZLevels.dll` hash. `577c91b` publishes the DLLs built from `14c0a57`. The published `ZLevels.dll` has the same hash, `9DDB7A1E...`.
+
+### Review
+
+A Claude review subagent read `784b3b8..81c3557`. Its verdict was CHANGES, with no blocker:
+
+- R1 (should): the paused search's failure let the vanilla search run again. Fixed in `d9c872b`.
+- R2 (should): the row for the paused path's floor field could not fail, because the field is already the own floor when the vanilla call throws. Fixed in `d9c872b`. The probe now moves the field first, and run `201155` shows that row red without the reset.
+- R3 (nit): the full-search rows checked `Search`, not the prefix. Fixed in `d9c872b`, with parts 3 and 5.
+
+The same reviewer checked `81c3557..d9c872b` and returned APPROVE. R1, R2 and R3 are fixed. The log probe cannot keep an unrelated error, because it keeps only an error whose text carries the scenario's message, and only while armed. It cannot stay armed, because `CallThroughPrefix` and the scenario's `finally` both clear it. In run `201333`, the only ERROR line in `Player.log` is the duplicate-mod line from mod loading, which the gate ignores.
+
+The reviewer added one nit, N1. The two "logs one error" rows counted the errors but did not check which catch wrote them. In run `201155`, the paused row passed with the error from the outer catch. `14c0a57` requires the one error to start with its own catch's text. Run `20261110-215914`, with `JobPatches.cs` from `81c3557`, fails that row on "Some kind of error occurred in Z-Levels JobManager". Run `220035` on `14c0a57` passes it.
+
+The reviewer also noted an older behaviour, which this change does not alter. Neither catch in the prefix starts the idle pause, so a search that always throws logs one error each time the work search runs.
+
+### Limits
+
+- The other floor loops are unchanged. These are the food, rest, joy, haul, medical, combat and trade searches, 20 call sites besides the work search. The reviewer read that the food, joy and rest patches leave the field on the last floor they searched when they find nothing, but no run shows it. So right after D13 puts the field back, another search can move it again. The roadmap lists this as D13 option (b), under Next.
+- The field is reset after a search that finds nothing, not after a search that finds a job. After a job, `BuildJobListFor` stops the filing (`curPawnJobTracker` is set to null). The job path is unchanged, and no row checks it.
+- The scenario checks one colonist with all work off, and its probe throws at the start of the vanilla call. It does not throw from a real helper. In the installed game, `JobGiver_Work.TryIssueJobPackage` catches an exception from each giver's scan and logs it (decompiled lines 93 to 230). `PawnCanUseWorkGiver` and the final `JobOnThing` or `JobOnCell` for the best target run outside that catch. The Z-Levels helpers answer that final call for hauling, bills, deliveries, refuel and tending (`CrossFloorGiverJob` in `OwnFloorFirstPatch.cs`). So a failure in one of those helpers reaches the catches this section adds.
+- The run identity records the built `ZLevels.dll` hash, not the add-on's. `ZLevelsRimatomics.dll` has no source change since `784b3b8`. Its bytes changed to `B069A982...`, because it is built against the new `ZLevels.dll`. The runs stage the add-on from `bin/Release`, built from the same sources. No run records the add-on's hash, so the staged and published add-on bytes are not compared.
+- The published DLLs were not loaded into a game. The runs loaded staged copies, and the staged `ZLevels.dll` has the same hash.
+- Multiplayer: untested.
