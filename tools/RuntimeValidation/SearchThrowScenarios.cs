@@ -13,7 +13,8 @@ namespace ZLevelsValidation
     // Q3 (review rounds 5 to 7 of the multifloors-ideas branch). A work search that throws must not leave its floor state behind. The search
     // sets the floor it looks into (ZUtils.currentLookedIntoMap) and the job's floor (JobTracker.mapDest). While a colonist's tracker is the
     // one being filled, the reachability patch files every cell built from then on under that floor, and answers the colonist's reach to that
-    // cell on that floor. The scenario makes the search throw on the lower floor, then checks what the search left behind.
+    // cell on that floor. The scenario makes the search throw on the lower floor, then checks what the search left behind. Last, a normal
+    // search that finds nothing must leave the floor field on the own floor as well (decision D13).
     //
     // The harness adds its own Harmony prefix to JobGiver_Work.TryIssueJobPackage, the vanilla search the own-floor search calls once per
     // floor. While it is armed for the scenario's colonist and floor, it files one cell, as the vanilla scan does when it builds a target from
@@ -172,16 +173,22 @@ namespace ZLevelsValidation
                 harmony.Unpatch(vanillaSearch, HarmonyPatchType.Prefix, harmony.Id);
                 patched = false;
 
-                // A normal search that finds nothing, through the Z-Levels prefix, with nothing thrown. This measures whether an empty search leaves
-                // the same state. It is not part of the result of this scenario.
+                // A normal search that finds nothing, through the Z-Levels prefix, with nothing thrown (decision D13, 2026-11-10). It looks into the
+                // lower floor last, and must leave the floor field on the own floor too. The tracker stays the one being filled after this search.
+                int otherFloorRunsBefore = FloorPolicy.OtherFloorSearchRuns;
                 Job emptyJob = SearchWorkJob(colonist);
+                int otherFloorRuns = FloorPolicy.OtherFloorSearchRuns - otherFloorRunsBefore;
+                bool emptyBelow = emptyJob == null && otherFloorRuns >= 1;
+                Record("a search that finds nothing looks into the lower floor", emptyBelow ? "PASS: " + otherFloorRuns + " searches on other floors" : "FAIL: job " + (emptyJob == null ? "none" : emptyJob.def.defName) + ", " + otherFloorRuns + " searches on other floors");
                 Map lookedAfterEmpty = lookedInto();
+                bool lookedOwnAfterEmpty = lookedAfterEmpty == surface;
+                Record("the floor field is the colonist's own floor after a search that finds nothing", lookedOwnAfterEmpty ? "PASS" : "FAIL: the floor field is " + (lookedAfterEmpty?.ToString() ?? "null"));
                 bool reachAfterEmpty = colonist.CanReach(cell, PathEndMode.OnCell, Danger.Deadly);
-                Record("after a search that finds nothing", "INFO: job " + (emptyJob == null ? "none" : emptyJob.def.defName) + "; floor field " + (lookedAfterEmpty == surface ? "the own floor" : lookedAfterEmpty == lower ? "the lower floor" : lookedAfterEmpty?.ToString() ?? "null")
-                    + "; the colonist's reach to " + cell + " is " + (reachAfterEmpty ? "allowed" : "refused") + "; the cell is filed under " + DescribeFiled(jobTracker, cell)
-                    + "; the tracker being filled is " + (LocalTargetInfo_Constructor_Patch.curPawnJobTracker == jobTracker ? "this colonist's" : LocalTargetInfo_Constructor_Patch.curPawnJobTracker == null ? "none" : "another colonist's"));
+                Record("the colonist still reaches the cell on its own floor after a search that finds nothing", reachAfterEmpty ? "PASS" : "FAIL: the colonist's reach to " + cell + " is refused; it is filed under " + DescribeFiled(jobTracker, cell));
+                Record("tracker after a search that finds nothing", "INFO: the tracker being filled is " + (LocalTargetInfo_Constructor_Patch.curPawnJobTracker == jobTracker ? "this colonist's" : LocalTargetInfo_Constructor_Patch.curPawnJobTracker == null ? "none" : "another colonist's"));
 
-                bool all = baseline && failedBelow && back && mapDestCleared && lookedOwn && noneFiledBelow && reachAfter && failedOwn && ownMapDestCleared && lookedOwnAfterOwn && marksCleared;
+                bool all = baseline && failedBelow && back && mapDestCleared && lookedOwn && noneFiledBelow && reachAfter && failedOwn && ownMapDestCleared && lookedOwnAfterOwn && marksCleared
+                    && emptyBelow && lookedOwnAfterEmpty && reachAfterEmpty;
                 Record(label, all ? "PASS" : "FAIL: a row above failed");
             }
             catch (Exception exception)
