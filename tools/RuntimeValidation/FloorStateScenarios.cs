@@ -19,9 +19,9 @@ namespace ZLevelsValidation
     // each iterator to its end, stop it early, and throw inside its loop, and run the food, joy, rest and attack searches through their Harmony
     // prefixes. A harness prefix on each search's per-floor step makes every floor come up empty and records the floors it ran on.
     //
-    // The reach patch. CanReach_Patch moves the colonist to the target's floor and answers there, and its postfix moves the colonist back.
-    // Harmony skips a postfix when the call throws. A harness prefix on Reachability.CanReach throws while the colonist stands on the lower
-    // floor, and the rows check where the colonist is afterwards.
+    // The reach patch. CanReach_Patch moves the colonist to the target's floor and answers there. It moved the colonist back in a postfix,
+    // which Harmony skips when the call throws; since D15 a finalizer moves it back. A harness prefix on Reachability.CanReach throws while
+    // the colonist stands on the lower floor, and the rows check where the colonist is afterwards.
     public partial class RuntimeValidation
     {
         private const string ReachThrowMessage = "Z-Levels floor state test: the reach check failed on the other floor";
@@ -425,7 +425,7 @@ namespace ZLevelsValidation
                     ZU.Teleport(colonist, surface, colonistCell);
                 }
 
-                // A normal reach check still moves the colonist back, through the postfix.
+                // A normal reach check still moves the colonist back, now through the finalizer.
                 startRow();
                 bool reachesStack = colonist.CanReach(lowerStack, PathEndMode.Touch, Danger.Deadly);
                 bool normalBack = colonist.Map == surface && colonist.Position == colonistCell;

@@ -107,6 +107,7 @@ namespace ZLevels
         }
         // The finalizer moves the colonist back after every call the prefix moved it for, also when the reach check on the other floor throws.
         // A postfix would be skipped then and leave the colonist on that floor (decision D15). The exception still goes on to the caller.
+        // Harmony runs finalizers after every postfix, so another mod's postfix on this method sees the colonist still on the target's floor.
         private static void Finalizer(TraverseParms traverseParams, Restore __state)
         {
             if (__state != null && traverseParams.pawn != null)

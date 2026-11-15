@@ -13,7 +13,7 @@ No search leaves floor state behind, whether it ends normally, stops early or th
 
 - The iterators put the field back on their own-floor argument (`oldMap`) when the enumeration ends: at the end of the floors, when the caller stops early (`foreach` disposes the iterator), and when the caller's loop body throws. This is the same target Q3 and D13 chose for the work search. Reason: the value on entry can itself be stale. A nested search runs with the colonist moved to the outer search's current floor, so its `oldMap` is that floor, and the outer search keeps its field.
 - The iterators move nothing else back. The callers already move the colonist back (`FloorRestore`, or their own `TeleportThing`), and some callers act on the colonist's floor after the loop.
-- `CanReach_Patch` keeps the colonist's floor and cell in `__state`, not in static fields, and gets a Harmony finalizer that moves the colonist back when the call throws. The exception still reaches the caller. The postfix still moves the colonist back after a normal call.
+- `CanReach_Patch` keeps the colonist's floor and cell in `__state`, not in static fields, and gets a Harmony finalizer that moves the colonist back when the call throws. The exception still reaches the caller. The finalizer also moves the colonist back after a normal call, and replaces the postfix. Harmony runs finalizers after every postfix, so another mod's postfix on `Reachability.CanReach` sees the colonist still on the target's floor.
 - The work search's own restores (`OwnFloorFirstSearch.Search` and `SearchOwnFloorOnly`, Q3 and D13) stay as they are. They now do nothing the iterator does not, but they cover the own-floor passes, which do not run inside an iterator.
 
 ## Out of scope

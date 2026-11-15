@@ -1693,8 +1693,8 @@ namespace ZLevels
             }
 
             // The cell is checked as a cell of map. The reservation and reachability checks below build a LocalTargetInfo from the cell, and the
-            // Z-Levels patches route each check to the map recorded when that LocalTargetInfo was built. The floor iterator leaves the last floor it
-            // yielded as the recorded map, so without this the cell is checked on the wrong floor. The map is set for the check and put back after it.
+            // Z-Levels patches route each check to the map recorded when that LocalTargetInfo was built. The floor field names the floor the search
+            // looks into, which need not be the storage's floor, so without this the cell is checked on the wrong floor. The map is set for the check and put back after it.
             public static bool IsGoodStoreCell(IntVec3 c, Map map, Thing t, Pawn carrier, Faction faction)
             {
                 Map previousLookedIntoMap = ZUtils.currentLookedIntoMap;
@@ -1850,7 +1850,20 @@ namespace ZLevels
                 }
                 if (haulDestination is ISlotGroupParent)
                 {
-                    return HaulToCellStorageJob(p, t, foundCell, fitInStoreCell: false);
+                    // The job is built from the store cell while the colonist's tracker may still be the one being filled, so the constructor
+                    // patch files the cell under the floor field. The store search names the storage's floor in mapDest. The field names that
+                    // floor while the job is built, and is put back after it, as in IsGoodStoreCell. Without this the cell is filed under the
+                    // floor the search looks into, and the haul's reach and reservation checks are answered there (D15, review round 1).
+                    Map previousLookedIntoMap = ZUtils.currentLookedIntoMap;
+                    ZUtils.currentLookedIntoMap = jobTracker?.mapDest ?? p.Map;
+                    try
+                    {
+                        return HaulToCellStorageJob(p, t, foundCell, fitInStoreCell: false);
+                    }
+                    finally
+                    {
+                        ZUtils.currentLookedIntoMap = previousLookedIntoMap;
+                    }
                 }
                 Thing thing = haulDestination as Thing;
                 if (thing != null && thing.TryGetInnerInteractableThingOwner() != null)
