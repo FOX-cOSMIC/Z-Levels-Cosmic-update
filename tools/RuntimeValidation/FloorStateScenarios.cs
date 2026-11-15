@@ -339,6 +339,60 @@ namespace ZLevelsValidation
                 }
                 row("the colonist still reaches the cell after the attack search", reaches(), "the colonist's reach to " + cell + " is refused");
 
+                // Part 3b. The haul to storage (review round 1, finding 1). The work search's haul helper asks TryFindBestBetterStoreCellFor for a
+                // store cell, which runs a floor loop of its own, and then builds the haul job from the cell while the colonist's tracker is still
+                // the one being filled. The cell must be filed under the floor of the storage, so the reach and reservation checks of the haul
+                // are answered there. Only the scenario's zone may take the steel while the rows run.
+                Thing haulStack = GenSpawn.Spawn(ThingMaker.MakeThing(ThingDefOf.Steel), stackCell, surface);
+                List<StorageSettings> heldBack = new List<StorageSettings>();
+                foreach (Map map in new[] { surface, lower })
+                {
+                    foreach (SlotGroup group in map.haulDestinationManager.AllGroupsListInPriorityOrder)
+                    {
+                        StorageSettings settings = group.parent.GetStoreSettings();
+                        if (settings.filter.Allows(ThingDefOf.Steel))
+                        {
+                            settings.filter.SetAllow(ThingDefOf.Steel, false);
+                            heldBack.Add(settings);
+                        }
+                    }
+                }
+                Record("storage held back from the steel", "INFO: " + heldBack.Count + " storage groups");
+                try
+                {
+                    foreach (bool below in new[] { true, false })
+                    {
+                        Map storageMap = below ? lower : surface;
+                        Zone_Stockpile zone = MakeSupplyZone(storageMap, below ? stairs.Position : stackCell);
+                        try
+                        {
+                            startRow();
+                            JobTracker haulTracker = tracker.jobTracker[colonist];
+                            Job haul = JobPatches.TryIssueJobPackagePatch.HaulToStorageJob(colonist, haulStack, haulTracker);
+                            IntVec3 storeCell = haul?.targetB.Cell ?? IntVec3.Invalid;
+                            Map filedUnder = storeCell.IsValid && haulTracker.lookedAtLocalCellMap != null && haulTracker.lookedAtLocalCellMap.TryGetValue(storeCell, out Map filed) ? filed : null;
+                            bool inZone = storeCell.IsValid && zone.ContainsCell(storeCell);
+                            string where = below ? "on the lower floor" : "on the own floor";
+                            row("a haul to storage " + where + " files the store cell under that floor", inZone && filedUnder == storageMap,
+                                "job " + (haul == null ? "none" : haul.def.defName) + ", store cell " + storeCell + (inZone ? " in the zone" : " not in the zone") + ", filed under " + describeFloor(filedUnder));
+                            fieldAfter = ZU.Field;
+                            row("the floor field is the own floor after a haul to storage " + where, fieldAfter == surface, "the floor field is " + describeFloor(fieldAfter));
+                        }
+                        finally
+                        {
+                            zone.Delete();
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (StorageSettings settings in heldBack)
+                    {
+                        settings.filter.SetAllow(ThingDefOf.Steel, true);
+                    }
+                    haulStack.Destroy();
+                }
+
                 // Part 4. The reach check throws while the colonist stands on the lower floor.
                 harmony.Patch(reachCheck, prefix: new HarmonyMethod(typeof(ReachThrowProbe), nameof(ReachThrowProbe.Prefix)) { priority = Priority.First });
                 patchedMethods.Add(reachCheck);
