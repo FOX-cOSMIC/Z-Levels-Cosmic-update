@@ -2709,3 +2709,99 @@ The reviewer also noted an older behaviour, which this change does not alter. Ne
 - The run identity records the built `ZLevels.dll` hash, not the add-on's. `ZLevelsRimatomics.dll` has no source change since `784b3b8`. Its bytes changed to `B069A982...`, because it is built against the new `ZLevels.dll`. The runs stage the add-on from `bin/Release`, built from the same sources. No run records the add-on's hash, so the staged and published add-on bytes are not compared.
 - The published DLLs were not loaded into a game. The runs loaded staged copies, and the staged `ZLevels.dll` has the same hash.
 - Multiplayer: untested.
+
+## Retarget to 1.7.5005 rev1082 (2026-11-15)
+
+Branch `chore/rimworld-5005`. Steam updated the installed game to 1.7.5005 rev1082 on 2026-11-10 at 22:16 local time, and the build stopped on the old target. ADR 0011 records the change and the decompile comparison. Lucas's D10 answer was read as "the build installed here" (roadmap, decisions).
+
+### What changed in the game
+
+- `Assembly-CSharp.dll`: a full decompile of each build differs in `Properties/AssemblyInfo.cs` and `Verse.Steam/WorkshopItem.cs` only. Both review round 1 reviewers checked this with their own diff of the 9256 files. The mod and the harness reference neither.
+- The engine and runtime files changed too: `RimWorld.dll`, `RimWorld.exe`, the `Waylith` assemblies, `UnityStubs.dll`, the Steamworks files and the .NET runtime files. The Claude reviewer decompiled the reference assemblies: `UnityStubs` gains only private and internal members in `GUI`, and the `Waylith` changes are in rendering, diagnostics, and the code that rewrites Harmony-patched methods. The regression below stands for them.
+- The game's `Defs` folders have no file dated after 2026-11-10 (checked by file date).
+
+### Full regression on `5fd0625`
+
+Run from 21:53 to 23:40 local on 2026-11-15, one run per switch, through `run-when-free.sh`. All 64 runs report `identity dirty: False`, RimWorld 1.7.5005 rev1082, and built `ZLevels.dll` SHA-256 `38ABBCCE2F4CEA85969568CAE7227792116CA70EC44C3F4E037F1EF6A61F9254`, each on its first attempt. `FloorsTab` ran with `-ModsConfigSource`, read only, because it needs Royalty. 62 print `Runtime validation passed`.
+
+| Run | Folder | Result |
+|---|---|---|
+| core | `20261115-215552` | PASS |
+| `-AddonLoad` | `20261115-225409` | PASS |
+| `-BackgroundHaul` | `20261115-230718` | PASS |
+| `-BenchLink` | `20261115-232803` | PASS |
+| `-CallColonists` | `20261115-232933` | PASS |
+| `-ChildAnimalMech` | `20261115-231857` | PASS |
+| `-ChoreSpread` | `20261115-225524` | PASS |
+| `-Cooling` | `20261115-222950` | PASS |
+| `-CoolingNoColumns` | `20261115-223205` | FAIL, by design (negative control, 16 FAIL rows) |
+| `-CoolingTwoNets` | `20261115-223420` | PASS |
+| `-CrossFloorFight` | `20261115-232017` | PASS |
+| `-EventsOtherFloor` | `20261115-231532` | PASS |
+| `-FloorGuard` | `20261115-224844` | PASS |
+| `-FloorHotkeys` | `20261115-224050` | PASS |
+| `-FloorPipe` | `20261115-233453` | PASS |
+| `-FloorWalk` | `20261115-225249` | PASS |
+| `-FloorWorkFilter` | `20261115-232508` | PASS |
+| `-FloorsGuide` | `20261115-233218` | PASS |
+| `-FloorsTab` | `20261115-232237` | PASS |
+| `-HaulToFloor` | `20261115-232633` | PASS |
+| `-IdleSearchPause` | `20261115-224604` | PASS |
+| `-InfestationGuard` | `20261115-215748` | PASS |
+| `-JobTakenOnArrival` | `20261115-230838` | PASS |
+| `-JobTargets` | `20261115-230603` | PASS |
+| `-LeaveFromLower` | `20261115-231123` | PASS |
+| `-LighterFloors` | `20261115-230323` | PASS |
+| `-MoodOtherFloor` | `20261115-231412` | PASS |
+| `-MultiBuild` | `20261115-222626` | PASS |
+| `-NeedCooldown` | `20261115-224444` | PASS |
+| `-OneFloorColony` | `20261115-225644` | PASS |
+| `-OwnFloorFirst` | `20261115-230443` | PASS |
+| `-RaidGround` | `20261115-231003` | PASS |
+| `-ReservationRefused` | `20261115-223930` | PASS |
+| `-RestSearchNull` | `20261115-223700` | PASS |
+| `-SearchThrowState` | `20261115-233737` | PASS |
+| `-SearchTiming` | `20261115-230038` | PASS |
+| `-SkyfallerRoof` | `20261115-231247` | PASS |
+| `-SocialRelaxQueue` | `20261115-223545` | PASS |
+| `-StairPlacement` | `20261115-225919` | PASS |
+| `-StairRoutes` | `20261115-225129` | PASS |
+| `-StairTransfer` | `20261115-233613` | PASS |
+| `-StairsDamage` | `20261115-222831` | PASS |
+| `-StairsEqualize` | `20261115-233058` | PASS |
+| `-StairsView` | `20261115-225759` | PASS |
+| `-StaleClaims` | `20261115-224724` | PASS |
+| `-StaleLookup` | `20261115-215929` | PASS |
+| `-StayOnFloor` | `20261115-224204` | PASS |
+| `-StorageIndex` | `20261115-225009` | PASS |
+| `-Supply` | `20261115-221950` | PASS |
+| `-ThiefCarry` | `20261115-231732` | PASS |
+| `-TraderReturn` | `20261115-223815` | PASS |
+| `-UnreachableZone` | `20261115-222410` | PASS |
+| `-VaultEnter` | `20261115-220325` | PASS |
+| `-VaultFull` | `20261115-221836` | PASS |
+| `-VaultInfestation` | `20261115-220800` | PASS |
+| `-VaultLoad` | `20261115-220500` | PASS |
+| `-VaultPlacement` | `20261115-220049` | PASS |
+| `-VaultPocket` | `20261115-220210` | PASS |
+| `-VaultRock` | `20261115-220920` | FAIL: timed out at stage 2, the wall still rock while the colonist mined. Two reruns pass (see below) |
+| `-VaultSave` | `20261115-220625` | PASS |
+| `-WayUps` | `20261115-233333` | PASS |
+| `-WorkOnFloorOrder` | `20261115-224329` | PASS |
+| `-WorkSearchProfile` | `20261115-230203` | PASS |
+| `-RimatomicsPlusPlus` | `20261115-233857` | PASS |
+
+`-VaultRock` failed once and passed twice on the same commit with a clean tree, in runs `20261115-234226` and `20261115-234517`. It passed in every regression before (`20261106-232902`, `20261108-183747`, `20261110-202750`). I record it as a flaky timeout, cause not found. It is the stage where the colonist mines the wall beside the vault room.
+
+### Publish
+
+`ad5c522` publishes the DLLs with `tools/Publish-Mod.ps1` from `95aa610`, which is `5fd0625` with `zlevels-1.7` (PR 4) merged in. PR 4 changed only `README.md` and `ZLevels/About/PublishedFileId.txt`. `ZLevels.dll` has the hash every run above built. `ZLevelsRimatomics.dll` is `F932CDF0...`; the runs do not record the add-on's hash.
+
+### Review
+
+Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. The shared finding was that the roadmap pointed at this section before it existed (Major for Claude, Minor for GPT). The Claude reviewer also found the header of `docs/game-api-findings.md` naming the old target, the DLLs not yet published from the new build, and that the D10 reading should be put to Lucas as a decision made. The header and ADR 0011 are fixed, the DLLs are published, and the reading is in the report to Lucas.
+
+### Limits
+
+- The published DLLs were not loaded into a game; the runs loaded staged copies with the same `ZLevels.dll` hash.
+- Multiplayer is untested.
