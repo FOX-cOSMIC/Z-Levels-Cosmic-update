@@ -59,6 +59,7 @@ Waiting:
   - Walking past the lower stairs cell and digging out. Port plan box 69.
   - A repeat of the refuel pause from run `032903`. It was seen once and has not come back.
   - The stage 20 timeout in `-OtherColonistHauls` (run `20261031-215012`). No colonist hauled the logs in the wait. The cause is not known.
+  - A `-VaultRock` timeout at stage 2 (run `20261115-220920`, on 1.7.5005 rev1082). The colonist mined, but the wall was still rock at the timeout. Two reruns on the same commit passed. The cause is not known.
   - Debug runs fail on an expected reservation error (run `20261031-214306`). See `docs/validation-report.md`, Open issues.
 
 ## Decisions for Lucas
