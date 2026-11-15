@@ -71,7 +71,43 @@ namespace ZLevels
         }
 
         public static Map currentLookedIntoMap;
+        // Both floor iterators set currentLookedIntoMap before each floor they yield. When the enumeration ends, they put it back on the own
+        // floor (oldMap): at the end of the floors, when the caller stops early (foreach disposes the iterator), and when the caller's loop
+        // throws. A field left on another floor files the cells built afterwards under that floor, and the colonist's reach to them is answered
+        // there (decision D15, spec docs/specs/2026-11-15-floor-state-left-behind.md). A search nested in a loop body runs with the colonist moved
+        // to the outer search's floor, so its oldMap is that floor, and the outer search keeps its field. The iterators move nothing else back:
+        // the callers move the colonist back themselves.
         public static IEnumerable<Map> GetAllMapsInClosestOrder(Thing thing, Map oldMap, IntVec3 oldPosition, bool skipOldMap = false, bool dontCheckForStairs = false)
+        {
+            try
+            {
+                foreach (Map map in GetAllMapsInClosestOrderInt(thing, oldMap, oldPosition, skipOldMap, dontCheckForStairs))
+                {
+                    yield return map;
+                }
+            }
+            finally
+            {
+                currentLookedIntoMap = oldMap;
+            }
+        }
+
+        public static IEnumerable<Map> GetAllMapsInClosestOrderForTwoThings(Thing thing, Map oldMap, IntVec3 oldPosition, Thing thing2, Map oldMap2, IntVec3 oldPosition2)
+        {
+            try
+            {
+                foreach (Map map in GetAllMapsInClosestOrderForTwoThingsInt(thing, oldMap, oldPosition, thing2, oldMap2, oldPosition2))
+                {
+                    yield return map;
+                }
+            }
+            finally
+            {
+                currentLookedIntoMap = oldMap;
+            }
+        }
+
+        private static IEnumerable<Map> GetAllMapsInClosestOrderInt(Thing thing, Map oldMap, IntVec3 oldPosition, bool skipOldMap, bool dontCheckForStairs)
         {
             bool cantGoDown = false;
             bool cantGoUP = false;
@@ -230,7 +266,7 @@ namespace ZLevels
             }
         }
 
-        public static IEnumerable<Map> GetAllMapsInClosestOrderForTwoThings(Thing thing, Map oldMap, IntVec3 oldPosition, Thing thing2, Map oldMap2, IntVec3 oldPosition2)
+        private static IEnumerable<Map> GetAllMapsInClosestOrderForTwoThingsInt(Thing thing, Map oldMap, IntVec3 oldPosition, Thing thing2, Map oldMap2, IntVec3 oldPosition2)
         {
             bool cantGoDown = false;
             bool cantGoUP = false;
