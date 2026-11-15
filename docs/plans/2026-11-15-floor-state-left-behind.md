@@ -1,0 +1,18 @@
+# Plan: floor state left behind by the floor loops and the reach patch
+
+Spec: `docs/specs/2026-11-15-floor-state-left-behind.md`. Worktree: `%TEMP%\claude-scratch\state-left-behind\wt`, branch `fix/floor-state-left-behind`. Executed inline by the lead session, because each step depends on the one before.
+
+1. **Record the answers of 2026-11-15** (D15, D16, D17, the D8 confirmation, D12) in `docs/roadmap.md`. Commit with the spec and this plan.
+2. **Write the scenario** `tools/RuntimeValidation/FloorStateScenarios.cs`, with `RunFloorStateAfterSearchCheck()`. Register the switch `-FloorStateAfterSearch` in `tools/Invoke-RuntimeValidation.ps1` (parameter, `$scenarioSwitches`, argument `-zlevelsfloorstateaftersearch`, required pass line `floor state after search`) and the dispatch in `RuntimeValidation.cs`. Setup as in `-SearchThrowState`: lower stairs, one colonist with all work off, a surface cell the colonist reaches that is solid on the lower floor.
+   - Iterator rows, for each iterator (spec checks 3 and 7). Before each row, reset the tracker for the colonist, so the cell rows can read the filing. After each row, move the colonist back with `TeleportThing`, as the callers do.
+   - Family rows (spec checks 4 and 5). Harness prefixes on `JobGiver_GetFoodPatch.TryGiveJob`, `JobGiver_GetJoyPatch.TryGiveJob` and `JobGiver_GetRestPatch.TryGiveJob` (Priority.First). While armed for the colonist, they record `pawn.Map` and return null. Make the colonist hungry, bored and tired enough for each giver. Call each vanilla giver's `TryIssueJobPackage` on a new instance. Then check the floors recorded, the field, and the reach. The attack row sets `multiMapSearch` and restores it in a `finally`.
+   - Reach-patch rows (spec check 6). A harness prefix on `Reachability.CanReach(IntVec3, LocalTargetInfo, PathEndMode, TraverseParms)` at Priority.First throws while armed, when the instance's map is the lower floor and the pawn is the colonist. A thing on the lower floor for the thing branch, and a cell filed under the lower floor in the colonist's tracker for the cell branch.
+   - Unpatch everything under the harness id in a `finally`.
+3. **Red run** on the scenario commit with the product code of `2b02da7`. Record the run folder and the failed rows (spec check 1). Commit the scenario.
+4. **Fix** in `ZUtils.cs` (try/finally in both iterators) and `ReachAndReservationPatches.cs` (`__state` and a finalizer on `CanReach_Patch`). Update the comments in `OwnFloorFirstPatch.cs` that describe who puts the field back.
+5. **Green runs**: `-FloorStateAfterSearch`, `-SearchThrowState` and core, on the fix commit with a clean tree (spec checks 2 and 8).
+6. **Full regression** on the fix commit with `q3-regression.sh`'s procedure: every switch the runner lists, plus core and RimatomicsPlusPlus, one at a time, through `run-when-free-args.sh` (spec check 9).
+7. **Docs**: a section in `docs/validation-report.md` (what was wrong, changes, the scenario, the red and green runs, the regression table, the review, limits). Update the roadmap's Next item for D13 (b) and the `CanReach_Patch` line under "Reachability bugs". Run `tools/Check-Docs.ps1` (spec check 10).
+8. **Publish** the DLLs with `tools/Publish-Mod.ps1` from the fix commit, in its own commit.
+9. **Review round 1**: a Claude subagent and a GPT reviewer (`gpt-6.1-sol`, high) on the whole branch against `zlevels-1.7`. Fix every finding, and run further rounds as the review rules say.
+10. **PR** into `zlevels-1.7`, then merge pinned to the reviewed head. Check after the merge that the base had not moved.
