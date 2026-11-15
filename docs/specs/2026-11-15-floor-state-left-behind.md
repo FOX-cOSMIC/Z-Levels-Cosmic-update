@@ -36,3 +36,4 @@ The new scenario switch is `-FloorStateAfterSearch`. Its required pass line is `
 8. `-SearchThrowState` still passes.
 9. The full regression (core, every scenario switch, and RimatomicsPlusPlus) runs on the fix commit with a clean tree. Every run passes except `-CoolingNoColumns`, which fails by design. Every run builds the same `ZLevels.dll` hash.
 10. `tools/Check-Docs.ps1` passes.
+11. A haul to storage on the lower floor, and one to storage on the own floor, file the store cell under the storage's floor, and leave the floor field on the own floor (review round 1, finding 1). The lower-floor row fails on the scenario commit `0ae7dde` with the product code of `fb02e65`, and passes after the fix.
