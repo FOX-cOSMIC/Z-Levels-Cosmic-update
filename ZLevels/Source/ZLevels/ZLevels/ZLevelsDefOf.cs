@@ -17,6 +17,18 @@ namespace ZLevels
 
 		public static ThingDef ZL_NaturalHole;
 
+		public static ThingDef ZL_SmallLadderUp;
+
+		public static ThingDef ZL_SmallLadderDown;
+
+		public static ThingDef ZL_LargeLadderUp;
+
+		public static ThingDef ZL_LargeLadderDown;
+
+		public static ThingDef ZL_LargeStairsUp;
+
+		public static ThingDef ZL_LargeStairsDown;
+
 		public static WorldObjectDef ZL_Underground;
 
 		public static WorldObjectDef ZL_Upper;
@@ -33,9 +45,9 @@ namespace ZLevels
 
 		public static GameConditionDef ZL_UndergroundCondition;
 
-		public static KeyBindingDef ZL_switchToUpperMap;
+		public static KeyBindingDef ZL_switchFloorUpper;
 
-		public static KeyBindingDef ZL_switchToLowerMap;
+		public static KeyBindingDef ZL_switchFloorLower;
 
 		public static MapGeneratorDef ZL_EmptyMap;
 

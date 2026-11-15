@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Floor Mods Work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="strata" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="wrap">
+<nav class="top" aria-label="Report pages">
+  <a href="index.html">The short answer</a>
+  <a href="how-they-work.html" aria-current="page">How each mod works</a>
+  <a href="side-by-side.html">Side by side</a>
+  <a href="rebuild.html">Does it need a rebuild?</a>
+  <a href="ideas.html">Ideas from MultiFloors</a>
+  <a href="evidence.html">Evidence and word list</a>
+</nav>
+
+<h1>How each mod works</h1>
+<p class="lede">RimWorld was built for one flat map. Every floor mod has to trick the game into handling a building with more than one storey, and each trick has a different price.</p>
+
+<h2>Four ideas you need first</h2>
+<div class="terms two">
+  <div><h3>The map is a game board</h3><p>The game keeps one board per location, with its own lists of who is standing where, what is stored, and what needs doing. Each board costs memory and work to keep updated.</p></div>
+  <div><h3>A tick is a heartbeat</h3><p>At normal speed the game updates everything 60 times a second. If one update takes too long, the game runs slower. That is what players call lag.</p></div>
+  <div><h3>A patch is a sticky note</h3><p>Mods cannot edit the game, so they stick notes on its rulebook: "before you do this, also do that." A note on a page read once a minute costs nothing. A note on a page read thousands of times a second can slow the whole game.</p></div>
+  <div><h3>Hot code is that busy page</h3><p>Coders call the most-read pages "hot." Examples are "can this colonist reach that item?" and "is someone already using it?" Where a mod puts its notes matters more than how many notes it has.</p></div>
+</div>
+
+<h2>How each mod builds a floor</h2>
+<p>This is the biggest design choice, and it is close to impossible to change later. Your port and MultiFloors chose separate boards. As Above So Below II and True Z-Levels chose one board.</p>
+
+<div class="panels">
+  <figure>
+    <svg viewBox="0 0 320 210" role="img" aria-label="Z-Levels has three separate full boards, each running every system, with colonists carried between them.">
+      <rect class="s-board" x="60" y="14" width="200" height="48"/><text class="s-ink" x="72" y="35" font-size="13" font-weight="600">Upper floor</text><text class="s-muted" x="72" y="52" font-size="12">full update every heartbeat</text>
+      <rect class="s-board" x="60" y="80" width="200" height="48"/><text class="s-ink" x="72" y="101" font-size="13" font-weight="600">Surface</text><text class="s-muted" x="72" y="118" font-size="12">full update every heartbeat</text>
+      <rect class="s-board" x="60" y="146" width="200" height="48"/><text class="s-ink" x="72" y="167" font-size="13" font-weight="600">Lower floor</text><text class="s-muted" x="72" y="184" font-size="12">full update every heartbeat</text>
+      <path class="s-accent-line" stroke-width="2" d="M36 60V82M36 126V148M30 68l6-8 6 8M30 74l6 8 6-8M30 134l6-8 6 8M30 140l6 8 6-8"/>
+      <text class="s-mono" x="284" y="108" font-size="11" text-anchor="middle" transform="rotate(90 284 108)">same size as surface</text>
+    </svg>
+    <figcaption><b>Z-Levels: separate full boards.</b> Each floor is a whole extra map the size of the surface. The game updates all of them every heartbeat, and I found no patch that skips any part.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 320 210" role="img" aria-label="MultiFloors has separate boards too, but the upper and lower boards run a reduced update.">
+      <rect class="s-board-faint" x="60" y="14" width="200" height="48"/><text class="s-ink" x="72" y="35" font-size="13" font-weight="600">Upper floor</text><text class="s-muted" x="72" y="52" font-size="12">lighter update</text>
+      <rect class="s-board" x="60" y="80" width="200" height="48"/><text class="s-ink" x="72" y="101" font-size="13" font-weight="600">Surface</text><text class="s-muted" x="72" y="118" font-size="12">full update every heartbeat</text>
+      <rect class="s-board-faint" x="60" y="146" width="200" height="48"/><text class="s-ink" x="72" y="167" font-size="13" font-weight="600">Basement</text><text class="s-muted" x="72" y="184" font-size="12">lighter update</text>
+      <path class="s-accent-line" stroke-width="2" d="M36 60V82M36 126V148M30 68l6-8 6 8M30 74l6 8 6-8M30 134l6-8 6 8M30 140l6 8 6-8"/>
+    </svg>
+    <figcaption><b>MultiFloors: separate boards, some on a diet.</b> Extra floors skip wind, wild animal and plant spawning, weather choice, and passing ships. This is one clear saving over Z-Levels. It has not been timed.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 320 210" role="img" aria-label="As Above So Below II uses one tall board cut into bands separated by strips of open air, with stairs as linked doors.">
+      <rect class="s-board" x="60" y="10" width="200" height="190"/>
+      <text class="s-ink" x="72" y="32" font-size="13" font-weight="600">Sky band</text>
+      <rect class="s-gap" x="61" y="64" width="198" height="10"/>
+      <text class="s-ink" x="72" y="96" font-size="13" font-weight="600">Surface band</text>
+      <rect class="s-gap" x="61" y="128" width="198" height="10"/>
+      <text class="s-ink" x="72" y="160" font-size="13" font-weight="600">Basement band</text>
+      <path class="s-accent-line" stroke-width="2" d="M232 54C252 60 252 84 232 92M232 118C252 124 252 148 232 156"/>
+      <text class="s-mono" x="52" y="72" font-size="11" text-anchor="end">gap</text>
+      <text class="s-mono" x="52" y="136" font-size="11" text-anchor="end">gap</text>
+      <text class="s-mono" x="268" y="76" font-size="11">door</text>
+    </svg>
+    <figcaption><b>As Above So Below II: one tall board.</b> Up to seven floors share one map, kept apart by strips of unwalkable air. Stairs are disguised as doors, so the game thinks it is one big connected space. A seven-floor colony has 112,896 cells. A normal flat 250 by 250 map has 62,500.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 320 210" role="img" aria-label="True Z-Levels uses one board and swaps sets of floor data into it when needed.">
+      <rect class="s-board" x="60" y="100" width="200" height="90"/>
+      <text class="s-ink" x="72" y="150" font-size="13" font-weight="600">The one map</text>
+      <rect class="s-board-faint" x="60" y="14" width="56" height="48"/><text class="s-muted" x="88" y="42" font-size="12" text-anchor="middle">floor 0</text>
+      <rect class="s-board-faint" x="132" y="14" width="56" height="48"/><text class="s-muted" x="160" y="42" font-size="12" text-anchor="middle">floor 1</text>
+      <rect class="s-board-faint" x="204" y="14" width="56" height="48"/><text class="s-muted" x="232" y="42" font-size="12" text-anchor="middle">floor 2</text>
+      <path class="s-accent-line" stroke-width="2" d="M160 62V98M154 90l6 8 6-8"/>
+      <text class="s-mono" x="172" y="84" font-size="11">swapped in</text>
+    </svg>
+    <figcaption><b>True Z-Levels: one board, swappable sheets.</b> A colonist on the stairs never leaves the map, so they keep their job and whatever they carry. It is at version 0.0.1 alpha, refuses floors below ground, and its fighting is unfinished.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 320 210" role="img" aria-label="Deep And Deeper adds a small cave map through a portal, and the cave collapses on a timer.">
+      <rect class="s-board" x="30" y="30" width="150" height="100"/><text class="s-ink" x="42" y="52" font-size="13" font-weight="600">Your colony</text>
+      <rect class="s-board-faint" x="210" y="120" width="90" height="70"/><text class="s-ink" x="255" y="150" font-size="13" font-weight="600" text-anchor="middle">Cave</text><text class="s-muted" x="255" y="170" font-size="12" text-anchor="middle">collapses</text>
+      <path class="s-accent-line" stroke-width="2" d="M180 110C200 112 215 112 236 118M228 110l8 8-11 3"/>
+      <text class="s-mono" x="190" y="96" font-size="11">entrance</text>
+    </svg>
+    <figcaption><b>Deep And Deeper: a side trip.</b> It adds a small separate map, 150 cells across by default. It has 3,979 lines of code and 5 patches, so it stays small by doing much less.</figcaption>
+  </figure>
+</div>
+
+<h2 id="job-search">What happens when a colonist needs a job</h2>
+<p>Picture each floor having a notice board with a list of job types: firefighting, doctor, building, hauling, and so on. The base game defines 97 of these. When a colonist finishes a task, they read the list top to bottom until they find work. This search happens constantly, so it is the best place to look for lag.</p>
+
+<figure class="fig-scroll">
+  <svg viewBox="0 0 680 270" role="img" aria-label="Example with six job types and three floors, where the job is on the fourth type on the colonist's own floor. Z-Levels checks ten boxes. MultiFloors checks four.">
+    <text class="s-ink" x="20" y="24" font-size="15" font-weight="600">Z-Levels: every floor, for every job type</text>
+    <text class="s-ink" x="370" y="24" font-size="15" font-weight="600">MultiFloors: own floor first</text>
+    <g font-size="12">
+      <text class="s-muted" x="84" y="50">own</text><text class="s-muted" x="136" y="50">up</text><text class="s-muted" x="176" y="50">down</text>
+      <text class="s-muted" x="434" y="50">own</text><text class="s-muted" x="486" y="50">up</text><text class="s-muted" x="526" y="50">down</text>
+      <text class="s-muted" x="20" y="74">Type 1</text><text class="s-muted" x="20" y="104">Type 2</text><text class="s-muted" x="20" y="134">Type 3</text><text class="s-muted" x="20" y="164">Type 4</text><text class="s-muted" x="20" y="194">Type 5</text><text class="s-muted" x="20" y="224">Type 6</text>
+      <text class="s-muted" x="370" y="74">Type 1</text><text class="s-muted" x="370" y="104">Type 2</text><text class="s-muted" x="370" y="134">Type 3</text><text class="s-muted" x="370" y="164">Type 4</text><text class="s-muted" x="370" y="194">Type 5</text><text class="s-muted" x="370" y="224">Type 6</text>
+    </g>
+    <g class="s-accent">
+      <rect x="84" y="60" width="26" height="20"/><rect x="130" y="60" width="26" height="20"/><rect x="176" y="60" width="26" height="20"/>
+      <rect x="84" y="90" width="26" height="20"/><rect x="130" y="90" width="26" height="20"/><rect x="176" y="90" width="26" height="20"/>
+      <rect x="84" y="120" width="26" height="20"/><rect x="130" y="120" width="26" height="20"/><rect x="176" y="120" width="26" height="20"/>
+      <rect x="84" y="150" width="26" height="20"/>
+    </g>
+    <g class="s-empty">
+      <rect x="130" y="150" width="26" height="20"/><rect x="176" y="150" width="26" height="20"/>
+      <rect x="84" y="180" width="26" height="20"/><rect x="130" y="180" width="26" height="20"/><rect x="176" y="180" width="26" height="20"/>
+      <rect x="84" y="210" width="26" height="20"/><rect x="130" y="210" width="26" height="20"/><rect x="176" y="210" width="26" height="20"/>
+    </g>
+    <g class="s-other">
+      <rect x="434" y="60" width="26" height="20"/><rect x="434" y="90" width="26" height="20"/><rect x="434" y="120" width="26" height="20"/><rect x="434" y="150" width="26" height="20"/>
+    </g>
+    <g class="s-empty">
+      <rect x="480" y="60" width="26" height="20"/><rect x="526" y="60" width="26" height="20"/>
+      <rect x="480" y="90" width="26" height="20"/><rect x="526" y="90" width="26" height="20"/>
+      <rect x="480" y="120" width="26" height="20"/><rect x="526" y="120" width="26" height="20"/>
+      <rect x="480" y="150" width="26" height="20"/><rect x="526" y="150" width="26" height="20"/>
+      <rect x="434" y="180" width="26" height="20"/><rect x="480" y="180" width="26" height="20"/><rect x="526" y="180" width="26" height="20"/>
+      <rect x="434" y="210" width="26" height="20"/><rect x="480" y="210" width="26" height="20"/><rect x="526" y="210" width="26" height="20"/>
+    </g>
+    <text class="s-mono" x="218" y="165" font-size="13">job found</text>
+    <text class="s-mono" x="218" y="118" font-size="13">10 checks</text>
+    <text class="s-mono" x="568" y="165" font-size="13">job found</text>
+    <text class="s-mono" x="568" y="118" font-size="13">4 checks</text>
+    <text class="s-muted" x="20" y="258" font-size="13">Filled boxes are boards the colonist had to read. Same colony, same job, three floors.</text>
+  </svg>
+  <figcaption><b>Example, simplified.</b> A colonist with work on their own floor pays for the other floors in Z-Levels and pays nothing for them in MultiFloors. MultiFloors really splits the list into high and low priority first, and I left that out to keep the picture readable.</figcaption>
+</figure>
+
+<h3>The cases that matter</h3>
+<div class="table-box"><table>
+  <thead><tr><th>Situation</th><th>Z-Levels</th><th>MultiFloors</th><th>As Above So Below II</th></tr></thead>
+  <tbody>
+    <tr><th>Colonist has work on their own floor</th><td>Repeats earlier job types on every floor</td><td>Own floor only</td><td>One search, because there is one map</td></tr>
+    <tr><th>Colonist has nothing to do</th><td>Reads every job type on every floor</td><td><b>The same.</b> Every floor has to come up empty, and I found no limit on how often</td><td>One search. It pays elsewhere, on a bigger map and a route planner</td></tr>
+    <tr><th>Hauling an item</th><td>Items from all floors are offered at every floor, then each storage lookup walks the floors again. Cost grows with floors times floors</td><td>A separate marker handles one floor every 2,000 heartbeats, capped at 200 items</td><td>Normal game logic, with a replaced "closest thing" search</td></tr>
+    <tr><th>Food and rest</th><td>Loops over floors each time</td><td>Redirects to one floor, tried at most once every 2,000 heartbeats for food and fun</td><td>Mostly normal game logic</td></tr>
+  </tbody>
+</table></div>
+<p>Z-Levels and MultiFloors both use the same trick while searching. They briefly pretend the colonist is standing on the other floor, ask the game's normal questions, and put the colonist back. So that trick is not what separates them. It is two quick changes of a value, and it is cheap. What separates them is how many times they run it, and where.</p>
+
+<h2>Notes on the busiest pages</h2>
+<p>This is where the mods differ most. The table shows which of the game's busiest questions each mod adds work to.</p>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>The game's question</th><th class="mine">Z-Levels</th><th>MultiFloors</th><th>As Above So Below II</th><th>True Z-Levels</th></tr></thead>
+  <tbody>
+    <tr><th>Can this colonist reach that?</th><td class="mine"><span class="chip part">Patched</span><span class="cell-note">Extra work when the target is on another floor</span></td><td><span class="chip yes">Untouched</span></td><td><span class="chip yes">Untouched</span><span class="cell-note">Edits the region data the game reads</span></td><td><span class="chip part">Patched</span><span class="cell-note">5 patches</span></td></tr>
+    <tr><th>Is someone already using that?</th><td class="mine"><span class="chip no">Patched, heavy</span><span class="cell-note">Each success loops through all tracked colonists</span></td><td><span class="chip yes">Untouched</span></td><td><span class="chip yes">No patch found</span></td><td><span class="chip part">Patched</span><span class="cell-note">4 patches</span></td></tr>
+    <tr><th>Who should I attack?</th><td class="mine"><span class="chip no">Patched, heavy</span><span class="cell-note">Extra full searches on other floors, tried first, when the multi-level flag is on</span></td><td><span class="chip yes">Untouched</span></td><td><span class="chip part">Patched</span><span class="cell-note">Only when the normal search finds nothing</span></td><td><span class="chip part">Patched</span></td></tr>
+    <tr><th>How do I walk there?</th><td class="mine"><span class="chip yes">Untouched</span><span class="cell-note">Normal walk on each floor</span></td><td><span class="chip yes">Untouched</span></td><td><span class="chip no">Patched, central</span><span class="cell-note">The design depends on these patches</span></td><td><span class="chip no">Patched, central</span><span class="cell-note">7 patches</span></td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">As Above So Below II's page says "reachability, pathfinding and region code are never patched." That holds for reachability and regions. It does not hold for pathfinding, which has patches on four of its methods.</p>
+
+<h2>Crossing the stairs</h2>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Mod</th><th>What happens to the colonist</th><th>The catch</th></tr></thead>
+  <tbody>
+    <tr class="you"><th>Z-Levels</th><td>Walks to the stairs, waits 1 second (60 heartbeats), then the code moves them by hand between about 10 of the game's lists</td><td>Any list the code forgets, including lists other mods add, goes out of step</td></tr>
+    <tr><th>MultiFloors</th><td>Walks to the stairs, waits a third of a second, leaves one board, appears on the other</td><td>The job ends and restarts on each floor, so the job gets stored and handed over</td></tr>
+    <tr><th>As Above So Below II</th><td>Stops for 90 to 130 heartbeats while an animation plays, then jumps to a new position on the same map</td><td>The route planner, 317 lines, and a stuck-colonist watchdog, 554 lines, have to work every time</td></tr>
+    <tr><th>True Z-Levels</th><td>Walks up the stairs and changes floor in place, keeping the job</td><td>Hundreds of patches keep the illusion going</td></tr>
+    <tr><th>Deep And Deeper</th><td>Goes through a portal</td><td>Nothing carries over for most work</td></tr>
+  </tbody>
+</table></div>
+
+<h2>How each mod changes the rulebook</h2>
+<div class="terms">
+  <div><h3>Sticky note (normal patch)</h3><p>Adds a step before or after a rule. It usually survives a game update. All five mods use these.</p></div>
+  <div><h3>Editing the page (transpiler)</h3><p>Rewrites words inside a rule. It is powerful and light at runtime, and it breaks when the game reprints that page. MultiFloors has 46 of these, As Above 19, Z-Levels 1.</p></div>
+  <div><h3>Photocopying the chapter</h3><p>Copies a whole rule into the mod and edits the copy. Z-Levels does this for about 1,000 lines, including the job search, storage, bills, and food. When the game changes, the copy goes stale without any warning.</p></div>
+</div>
+<p>The staleness has already happened. The original 1.7 job search has newer checks that the Z-Levels copy lacks, because it was copied from a much older game version. Details are on the <a href="rebuild.html">rebuild page</a>.</p>
+
+<h2>When something goes wrong</h2>
+<p>An error trap with nothing inside is like a smoke alarm with no battery. The fire still happens, and nobody hears about it.</p>
+<div class="table-box"><table class="wide-table">
+  <thead><tr><th>Mod</th><th class="num">Empty error traps</th><th>What a failure looks like</th></tr></thead>
+  <tbody>
+    <tr class="you"><th>Z-Levels</th><td class="num">23</td><td>Five pairs of patches move a colonist to another floor and rely on a later step to move them back. If the first step fails, the colonist can stay on the wrong floor. Your test report records this as open.</td></tr>
+    <tr><th>MultiFloors</th><td class="num">0</td><td>Errors get logged. One "busy searching" switch has no safety reset, so if it sticks, cross-floor work stops for every colonist until you reload.</td></tr>
+    <tr><th>As Above So Below II</th><td class="num">60</td><td>293 of its 427 error traps log or disable something. It has 11 cut-off switches, so one combat error turns off cross-floor targeting for the session. The game keeps running with less working.</td></tr>
+    <tr><th>True Z-Levels</th><td class="num">0</td><td>103 clean-up steps run even after a failure. It is the only mod here that uses them heavily.</td></tr>
+    <tr><th>Deep And Deeper</th><td class="num">0</td><td>It has no error traps at all, and very little that can go out of step.</td></tr>
+  </tbody>
+</table></div>
+
+<footer>Next: <a href="side-by-side.html">the numbers side by side</a>.</footer>
+</div>
+</body>
+</html>

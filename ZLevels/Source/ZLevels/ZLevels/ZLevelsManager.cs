@@ -30,6 +30,14 @@ namespace ZLevels
         public override void GameComponentTick()
         {
             base.GameComponentTick();
+            // The background scan of every floor, once per ItemFloorMarks.ScanIntervalTicks (idea "items checked in the background").
+            if (Find.TickManager.TicksGame % ItemFloorMarks.ScanIntervalTicks == 0)
+            {
+                foreach (Map map in Find.Maps.ToList())
+                {
+                    ItemFloorMarks.RefreshFloor(map);
+                }
+            }
             if (recheckStairs)
             {
                 foreach (var tile in this.ZLevelsTracker.Keys)
@@ -48,6 +56,8 @@ namespace ZLevels
                     //}
                     this.ZLevelsFixer(tile.Key);
                 }
+                // Heat and gas move between the rooms that stairs join, once every 60 ticks (idea "heat and gas through stairs").
+                StairEqualizer.StepAll(this);
             }
         }
 
@@ -137,48 +147,49 @@ namespace ZLevels
             }
             Find.Selector.selected = selected;
         }
+        // The keys that switch floors. Their default keys are set in Common/Defs/KeybindingDefs/KeyBindings.xml.
+        public static KeyBindingDef UpperSwitchKey => ZLevelsDefOf.ZL_switchFloorUpper;
+        public static KeyBindingDef LowerSwitchKey => ZLevelsDefOf.ZL_switchFloorLower;
+
         public void CheckHotkeys()
         {
-            bool keyDownEvent = ZLevelsDefOf.ZL_switchToUpperMap.KeyDownEvent;
-            if (keyDownEvent)
+            if (UpperSwitchKey.KeyDownEvent)
             {
-                Map mapToSwitch = this.GetUpperLevel(Find.CurrentMap.Tile, Find.CurrentMap);
-                if (mapToSwitch != null)
-                {
-                    //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
-
-                    var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
-                    Current.Game.CurrentMap = mapToSwitch;
-                    rememberedCamera.rootPos.z -= 0.5f;
-                    Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
-
-                    //foreach (var select in selectedObjects)
-                    //{
-                    //    this.Select(select);
-                    //}
-                }
+                this.SwitchFloor(true);
                 Event.current.Use();
             }
-            bool keyDownEvent2 = ZLevelsDefOf.ZL_switchToLowerMap.KeyDownEvent;
-            if (keyDownEvent2)
+            if (LowerSwitchKey.KeyDownEvent)
             {
-                Map mapToSwitch = this.GetLowerLevel(Find.CurrentMap.Tile, Find.CurrentMap);
-                if (mapToSwitch != null)
-                {
-                    //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
-
-                    var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
-                    Current.Game.CurrentMap = mapToSwitch;
-                    rememberedCamera.rootPos.z += 0.5f;
-                    Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
-
-                    //foreach (var select in selectedObjects)
-                    //{
-                    //    this.Select(select);
-                    //}
-                }
+                this.SwitchFloor(false);
                 Event.current.Use();
             }
+        }
+
+        // Moves the view to the level above (up) or below the current one. The camera keeps its x and z. RimWorld's map switch
+        // (MapInterface.Notify_SwitchedMap) deselects the designator, so the designator is selected again after the switch.
+        public void SwitchFloor(bool up)
+        {
+            Map mapToSwitch = up ? this.GetUpperLevel(Find.CurrentMap.Tile, Find.CurrentMap) : this.GetLowerLevel(Find.CurrentMap.Tile, Find.CurrentMap);
+            if (mapToSwitch == null)
+            {
+                return;
+            }
+            //var selectedObjects = Find.Selector.SelectedObjects.ListFullCopy();
+
+            var designator = Find.DesignatorManager.SelectedDesignator;
+
+            var rememberedCamera = Current.Game.CurrentMap.rememberedCameraPos;
+            Current.Game.CurrentMap = mapToSwitch;
+            if (designator != null)
+            {
+                Find.DesignatorManager.Select(designator);
+            }
+            Find.CameraDriver.SetRootPosAndSize(rememberedCamera.rootPos, rememberedCamera.rootSize);
+
+            //foreach (var select in selectedObjects)
+            //{
+            //    this.Select(select);
+            //}
         }
 
         public void SaveArea(Pawn pawn)
@@ -264,6 +275,28 @@ namespace ZLevels
                 {
                     return lowerMap;
                 }
+            }
+            return null;
+        }
+
+        // The other end of a stairs piece: the stairs at the same cell on the floor above or below. A StairsUp stands on the lower floor, and its
+        // other end is the StairsDown on the floor above. A StairsDown stands on the upper floor, and its other end is the StairsUp below. This is
+        // the layout SpawnStairsBelow makes. Building_Stairs.GetMatchingStair searches the other way round, so this method does not use it.
+        public Building_Stairs GetOtherEnd(Building_Stairs stairs)
+        {
+            if (stairs == null || !stairs.Spawned)
+            {
+                return null;
+            }
+            if (stairs is Building_StairsUp)
+            {
+                Map upper = this.GetUpperLevel(stairs.Map.Tile, stairs.Map);
+                return upper == null ? null : stairs.Position.GetThingList(upper).OfType<Building_StairsDown>().FirstOrDefault();
+            }
+            if (stairs is Building_StairsDown)
+            {
+                Map lower = this.GetLowerLevel(stairs.Map.Tile, stairs.Map);
+                return lower == null ? null : stairs.Position.GetThingList(lower).OfType<Building_StairsUp>().FirstOrDefault();
             }
             return null;
         }
@@ -555,6 +588,71 @@ namespace ZLevels
                 }
             };
         }
+        // Claims end with their job and with their map (idea "someone is already going"). A target that a queued job of the same
+        // colonist still needs keeps its claim.
+        public void ReleaseClaims(Pawn pawn, Job job)
+        {
+            if (pawn == null || job == null || this.jobTracker == null || !this.jobTracker.TryGetValue(pawn, out JobTracker tracker))
+            {
+                return;
+            }
+            foreach (LocalTargetInfo target in ClaimTargets(job))
+            {
+                if (!target.IsValid || StillNeeded(pawn, tracker, target))
+                {
+                    continue;
+                }
+                tracker.reservedThings?.RemoveAll(claim => claim.HasThing && target.HasThing && claim.thingInt == target.thingInt);
+                tracker.reservedCells?.RemoveAll(claim => !claim.HasThing && !target.HasThing && claim.cellInt == target.cellInt);
+            }
+        }
+
+        // A removed map takes its claims with it: the claims on things of that map, and on cells the colonist looked at on that map.
+        public void ReleaseClaimsOnMap(Map map)
+        {
+            if (map == null || this.jobTracker == null)
+            {
+                return;
+            }
+            foreach (JobTracker tracker in this.jobTracker.Values)
+            {
+                tracker.reservedThings?.RemoveAll(claim => claim.HasThing && claim.thingInt.Map == map);
+                if (tracker.reservedCells != null && tracker.lookedAtLocalCellMap != null)
+                {
+                    tracker.reservedCells.RemoveAll(claim => tracker.lookedAtLocalCellMap.TryGetValue(claim.cellInt, out Map cellMap) && cellMap == map);
+                }
+            }
+        }
+
+        private static IEnumerable<LocalTargetInfo> ClaimTargets(Job job)
+        {
+            yield return job.targetA;
+            yield return job.targetB;
+            yield return job.targetC;
+            if (job.targetQueueA != null)
+            {
+                foreach (LocalTargetInfo target in job.targetQueueA) yield return target;
+            }
+            if (job.targetQueueB != null)
+            {
+                foreach (LocalTargetInfo target in job.targetQueueB) yield return target;
+            }
+        }
+
+        private static bool StillNeeded(Pawn pawn, JobTracker tracker, LocalTargetInfo target)
+        {
+            if (tracker.activeJobs != null && tracker.activeJobs.Any(job => ClaimTargets(job).Any(other => SameTarget(other, target))))
+            {
+                return true;
+            }
+            return pawn.jobs != null && pawn.jobs.jobQueue.Any(queued => ClaimTargets(queued.job).Any(other => SameTarget(other, target)));
+        }
+
+        private static bool SameTarget(LocalTargetInfo a, LocalTargetInfo b)
+        {
+            return a.HasThing && b.HasThing ? a.thingInt == b.thingInt : !a.HasThing && !b.HasThing && a.cellInt == b.cellInt;
+        }
+
         public void BuildJobListFor(Pawn pawn, Map dest, Job jobToDo)
         {
             var pawnJobTracker = this.jobTracker[pawn];
@@ -644,10 +742,19 @@ namespace ZLevels
                 ZLogger.Message("Job method 1.78");
                 log += "Job method 1.78" + "\n";
                 pawnJobTracker.targetDest = new TargetInfo(jobToDo.targetA.Thing);
-                Job job = JobMaker.MakeJob(ZLevelsDefOf.ZL_HaulThingToDest, jobToDo.targetB.Thing);
-                job.count = Medicine.GetMedicineCountToFullyHeal(jobToDo.targetA.Thing as Pawn);
-                ZLogger.Message(pawn + " is doing ZL_HaulThingToDest " + jobToDo.targetB.Thing + " to " + pawnJobTracker.targetDest);
-                tempJobs.Add(job);
+                if (jobToDo.targetB.HasThing)
+                {
+                    Job job = JobMaker.MakeJob(ZLevelsDefOf.ZL_HaulThingToDest, jobToDo.targetB.Thing);
+                    job.count = Medicine.GetMedicineCountToFullyHeal(jobToDo.targetA.Thing as Pawn);
+                    ZLogger.Message(pawn + " is doing ZL_HaulThingToDest " + jobToDo.targetB.Thing + " to " + pawnJobTracker.targetDest);
+                    tempJobs.Add(job);
+                }
+                else if (jobToDo.targetA.Thing.Map != pawn.Map)
+                {
+                    // Without medicine nothing is carried. The colonist only walks to the patient's level; the tend job runs there.
+                    ZLogger.Message(pawn + " is doing ZL_GoToMap to " + pawnJobTracker.targetDest);
+                    tempJobs.Add(JobMaker.MakeJob(ZLevelsDefOf.ZL_GoToMap));
+                }
             }
             else if (jobToDo?.targetQueueA?.Count > 0
                 && jobToDo.targetQueueA.Where(x => x.HasThing && x.Thing.Map != null).Any())
@@ -1257,7 +1364,9 @@ namespace ZLevels
                     }
                     else
                     {
-                        ZLogger.Pause($"Fail in TryMakePreToilReservations, pawn: {pawn}, job: {job}, driver: {job.GetCachedDriver(pawn)}, map: {this.GetMapInfo(pawn.Map)}");
+                        // A refused reservation is a normal race, when another colonist takes the target first. The colonist's jobs are
+                        // reset below, so the colonist searches again. The debug log records it, and the game keeps running.
+                        ZLogger.Message($"Fail in TryMakePreToilReservations, pawn: {pawn}, job: {job}, driver: {job.GetCachedDriver(pawn)}, map: {this.GetMapInfo(pawn.Map)}");
                         this.ResetJobTrackerFor(pawn);
                     }
                 }
@@ -1293,17 +1402,14 @@ namespace ZLevels
         {
             if (this.GetZIndexFor(pawnToTeleport.Map) < this.GetZIndexFor(mapToTeleport))
             {
+                StairRouteCache.Invalidate(pawnToTeleport.Map);
+                StairRouteCache.Invalidate(mapToTeleport);
                 var stairs = this.GetLowerLevel(mapToTeleport.Tile, mapToTeleport)?.thingGrid?
                     .ThingsListAt(cellToTeleport)?.Where(x => x is Building_StairsUp)?.FirstOrDefault();
                 if (stairs != null && stairs.Stuff != null)
                 {
-                    var thingToMake = ZLevelsDefOf.ZL_StairsDown;
-                    if (cellToTeleport.GetThingList(mapToTeleport).Where(x => x.def == thingToMake).Count() == 0)
-                    {
-                        var newStairs = ThingMaker.MakeThing(thingToMake, stairs.Stuff);
-                        newStairs.SetFaction(stairs.Faction);
-                        GenPlace.TryPlaceThing(newStairs, cellToTeleport, mapToTeleport, ThingPlaceMode.Direct);
-                    }
+                    // The partner is the down piece of the way's kind, on the same cells above (WayUpKinds.SpawnPartner).
+                    WayUpKinds.SpawnPartner(stairs as Building_Stairs, mapToTeleport, setOutsideTerrain: false);
                 }
             }
         }
@@ -1312,6 +1418,8 @@ namespace ZLevels
         {
             if (this.GetZIndexFor(pawn.Map) > this.GetZIndexFor(map))
             {
+                StairRouteCache.Invalidate(pawn.Map);
+                StairRouteCache.Invalidate(map);
                 var stairs = pawn.Map.thingGrid.ThingsListAt(cell)?
                     .Where(x => x is Building_StairsDown)?.FirstOrDefault();
                 ZLogger.Message("Stairs: " + stairs);
@@ -1319,13 +1427,8 @@ namespace ZLevels
                 {
                     if (stairs.Stuff != null)
                     {
-                        var thingToMake = ZLevelsDefOf.ZL_StairsUp;
-                        if (cell.GetThingList(map).Where(x => x.def == thingToMake).Count() == 0)
-                        {
-                            var newStairs = ThingMaker.MakeThing(thingToMake, stairs.Stuff);
-                            newStairs.SetFaction(stairs.Faction);
-                            GenPlace.TryPlaceThing(newStairs, cell, map, ThingPlaceMode.Direct);
-                        }
+                        // The partner is the up piece of the way's kind, on the same cells below (WayUpKinds.SpawnPartner).
+                        WayUpKinds.SpawnPartner(stairs as Building_Stairs, map, setOutsideTerrain: false);
                     }
                     else if (stairs.def.defName == ZLevelsDefOf.ZL_NaturalHole.defName)
                     {
@@ -1924,6 +2027,10 @@ namespace ZLevels
             base.ExposeData();
             Scribe_Collections.Look<Pawn, ActiveArea>(ref this.activeAreas, "activeAreas", LookMode.Reference,
                 LookMode.Deep, ref this.ActiveAreasKeys, ref this.ActiveAreasValues);
+            this.floorPolicy.ExposeLocks();
+            this.floorPolicy.ExposeNeedFloors();
+            this.floorPolicy.ExposeWorkOff();
+            this.floorPolicy.ExposeBenchFloors();
             Scribe_Collections.Look<Pawn, JobTracker>(ref this.jobTracker, "jobTracker", LookMode.Reference,
                 LookMode.Deep, ref this.JobTrackerKeys, ref this.JobTrackerValues);
             Scribe_Collections.Look<Map, int>(ref this.mapIndex, "mapIndex", LookMode.Reference,
@@ -1978,6 +2085,8 @@ namespace ZLevels
                 }
             }
         }
+
+        public FloorPolicy floorPolicy = new FloorPolicy();
 
         public Dictionary<Pawn, ActiveArea> activeAreas;
         private List<Pawn> ActiveAreasKeys = new List<Pawn>();

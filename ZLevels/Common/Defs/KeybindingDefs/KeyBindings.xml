@@ -6,13 +6,15 @@
   </KeyBindingDef>
 
   <KeyBindingDef ParentName="ZLevelsKeyBinding">
-    <defName>ZL_switchToUpperMap</defName>
+    <defName>ZL_switchFloorUpper</defName>
     <label>Switch to upper map</label>
+    <defaultKeyCodeA>N</defaultKeyCodeA>
   </KeyBindingDef>
 
   <KeyBindingDef ParentName="ZLevelsKeyBinding">
-    <defName>ZL_switchToLowerMap</defName>
+    <defName>ZL_switchFloorLower</defName>
     <label>Switch to lower map</label>
+    <defaultKeyCodeA>M</defaultKeyCodeA>
   </KeyBindingDef>
 
 </Defs>

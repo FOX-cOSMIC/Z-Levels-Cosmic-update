@@ -62,7 +62,7 @@ namespace ZLevels
                         ZUtils.TeleportThing(pawn, dest.thingInt.Map, cell);
                         if (dest.thingInt.Map != __instance.map)
                         {
-                            __result = dest.thingInt.Map.reachability.CanReach(start, dest, peMode, traverseParams);
+                            __result = dest.thingInt.Map.reachability.CanReach(cell, dest, peMode, traverseParams);
                             ZLogger.Message($"1 CanReach: Used dest thing map reachability: __instance.map: {__instance.map}, pawn: {pawn}, thing: {dest.thingInt}, pawn.Map: {pawn.Map}, thing.Map: {dest.thingInt.Map}, result: {__result}");
                             return false;
                         }
@@ -88,7 +88,7 @@ namespace ZLevels
                         ZUtils.TeleportThing(pawn, mapDest, cell);
                         if (mapDest != __instance.map)
                         {
-                            __result = mapDest.reachability.CanReach(start, dest, peMode, traverseParams);
+                            __result = mapDest.reachability.CanReach(cell, dest, peMode, traverseParams);
                             ZLogger.Message($"3 CanReach: Used mapDest map reachability: __instance.map: {__instance.map}, pawn: {pawn}, mapDest: {mapDest}, pawn.Map: {pawn.Map}, result: {__result}");
                             return false;
                         }

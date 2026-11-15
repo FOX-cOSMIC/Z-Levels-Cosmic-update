@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+
+	<!-- More ways up (idea "more ways up" on docs/mod-comparison/ideas.html; decision D3 answered 2026-11-06, ladders and stair sizes).
+	     Each kind has an up piece on the lower floor and a down piece on the floor above. The large kinds are one building with a 2 by 2 footprint,
+	     and their partner covers the same four cells above. The kinds are listed in WayUpKinds.cs. Costs and strength are decision DM15. -->
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_SmallLadderUp</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>small ladder up</label>
+		<altitudeLayer>BuildingOnTop</altitudeLayer>
+		<description>A small ladder up to the floor above. It takes one cell and is cheap to build.</description>
+		<thingClass>ZLevels.Building_StairsUp</thingClass>
+		<graphicData>
+			<texPath>Building/LadderUp</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(3, 3)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>150</MaxHitPoints>
+			<WorkToBuild>400</WorkToBuild>
+			<Mass>2</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>1</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>5</costStuffCount>
+		<rotatable>true</rotatable>
+		<castEdgeShadows>true</castEdgeShadows>
+		<staticSunShadowHeight>0.20</staticSunShadowHeight>
+		<pathCost>30</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_SmallLadderDown</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>small ladder down</label>
+		<description>A small ladder down to the floor below. It takes one cell and is cheap to build.</description>
+		<thingClass>ZLevels.Building_StairsDown</thingClass>
+		<surfaceType>Item</surfaceType>
+		<graphicData>
+			<texPath>Building/Ladder</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(3, 3)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>150</MaxHitPoints>
+			<WorkToBuild>400</WorkToBuild>
+			<Mass>2</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>1</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>5</costStuffCount>
+		<rotatable>true</rotatable>
+		<castEdgeShadows>false</castEdgeShadows>
+		<fillPercent>0.0</fillPercent>
+		<staticSunShadowHeight>0.0</staticSunShadowHeight>
+		<pathCost>10</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_LargeLadderUp</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>large ladder up</label>
+		<altitudeLayer>BuildingOnTop</altitudeLayer>
+		<description>A large ladder up to the floor above. It covers a block of four cells, and its partner covers the same four cells above.</description>
+		<thingClass>ZLevels.Building_StairsUp</thingClass>
+		<size>(2,2)</size>
+		<graphicData>
+			<texPath>Building/LadderUp</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(6, 6)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>600</MaxHitPoints>
+			<WorkToBuild>1600</WorkToBuild>
+			<Mass>8</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>3</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>20</costStuffCount>
+		<rotatable>false</rotatable>
+		<castEdgeShadows>true</castEdgeShadows>
+		<staticSunShadowHeight>0.20</staticSunShadowHeight>
+		<pathCost>30</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_LargeLadderDown</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>large ladder down</label>
+		<description>A large ladder down to the floor below. It covers a block of four cells, and its partner covers the same four cells below.</description>
+		<thingClass>ZLevels.Building_StairsDown</thingClass>
+		<surfaceType>Item</surfaceType>
+		<size>(2,2)</size>
+		<graphicData>
+			<texPath>Building/Ladder</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(6, 6)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>600</MaxHitPoints>
+			<WorkToBuild>1600</WorkToBuild>
+			<Mass>8</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>3</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>20</costStuffCount>
+		<rotatable>false</rotatable>
+		<castEdgeShadows>false</castEdgeShadows>
+		<fillPercent>0.0</fillPercent>
+		<staticSunShadowHeight>0.0</staticSunShadowHeight>
+		<pathCost>10</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_LargeStairsUp</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>large stairs up</label>
+		<altitudeLayer>BuildingOnTop</altitudeLayer>
+		<description>Large stairs up to the floor above. They cover a block of four cells, and their partner covers the same four cells above.</description>
+		<thingClass>ZLevels.Building_StairsUp</thingClass>
+		<size>(2,2)</size>
+		<graphicData>
+			<texPath>Building/LadderUp</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(6, 6)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>1500</MaxHitPoints>
+			<WorkToBuild>4000</WorkToBuild>
+			<Mass>20</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>3</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>40</costStuffCount>
+		<rotatable>false</rotatable>
+		<castEdgeShadows>true</castEdgeShadows>
+		<staticSunShadowHeight>0.20</staticSunShadowHeight>
+		<pathCost>60</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+	<ThingDef ParentName="StairsBase">
+		<defName>ZL_LargeStairsDown</defName>
+		<placeWorkers>
+			<li>ZLevels.PlaceWorker_Stairs</li>
+		</placeWorkers>
+		<label>large stairs down</label>
+		<description>Large stairs down to the floor below. They cover a block of four cells, and their partner covers the same four cells below.</description>
+		<thingClass>ZLevels.Building_StairsDown</thingClass>
+		<surfaceType>Item</surfaceType>
+		<size>(2,2)</size>
+		<graphicData>
+			<texPath>Building/Ladder</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<drawSize>(6, 6)</drawSize>
+		</graphicData>
+		<statBases>
+			<MaxHitPoints>1500</MaxHitPoints>
+			<WorkToBuild>4000</WorkToBuild>
+			<Mass>20</Mass>
+			<Flammability>1.0</Flammability>
+			<Beauty>3</Beauty>
+		</statBases>
+		<stuffCategories>
+			<li>Metallic</li>
+			<li>Woody</li>
+		</stuffCategories>
+		<leaveResourcesWhenKilled>true</leaveResourcesWhenKilled>
+		<costStuffCount>40</costStuffCount>
+		<rotatable>false</rotatable>
+		<castEdgeShadows>false</castEdgeShadows>
+		<fillPercent>0.0</fillPercent>
+		<staticSunShadowHeight>0.0</staticSunShadowHeight>
+		<pathCost>10</pathCost>
+		<designationCategory>Structure</designationCategory>
+	</ThingDef>
+
+</Defs>

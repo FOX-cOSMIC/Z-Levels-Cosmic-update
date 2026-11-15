@@ -26,6 +26,50 @@ param(
     [switch]$CoolingTwoNets,
     [switch]$RimatomicsPlusPlus,
     [switch]$SocialRelaxQueue,
+    [switch]$RestSearchNull,
+    [switch]$TraderReturn,
+    [switch]$ReservationRefused,
+    [switch]$FloorHotkeys,
+    [switch]$StayOnFloor,
+    [switch]$WorkOnFloorOrder,
+    [switch]$NeedCooldown,
+    [switch]$IdleSearchPause,
+    [switch]$StaleClaims,
+    [switch]$FloorGuard,
+    [switch]$StorageIndex,
+    [switch]$StairRoutes,
+    [switch]$FloorWalk,
+    [switch]$AddonLoad,
+    [switch]$ChoreSpread,
+    [switch]$OneFloorColony,
+    [switch]$StairsView,
+    [switch]$StairPlacement,
+    [switch]$SearchTiming,
+    [switch]$WorkSearchProfile,
+    [switch]$LighterFloors,
+    [switch]$OwnFloorFirst,
+    [switch]$JobTargets,
+    [switch]$BackgroundHaul,
+    [switch]$JobTakenOnArrival,
+    [switch]$RaidGround,
+    [switch]$LeaveFromLower,
+    [switch]$SkyfallerRoof,
+    [switch]$MoodOtherFloor,
+    [switch]$EventsOtherFloor,
+    [switch]$ThiefCarry,
+    [switch]$ChildAnimalMech,
+    [switch]$CrossFloorFight,
+    [switch]$FloorsTab,
+    [switch]$FloorWorkFilter,
+    [switch]$HaulToFloor,
+    [switch]$BenchLink,
+    [switch]$CallColonists,
+    [switch]$StairsEqualize,
+    [switch]$FloorsGuide,
+    [switch]$WayUps,
+    [switch]$FloorPipe,
+    [switch]$StairTransfer,
+    [switch]$SearchThrowState,
     [switch]$ZLevelsDebug,
     # A ModsConfig.xml whose mods run together with Z-Levels. It is only read. The isolated run gets a copy of its mod list.
     [string]$ModsConfigSource,
@@ -160,6 +204,41 @@ function Get-GateProblems {
                 if ($problem) { $problems += 'calls row not counted: ' + $label + ': ' + $problem }
             }
         }
+    }
+    return $problems
+}
+# The identity header is the first five lines of validation-results.txt. It names the commit, whether the tree was dirty, the RimWorld version, and the SHA-256
+# of the ZLevels.dll that was built and the one that was staged. The gate refuses a results file whose header is missing or malformed, whose staged DLL is not
+# the built one, or whose built hash is not the hash of the bin ZLevels.dll now. Each problem names its key.
+function Get-IdentityProblems {
+    param([string[]]$Results, [Parameter(Mandatory)][string]$BuiltDllSha256)
+    $keys = [ordered]@{
+        commit = 'identity commit: '
+        dirty = 'identity dirty: '
+        rimworld = 'identity rimworld: '
+        built = 'identity built ZLevels.dll sha256: '
+        staged = 'identity staged ZLevels.dll sha256: '
+    }
+    $lines = @($Results | Where-Object { $null -ne $_ })
+    $values = @{}
+    $problems = @()
+    foreach ($name in $keys.Keys) {
+        $prefix = $keys[$name]
+        $line = $lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) } | Select-Object -First 1
+        $value = if ($null -eq $line) { '' } else { $line.Substring($prefix.Length).Trim() }
+        if ([string]::IsNullOrEmpty($value)) { $problems += 'missing identity header line: ' + $prefix.TrimEnd(); continue }
+        $values[$name] = $value
+    }
+    if ($values.ContainsKey('commit') -and $values['commit'] -notmatch '^[0-9a-f]{40}$') { $problems += 'identity commit is not a full commit SHA: ' + $values['commit'] }
+    if ($values.ContainsKey('dirty') -and $values['dirty'] -notmatch '^(True|False)$') { $problems += 'identity dirty is not True or False: ' + $values['dirty'] }
+    foreach ($name in @('built', 'staged')) {
+        if ($values.ContainsKey($name) -and $values[$name] -notmatch '^[0-9A-Fa-f]{64}$') { $problems += 'identity ' + $name + ' ZLevels.dll sha256 is not a SHA-256 value: ' + $values[$name] }
+    }
+    if ($values.ContainsKey('built') -and $values.ContainsKey('staged') -and $values['built'] -ne $values['staged']) {
+        $problems += 'identity staged ZLevels.dll sha256 ' + $values['staged'] + ' differs from identity built ZLevels.dll sha256 ' + $values['built']
+    }
+    if ($values.ContainsKey('built') -and $values['built'] -ne $BuiltDllSha256) {
+        $problems += 'identity built ZLevels.dll sha256 ' + $values['built'] + ' differs from the bin ZLevels.dll now, ' + $BuiltDllSha256
     }
     return $problems
 }
@@ -341,6 +420,50 @@ $scenarioSwitches = [ordered]@{
     CoolingNoColumns = $CoolingNoColumns
     CoolingTwoNets = $CoolingTwoNets
     SocialRelaxQueue = $SocialRelaxQueue
+    RestSearchNull = $RestSearchNull
+    TraderReturn = $TraderReturn
+    ReservationRefused = $ReservationRefused
+    FloorHotkeys = $FloorHotkeys
+    StayOnFloor = $StayOnFloor
+    WorkOnFloorOrder = $WorkOnFloorOrder
+    NeedCooldown = $NeedCooldown
+    IdleSearchPause = $IdleSearchPause
+    StaleClaims = $StaleClaims
+    FloorGuard = $FloorGuard
+    StorageIndex = $StorageIndex
+    StairRoutes = $StairRoutes
+    FloorWalk = $FloorWalk
+    AddonLoad = $AddonLoad
+    ChoreSpread = $ChoreSpread
+    OneFloorColony = $OneFloorColony
+    StairsView = $StairsView
+    StairPlacement = $StairPlacement
+    SearchTiming = $SearchTiming
+    WorkSearchProfile = $WorkSearchProfile
+    LighterFloors = $LighterFloors
+    OwnFloorFirst = $OwnFloorFirst
+    JobTargets = $JobTargets
+    BackgroundHaul = $BackgroundHaul
+    JobTakenOnArrival = $JobTakenOnArrival
+    RaidGround = $RaidGround
+    LeaveFromLower = $LeaveFromLower
+    SkyfallerRoof = $SkyfallerRoof
+    MoodOtherFloor = $MoodOtherFloor
+    EventsOtherFloor = $EventsOtherFloor
+    ThiefCarry = $ThiefCarry
+    ChildAnimalMech = $ChildAnimalMech
+    CrossFloorFight = $CrossFloorFight
+    FloorsTab = $FloorsTab
+    FloorWorkFilter = $FloorWorkFilter
+    HaulToFloor = $HaulToFloor
+    BenchLink = $BenchLink
+    CallColonists = $CallColonists
+    StairsEqualize = $StairsEqualize
+    FloorsGuide = $FloorsGuide
+    WayUps = $WayUps
+    FloorPipe = $FloorPipe
+    StairTransfer = $StairTransfer
+    SearchThrowState = $SearchThrowState
 }
 # The other switches. Each one is read only by the runs listed for it in $switchReaders. 'Core' is the run with no scenario switch.
 $modifierSwitches = [ordered]@{
@@ -435,7 +558,6 @@ function Assert-ResultsMatchLog {
 }
 $workspace = Split-Path $PSScriptRoot -Parent
 $game = (Resolve-Path -LiteralPath $RimWorldDirectory).Path
-$executable = Join-Path $game 'RimWorld.exe'
 if (Get-Process -Name RimWorld -ErrorAction SilentlyContinue) {
     throw 'Close the running RimWorld process before starting isolated validation.'
 }
@@ -443,31 +565,70 @@ $runDirectory = Join-Path $workspace ('.artifacts/runs/' + (Get-Date -Format 'yy
 $configDirectory = Join-Path $runDirectory 'Config'
 New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 
-$buildArguments = @('build', (Join-Path $PSScriptRoot 'RuntimeValidation/RuntimeValidation.csproj'), '-c', 'Release', '--nologo', "-p:RimWorldDirectory=$game")
+# The version that the build expects. The ModsConfig and the identity header both name it, so a run cannot name one version and load another.
+$rimWorldVersion = [regex]::Match([IO.File]::ReadAllText((Join-Path $workspace 'Directory.Build.props')), '<RimWorldVersion>([^<]+)</RimWorldVersion>').Groups[1].Value
+if (-not $rimWorldVersion) { throw 'Directory.Build.props does not name a RimWorldVersion.' }
+Import-Module -Name (Join-Path $PSScriptRoot 'ValidationGame.psm1')
+# Each project is rebuilt with -t:Rebuild and built explicitly. RuntimeValidation references the two mod projects, and a Rebuild of one project does not
+# guarantee that its references are rebuilt, so a stale ZLevels.dll would otherwise be hashed and staged.
+$buildArguments = @('-c', 'Release', '--nologo', '-t:Rebuild', "-p:RimWorldDirectory=$game")
 if ($HarmonyAssembly) { $buildArguments += "-p:HarmonyAssembly=$HarmonyAssembly" }
-& dotnet @buildArguments
-if ($LASTEXITCODE -ne 0) { throw 'Validation build failed.' }
+foreach ($project in @((Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj'), (Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevelsRimatomics/ZLevelsRimatomics.csproj'), (Join-Path $PSScriptRoot 'RuntimeValidation/RuntimeValidation.csproj'))) {
+    & dotnet build $project @buildArguments
+    if ($LASTEXITCODE -ne 0) { throw "Validation build failed: $project" }
+}
 
-$installations = @{
-    'ZLevels-Local17' = (Join-Path $workspace 'ZLevels')
-    'ZLevels-Validation' = (Join-Path $PSScriptRoot 'RuntimeValidation')
+# The built files that a run stages. Each comes from bin/Release, so the staged mod is the build that was just made, never a tracked release file.
+$builtZLevelsDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/bin/Release/ZLevels.dll'
+$builtMultiplayerDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/bin/Release/0MultiplayerAPI.dll'
+$builtRimatomicsDll = Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevelsRimatomics/bin/Release/ZLevelsRimatomics.dll'
+$builtValidationDll = Join-Path $PSScriptRoot 'RuntimeValidation/bin/Release/RuntimeValidation.dll'
+foreach ($built in @($builtZLevelsDll, $builtMultiplayerDll, $builtRimatomicsDll, $builtValidationDll)) {
+    if (!(Test-Path -LiteralPath $built)) { throw "Missing build output: $built" }
 }
-foreach ($name in $installations.Keys) {
-    $link = Join-Path (Join-Path $game 'Mods') $name
-    $target = (Resolve-Path -LiteralPath $installations[$name]).Path
-    if (Test-Path -LiteralPath $link) {
-        $existing = Get-Item -LiteralPath $link
-        if ($existing.LinkType -ne 'Junction' -or $existing.Target -notcontains $target) {
-            throw "Existing mod folder is not this checkout's junction: $link"
-        }
-    }
-    else { New-Item -ItemType Junction -Path $link -Target $target | Out-Null }
+$builtSha256 = (Get-FileHash -LiteralPath $builtZLevelsDll -Algorithm SHA256).Hash
+# The mods are staged in the run folder, then copied into the game copy. ZLevels takes About, Common, LoadFolders.xml, the 1.7 folder and the 1.7-Rimatomics
+# folder, each without its tracked Assemblies, which take the built DLLs instead. The add-on DLL goes into 1.7-Rimatomics, the folder that LoadFolders.xml
+# lists for Dubs Rimatomics, as Publish-Mod.ps1 places it. ZLevels-Validation takes About and its built DLL.
+$stageRoot = Join-Path $runDirectory 'staged'
+$stagedZLevels = Join-Path $stageRoot 'ZLevels'
+$stagedValidation = Join-Path $stageRoot 'ZLevels-Validation'
+$stagedAssemblies = Join-Path (Join-Path $stagedZLevels '1.7') 'Assemblies'
+$stagedAddonAssemblies = Join-Path (Join-Path $stagedZLevels '1.7-Rimatomics') 'Assemblies'
+New-Item -ItemType Directory -Path $stagedAssemblies, $stagedAddonAssemblies, (Join-Path $stagedValidation 'Assemblies') -Force | Out-Null
+$modSource = Join-Path $workspace 'ZLevels'
+foreach ($item in @('About', 'Common', 'LoadFolders.xml')) { Copy-Item -LiteralPath (Join-Path $modSource $item) -Destination $stagedZLevels -Recurse }
+Get-ChildItem -LiteralPath (Join-Path $modSource '1.7') -Force | Where-Object { $_.Name -ne 'Assemblies' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagedZLevels '1.7') -Recurse }
+if (Test-Path -LiteralPath (Join-Path $modSource '1.7-Rimatomics')) {
+    Get-ChildItem -LiteralPath (Join-Path $modSource '1.7-Rimatomics') -Force | Where-Object { $_.Name -ne 'Assemblies' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagedZLevels '1.7-Rimatomics') -Recurse }
 }
+foreach ($dll in @($builtZLevelsDll, $builtMultiplayerDll)) { Copy-Item -LiteralPath $dll -Destination $stagedAssemblies }
+Copy-Item -LiteralPath $builtRimatomicsDll -Destination $stagedAddonAssemblies
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'RuntimeValidation/About') -Destination $stagedValidation -Recurse
+Copy-Item -LiteralPath $builtValidationDll -Destination (Join-Path $stagedValidation 'Assemblies')
+# The game copy is made from the install and the staged mods, and it is the only game this run starts. The install and the user's Mods folder are only read.
+$runId = Split-Path -Leaf $runDirectory
+$gameCopy = New-ValidationGame -SourceGame $game -Destination (Join-Path $env:TEMP ('claude-scratch\zlevels-validation\' + $runId)) -RunId $runId -ModFolders @($stagedZLevels, $stagedValidation)
+Write-Host "Game copy for this run: $($gameCopy.Root). A passing run removes it. A failing run keeps it."
+$stagedSha256 = (Get-FileHash -LiteralPath (Join-Path $gameCopy.Root 'Mods\ZLevels\1.7\Assemblies\ZLevels.dll') -Algorithm SHA256).Hash
+# The identity header is written before the game starts. The game appends its rows to this file, so the header stays at the top.
+$commit = (git -C $workspace rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed.' }
+$dirtyPaths = @(git -C $workspace status --porcelain --untracked-files=normal -- ZLevels tools/RuntimeValidation Directory.Build.props RimWorld.targets)
+if ($LASTEXITCODE -ne 0) { throw 'git status failed.' }
+$identityLines = @(
+    "identity commit: $commit",
+    "identity dirty: $($dirtyPaths.Count -gt 0)",
+    "identity rimworld: $rimWorldVersion",
+    "identity built ZLevels.dll sha256: $builtSha256",
+    "identity staged ZLevels.dll sha256: $stagedSha256"
+)
+[System.IO.File]::WriteAllLines((Join-Path $runDirectory 'validation-results.txt'), [string[]]$identityLines, (New-Object System.Text.UTF8Encoding $false))
 
 $configuration = @'
 <?xml version="1.0" encoding="utf-8"?>
 <ModsConfigData>
-  <version>1.7.4990 rev1069</version>
+  <version>__RIMWORLD_VERSION__</version>
   <activeMods>
 __ACTIVE_MODS__
   </activeMods>
@@ -494,7 +655,7 @@ if ($Cooling -or $CoolingNoColumns -or $CoolingTwoNets -or $RimatomicsPlusPlus) 
 if ($RimatomicsPlusPlus) { $rimatomicsMods += 'nachotoast.rimatomicsplusplus' }
 $rimatomicsMods = @($rimatomicsMods | Where-Object { $activeMods -notcontains $_ })
 $activeMods = @($activeMods | ForEach-Object { if ($_ -eq 'foxcosmic.zlevels17') { $rimatomicsMods }; $_ })
-$configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n"))
+$configuration = $configuration.Replace('__ACTIVE_MODS__', (($activeMods | ForEach-Object { "    <li>$_</li>" }) -join "`n")).Replace('__RIMWORLD_VERSION__', $rimWorldVersion)
 $configuration | Set-Content -LiteralPath (Join-Path $configDirectory 'ModsConfig.xml') -Encoding UTF8
 if ($ModsConfigSource) {
     # A fresh save has no language set, and Readable Numbers throws on that during load. Use the language from the source's Prefs.xml.
@@ -548,8 +709,52 @@ if ($Cooling) { $arguments += '-zlevelscooling' }
 if ($CoolingNoColumns) { $arguments += '-zlevelscoolingnocolumns' }
 if ($CoolingTwoNets) { $arguments += '-zlevelscoolingtwonets' }
 if ($SocialRelaxQueue) { $arguments += '-zlevelssocialrelaxqueue' }
+if ($RestSearchNull) { $arguments += '-zlevelsrestsearchnull' }
+if ($TraderReturn) { $arguments += '-zlevelstradereturn' }
+if ($ReservationRefused) { $arguments += '-zlevelsreservationrefused' }
+if ($FloorHotkeys) { $arguments += '-zlevelsfloorhotkeys' }
+if ($StayOnFloor) { $arguments += '-zlevelsstayonfloor' }
+if ($WorkOnFloorOrder) { $arguments += '-zlevelsworkonfloororder' }
+if ($NeedCooldown) { $arguments += '-zlevelsneedcooldown' }
+if ($IdleSearchPause) { $arguments += '-zlevelsidlesearchpause' }
+if ($StaleClaims) { $arguments += '-zlevelsstaleclaims' }
+if ($FloorGuard) { $arguments += '-zlevelsfloorguard' }
+if ($StorageIndex) { $arguments += '-zlevelsstorageindex' }
+if ($StairRoutes) { $arguments += '-zlevelsstairroutes' }
+if ($FloorWalk) { $arguments += '-zlevelsfloorwalk' }
+if ($AddonLoad) { $arguments += '-zlevelsaddonload' }
+if ($ChoreSpread) { $arguments += '-zlevelschorespread' }
+if ($OneFloorColony) { $arguments += '-zlevelsonefloorcolony' }
+if ($StairsView) { $arguments += '-zlevelsstairsview' }
+if ($StairPlacement) { $arguments += '-zlevelsstairplacement' }
+if ($SearchTiming) { $arguments += '-zlevelssearchtiming' }
+if ($WorkSearchProfile) { $arguments += '-zlevelsworksearchprofile' }
+if ($LighterFloors) { $arguments += '-zlevelslighterfloors' }
+if ($OwnFloorFirst) { $arguments += '-zlevelsownfloorfirst' }
+if ($JobTargets) { $arguments += '-zlevelsjobtargets' }
+if ($BackgroundHaul) { $arguments += '-zlevelsbackgroundhaul' }
+if ($JobTakenOnArrival) { $arguments += '-zlevelsjobtakenonarrival' }
+if ($RaidGround) { $arguments += '-zlevelsraidground' }
+if ($LeaveFromLower) { $arguments += '-zlevelsleavefromlower' }
+if ($SkyfallerRoof) { $arguments += '-zlevelsskyfallerroof' }
+if ($MoodOtherFloor) { $arguments += '-zlevelsmoodotherfloor' }
+if ($EventsOtherFloor) { $arguments += '-zlevelseventsotherfloor' }
+if ($ThiefCarry) { $arguments += '-zlevelsthiefcarry' }
+if ($ChildAnimalMech) { $arguments += '-zlevelschildanimalmech' }
+if ($CrossFloorFight) { $arguments += '-zlevelscrossfloorfight' }
+if ($FloorsTab) { $arguments += '-zlevelsfloorstab' }
+if ($FloorWorkFilter) { $arguments += '-zlevelsfloorwork' }
+if ($HaulToFloor) { $arguments += '-zlevelshaulfloor' }
+if ($BenchLink) { $arguments += '-zlevelsbenchlink' }
+if ($CallColonists) { $arguments += '-zlevelscallcolonists' }
+if ($StairsEqualize) { $arguments += '-zlevelsstairsequalize' }
+if ($FloorsGuide) { $arguments += '-zlevelsfloorsguide' }
+if ($WayUps) { $arguments += '-zlevelswayups' }
+if ($FloorPipe) { $arguments += '-zlevelsfloorpipe' }
+if ($StairTransfer) { $arguments += '-zlevelsstairtransfer' }
+if ($SearchThrowState) { $arguments += '-zlevelssearchthrowstate' }
 if ($ZLevelsDebug) { $arguments += '-zlevelsdebug' }
-$process = Start-Process -FilePath $executable -WorkingDirectory $game -ArgumentList $arguments -WindowStyle Hidden -PassThru
+$process = Start-Process -FilePath $gameCopy.Executable -WorkingDirectory $gameCopy.Root -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $gameLog = Join-Path $env:USERPROFILE 'AppData/LocalLow/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log'
 $limit = (Get-Date).AddSeconds($TimeoutSeconds)
 while (!$process.HasExited -and (Get-Date) -lt $limit) {
@@ -591,14 +796,14 @@ Write-Host "Result rows: $($cross.ResultRows). [ZLevels validation] lines in Pla
 # The partner tint rows of a -Visual cooling run are written from its two partner screenshots after the cross-check, so the cross-check does not count them.
 if ($Visual -and $Cooling -and -not $CoolingNoColumns) { Add-OutlineTintRows -ResultsPath $resultsPath -ShotFolder (Join-Path $runDirectory 'Screenshots') }
 $results = Get-Content -LiteralPath $resultsPath
-$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($VaultRock) { 'vault rock' } elseif ($VaultFull) { 'vault full' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } else { 'core validation' }
+$requiredPass = if ($StairsDamage) { 'stairs damage' } elseif ($MultiBuild) { 'multiple builds below' } elseif ($UnreachableZone) { 'unreachable zone' } elseif ($OtherColonistHauls) { 'other colonist hauls across levels' } elseif ($AllColonistsHaul) { 'all colonists haul' } elseif ($InfestationGuard) { 'infestation guard' } elseif ($StaleLookup) { 'stale look-up map' } elseif ($VaultPlacement) { 'vault placement' } elseif ($VaultPocket) { 'vault pocket' } elseif ($VaultEnter) { 'vault build inside' } elseif ($VaultLoad) { 'vault load' } elseif ($VaultSave) { 'vault save' } elseif ($VaultInfestation) { 'vault infestation' } elseif ($VaultRock) { 'vault rock' } elseif ($VaultFull) { 'vault full' } elseif ($Supply) { 'cross-level supply' } elseif ($Cooling -or $CoolingNoColumns) { 'cooling link' } elseif ($CoolingTwoNets) { 'two nets link' } elseif ($SocialRelaxQueue) { 'social relax queue' } elseif ($RestSearchNull) { 'rest search null checks' } elseif ($TraderReturn) { 'trader return' } elseif ($ReservationRefused) { 'reservation refused' } elseif ($FloorHotkeys) { 'floor hotkeys' } elseif ($StayOnFloor) { 'stay on floor' } elseif ($WorkOnFloorOrder) { 'work on floor order' } elseif ($NeedCooldown) { 'need cool-down' } elseif ($IdleSearchPause) { 'idle search pause' } elseif ($StaleClaims) { 'stale claims' } elseif ($FloorGuard) { 'floor guard' } elseif ($StorageIndex) { 'storage index' } elseif ($StairRoutes) { 'stair routes' } elseif ($FloorWalk) { 'floor walk' } elseif ($AddonLoad) { 'add-on load' } elseif ($ChoreSpread) { 'chore spread' } elseif ($OneFloorColony) { 'a one-floor colony runs no cross-floor search' } elseif ($StairsView) { 'pressing it moves the camera to the other end' } elseif ($StairPlacement) { 'stairs down from above ground refuses with its message' } elseif ($SearchTiming) { 'search timing recorded' } elseif ($WorkSearchProfile) { 'work search profile' } elseif ($LighterFloors) { 'lighter floors' } elseif ($StairTransfer) { 'stair transfer' } elseif ($FloorPipe) { 'floor pipe' } elseif ($WayUps) { 'way ups' } elseif ($FloorsGuide) { 'floors guide' } elseif ($StairsEqualize) { 'stairs equalize' } elseif ($CallColonists) { 'call colonists' } elseif ($BenchLink) { 'bench link' } elseif ($HaulToFloor) { 'haul to a floor' } elseif ($FloorWorkFilter) { 'floor work filter' } elseif ($FloorsTab) { 'floors tab' } elseif ($CrossFloorFight) { 'cross floor fight' } elseif ($ChildAnimalMech) { 'child animal mech' } elseif ($ThiefCarry) { 'thief carry' } elseif ($EventsOtherFloor) { 'events other floor' } elseif ($MoodOtherFloor) { 'mood other floor' } elseif ($SkyfallerRoof) { 'skyfaller roof' } elseif ($LeaveFromLower) { 'leave from lower' } elseif ($RaidGround) { 'raid ground' } elseif ($JobTakenOnArrival) { 'job taken on arrival' } elseif ($BackgroundHaul) { 'background haul' } elseif ($JobTargets) { 'job targets' } elseif ($OwnFloorFirst) { 'own floor first' } elseif ($SearchThrowState) { 'search throw state' } else { 'core validation' }
 $results
 # The screenshot rows a -Visual run writes: four in the core run, and three in the cooling runs: the cooling column, then the partner highlight's amber and green.
 $screenshotLabels = if ($Cooling -or $CoolingNoColumns) { @('cooling column screenshot', 'partner highlight amber screenshot', 'partner highlight green screenshot') } else { @('lower level screenshot', 'upper void screenshot', 'surface screenshot', 'surface hole screenshot') }
 $requiredLabels = @(Get-RequiredLabels -ScenarioLabel $requiredPass -FreeColonists ([bool]$FreeColonists) -OtherColonistsWork ([bool]$OtherColonistsWork) -RimatomicsPlusPlus ([bool]$RimatomicsPlusPlus) -Visual ([bool]$Visual) -ScreenshotLabels $screenshotLabels -CoolingColumns ([bool]($Cooling -and -not $CoolingNoColumns)) -CoolingNoColumns ([bool]$CoolingNoColumns) -CoolingTwoNets ([bool]$CoolingTwoNets) -SocialRelaxQueue ([bool]$SocialRelaxQueue))
 $observed = @{}
 if ($RimatomicsPlusPlus) { $observed['rimatomics++ mod active'] = Get-RimatomicsObservation -LogPath (Join-Path $runDirectory 'Player.log') }
-$gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed)
+$gateProblems = @(Get-GateProblems -Results $results -RequiredLabels $requiredLabels -Observed $observed) + @(Get-IdentityProblems -Results $results -BuiltDllSha256 (Get-FileHash -LiteralPath $builtZLevelsDll -Algorithm SHA256).Hash)
 Write-Host ('Required labels for this run: ' + (@($requiredLabels | ForEach-Object { if ($_.Accept -eq 'PASS') { $_.Label } elseif ($_.Accept -eq 'PASS or TAKEN') { $_.Label + ' (PASS or TAKEN)' } else { $_.Label + ' (' + $_.Accept + ')' } }) -join ', ') + '.')
 foreach ($label in $observed.Keys) { Write-Host "Observed by the runner: $label = $($observed[$label])." }
 if ($gateProblems.Count -gt 0) {
@@ -624,7 +829,7 @@ if ($gateProblems.Count -gt 0) {
     throw "Runtime scenarios did not all pass: $runDirectory"
 }
 # The pass gate's line test is the 1369ed4 test. The whole-word ERROR rule belongs to Get-ErrorScan only.
-$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -match ' ERROR ' })
+$errors = @(Get-Content -LiteralPath (Join-Path $runDirectory 'Player.log') | Where-Object { $_ -cmatch ' ERROR ' })
 if ($ModsConfigSource) {
     # Other mods' errors are expected here. They go to a file for review. An error that involves Z-Levels code still fails the run.
     # Only error entries count, read by the same scan as the cause hint. A Z-Levels frame in an ordinary log line is not an error.
@@ -635,6 +840,7 @@ if ($ModsConfigSource) {
         throw "Runtime log contains Z-Levels errors: $runDirectory"
     }
     Write-Host "Other mods logged $($errors.Count) error lines. See $(Join-Path $runDirectory 'other-mod-errors.txt')"
+    Remove-ValidationGame -Destination $gameCopy.Root
     Write-Host "Runtime validation passed with other mods. Evidence: $runDirectory"
     return
 }
@@ -647,4 +853,5 @@ if ($relevantErrors.Count) {
     throw "Runtime log contains errors: $runDirectory"
 }
 if ($errors.Count) { Write-Warning 'The log also contains unrelated installed-Workshop duplicate discovery errors; see the retained Player.log.' }
+Remove-ValidationGame -Destination $gameCopy.Root
 Write-Host "Runtime validation passed. Evidence: $runDirectory"

@@ -21,7 +21,7 @@ When building upwards you have to watch out for the floor collapsing similar to 
 
 	-----
 
-Known Bugs:Natural hole, this is found in the structures tab and it should be avoided, it is only used for infestations underground. Avoid it.
+Known Bugs:Natural hole is only used for infestations underground, so avoid it. It has no build menu entry.
 Please report any bugs.
 
 

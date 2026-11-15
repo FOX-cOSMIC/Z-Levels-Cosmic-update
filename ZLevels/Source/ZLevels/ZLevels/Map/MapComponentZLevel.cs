@@ -88,11 +88,49 @@ namespace ZLevels
             }
         }
 
+        // Test counters (debug). ChoreRuns counts the periodic checks of every floor. ChoreTicksWithTwoFloors counts the ticks on which a second
+        // floor ran its check. The -ChoreSpread scenario reads them.
+        public static int ChoreRuns;
+        public static int ChoreTicksWithTwoFloors;
+        private static int lastChoreTick = -1;
+        private static int lastChoreTickFloors;
+
+        private static void NoteChore(int ticks)
+        {
+            ChoreRuns++;
+            if (ticks != lastChoreTick)
+            {
+                lastChoreTick = ticks;
+                lastChoreTickFloors = 0;
+            }
+            lastChoreTickFloors++;
+            if (lastChoreTickFloors == 2)
+            {
+                ChoreTicksWithTwoFloors++;
+            }
+        }
+
+        // The periodic check of a floor runs every ChorePeriod ticks, at a phase of its own (idea "spread out the regular chores" on
+        // docs/mod-comparison/ideas.html). The phase is 17 times the floor's Z index, modulo the period. 17 and 80 share no factor, so floors
+        // with Z indexes less than 80 apart have different phases, and two of them never run the check on one tick.
+        public const int ChorePeriod = 80;
+
+        public static int ChorePhase(int zIndex)
+        {
+            return ((zIndex * 17) % ChorePeriod + ChorePeriod) % ChorePeriod;
+        }
+
+        public static bool ChoreDue(int ticks, int zIndex)
+        {
+            return (ticks + ChorePhase(zIndex)) % ChorePeriod == 0;
+        }
+
         public override void MapComponentTick()
         {
             base.MapComponentTick();
-            if (Find.TickManager.TicksGame % Rand.RangeInclusive(60, 100) == 0)
+            if (ChoreDue(Find.TickManager.TicksGame, ZUtils.ZTracker.GetZIndexFor(this.map)))
             {
+                NoteChore(Find.TickManager.TicksGame);
                 if (this.ActiveInfestations != null && this.ActiveInfestations.Count > 0)
                 {
                     foreach (var infestation in this.ActiveInfestations)

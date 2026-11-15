@@ -27,7 +27,7 @@ namespace ZLevels
             {
                 var result = __result.ToList();
                 Map oldMap = ___pawn.Map;
-                IntVec3 oldPosition = playerNegotiator.Position;
+                IntVec3 oldPosition = ___pawn.Position;
                 bool select = false;
                 if (Find.Selector.SelectedObjects.Contains(___pawn)) select = true;
                 foreach (var map in ZUtils.GetAllMapsInClosestOrder(___pawn, oldMap, oldPosition))

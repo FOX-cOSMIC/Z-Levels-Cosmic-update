@@ -1,12 +1,14 @@
 # RimWorld 1.7 API findings for Z-Levels
 
-Each fact below was confirmed against the installed game (RimWorld 1.7.4990 rev1069) and cites where it was read. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
+Each fact below cites where it was read. The names were re-checked against RimWorld 1.7.5000 rev1275, the target in ADR-0010 and decision D10, on 2026-11-08. That re-check covers names, not parameter lists or line numbers. A section that gives line numbers from an earlier build says which build. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
 
 ```
 ilspycmd -t <Namespace.Type> "C:/SteamLibrary/steamapps/common/RimWorld/Assembly-CSharp.dll" -o .artifacts/ilspy/<name>
 ```
 
 Game data is under `C:/SteamLibrary/steamapps/common/RimWorld/Data/Core/Defs/`.
+
+Re-checked against RimWorld 1.7.5000 rev1275 on 2026-11-08, the build the mod targets now (ADR-0010). A script found all 118 names from the sections below in the 1.7.5000 decompile or the mod source. 117 sit in their type's file. The other is `Pawn.ReserveSittableOrSpot`, an extension method in `Verse.AI/ReservationUtility.cs` (line 44). The check covers names only, not parameter lists. Five sampled line numbers also match: `JobGiver_Work.TryIssueJobPackage` (49), `ReservationUtility.ReserveSittableOrSpot` (44), `Pawn.GetGizmos` (3353), `Command.groupKey` (37) and `Room.Temperature` (87). The other line numbers were not re-checked, so where they differ they refer to the 4998 decompile. The Harmony attributes bind at startup on 1.7.5000 rev1275: the core validation run `20261108-114126` logged no error from the mod's `PatchAll`. The names read by reflection were checked by hand and are declared on that build: the fields `wealthItems`, `wealthBuildings` and `wealthFloorsOnly` of `WealthWatcher`, `JobDriver.TryMakePreToilReservations(bool)` (`Verse.AI/JobDriver.cs`, line 245), `ListerThings.ThingsOfDef(ThingDef)`, `JobGiver_AIFightEnemy.TryGiveJob(Pawn)`, and the mod's own `MapComponentZLevel.MapComponentTick`. `Rimatomics.CoolingNet:Tick` belongs to the Rimatomics mod, not to RimWorld, so only the Rimatomics runs check it.
 
 ## Map generation
 
@@ -191,3 +193,90 @@ Checked against RimWorld 1.7.4998 rev1299, from the game's `Assembly-CSharp.dll`
 - `ReservationManager.Reserve` returns false when `job` is null, and first logs a warning, `<claimant> tried to reserve thing <target> without a valid job` (`Verse.AI.ReservationManager` decompile, lines 306-310).
 - `Pawn_JobTracker.StartJob` sets `curJob` (line 331) before it calls `curDriver.TryMakePreToilReservations` (line 336). `Pawn_JobTracker.TryTakeOrderedJob` runs the pre-check before the job is current (lines 922-956).
 - Z-Levels runs `TryTakeFirstJob` from an `EndCurrentJob` postfix only when the pawn is humanlike, `pawn.CurJob` is null, the pawn's Z-Levels `activeJobs` list is not empty, and no queued start is in progress (`HarmonyPatches/JobPatches.cs`, lines 1121-1125). `TryTakeFirstJob` runs the pre-check on the queued job before the job is current (`ZLevelsManager.cs`, line 1236). A refused pre-check calls `ZLogger.Pause`, which logs `ERROR` and pauses the game (`ZLogger.cs`, lines 12-16), regardless of `DebugSettings.pauseOnError`. The same path runs when another pawn holds the chair or the drink.
+
+## Key bindings and floor locks (MultiFloors ideas, Tasks 5 and 6)
+
+Checked against RimWorld 1.7.4998 rev1299, from `.artifacts/decomp-1.7.4998/project/`.
+
+- `KeyPrefs.Init` resets every binding to its default only when the prefs file is missing (`Verse/KeyPrefs.cs`, lines 32-60). A binding the file already holds keeps its saved value, `None` included.
+- `KeyPrefsData.AddMissingDefaultBindings` adds a default only for a `KeyBindingDef` the prefs do not hold (`Verse/KeyPrefsData.cs`, lines 17-24). A changed `defaultKeyCodeA` therefore does not reach a saved `None`. Run `20261106-000524` showed both switch keys `None` after the prefs load, before the rename.
+- `KeyPrefsData.ErrorCheck` logs `Key binding conflict` as a warning. It resets a binding only when the bound key differs from the default (`Verse/KeyPrefsData.cs`, lines 113-141). Base `Misc4` (N) and `Misc7` (M) conflict with the floor keys, and the runs log those warnings.
+- `KeyBindingDef.defaultKeyCodeA` and `defaultKeyCodeB` are public `KeyCode` fields (`Verse/KeyBindingDef.cs`, lines 11 and 13). `KeyDownEvent` and `MainKey` read the saved prefs, not the default (lines 22-70).
+- `Game.CurrentMap`'s setter calls `Find.MapUI.Notify_SwitchedMap()` (`Verse/Game.cs`, lines 118-150). That method calls `designatorManager.Deselect()` (`RimWorld/MapInterface.cs`, line 192), so a map switch clears the selected designator.
+- `CameraDriver.rootPos` is a private field (`Verse/CameraDriver.cs`, line 30). `CameraDriver.Update` copies it into `Find.CurrentMap.rememberedCameraPos.rootPos` every frame (lines 429-431). `SetRootPosAndSize` (line 560) sets the field at once.
+- `GenFilePaths.ConfigFolderPath` sits under the savedata folder (`Verse/GenFilePaths.cs`, line 178). A validation run passes `-savedatafolder`, so its `Config/KeyPrefs.xml` is its own file.
+- `Pawn.Kill(DamageInfo? dinfo, Hediff exactCulprit = null)` is `public override void` (`Verse/Pawn.cs`, line 2096). `Pawn.GetGizmos()` is `public override IEnumerable<Gizmo>` (line 3353). `Pawn.IsColonistPlayerControlled` is a public property (line 778).
+- `Command_Toggle` has public `isActive` (`Func<bool>`) and `toggleAction` (`Action`). It takes `defaultLabel`, `defaultDesc` and `icon` from `Command` (`Verse/Command_Toggle.cs`, lines 7-11). `TexCommand.HoldOpen` is a public static `Texture2D` (`RimWorld/TexCommand.cs`, line 15). The stay-on-floor toggle borrows it because no other icon in that file fits.
+- `JobGiver_Work.emergency` is a public `bool` field. `TryIssueJobPackage(Pawn, JobIssueParams)` is `public override ThinkResult` (`RimWorld/JobGiver_Work.cs`, lines 8-10 and 49). The humanoid think tree holds an emergency node and a normal one. The emergency node offers only prioritized work, so a validation that calls the first node finds no haul.
+- `Building.SpawnSetup` and `Building.DeSpawn` are patched in `HarmonyPatches/MapPatches.cs` (lines 146-170) to set `ZLevelsManager.recheckStairs`. The stairs registry refills on the next `GameComponentTick` (`ZLevelsManager.cs`, lines 30-40). A synchronous check runs no tick, so it must call `GameComponentTick()` once. Run `20261106-001053` showed `registered 0` for a lower stairs-up that existed.
+- `ZLevelsManager.SpawnStairsBelow(Pawn, IntVec3, Map)` creates the lower `ZL_StairsUp` at the same cell, when a `ZL_StairsDown` stands at that cell on a higher map. It is public.
+- Scribe fills a `LookMode.Reference` list only during `ResolvingCrossRefs`. A local list in `ExposeData` is null at `PostLoadInit`, so the lists must live in fields until then. Run `20261106-020356` logged `LoadingVars: no pawn list`, `ResolvingCrossRefs: 1 pawns listed` and `PostLoadInit: no pawn list`, and the lock was lost. Run `20261106-020512` kept it.
+
+## Names confirmed by the multifloors plan (Tasks 29 to 35)
+
+The line numbers are of the decompile in `.artifacts/decomp-1.7.4998`. Each name was read there, or built and run, in the task named.
+
+- `DesignatorManager` sends a single click to `Designator.DesignateSingleCell` (line 101) and a drag to `DesignateMultiCell` (line 126). The base `DesignateSingleCell` throws `NotImplementedException`, so a designator must override it (Task 31).
+- `DesignationCategoryDef` is in `Verse`, not `RimWorld`. It takes `specialDesignatorClasses` (a list of types) and `order` (Task 31).
+- `Verse.Command.groupKey` is a public int, default -1. `Command.GroupsWith(Gizmo)` merges two commands with the same label, icon and `groupKey` (`Verse/Command.cs` lines 37 and 275-293) (Task 33).
+- `Pawn.GetGizmos()` is declared on `Verse.Pawn` (`Verse/Pawn.cs` line 3353). A Harmony patch on `Pawn` adds a gizmo (Tasks 6, 33).
+- `ThingWithComps.GetGizmos` is declared on `ThingWithComps` (line 536). `Building_WorkTable` declares no `GetGizmos`, so a patch on the work table type does not resolve (Task 32).
+- `Find.Targeter` is `MapUI.targeter` (`Verse/Find.cs` line 64). `Targeter.BeginTargeting` has an overload with `TargetingParameters`, an action, a `targetValidator` and a `mouseAttachment` (`RimWorld/Targeter.cs` line 131). A click calls the action with the clicked `LocalTargetInfo`, then stops targeting unless the validator refuses the cell (`ProcessInputEvents`, lines 189-252) (Task 33).
+- `TargetingParameters.canTargetLocations` is a public bool field (`RimWorld/TargetingParameters.cs` line 9) (Task 33).
+- `TexCommand.GatherSpotActive`, `TexCommand.Install` and `TexCommand.HoldOpen` are `Texture2D` statics (`RimWorld/TexCommand.cs` lines 9-19) (Tasks 6, 17, 32, 33).
+- `JobDefOf.Goto` is a static `JobDef` (`RimWorld/JobDefOf.cs` line 10) (Task 33).
+- `Verse.AI.Pawn_JobTracker.TryTakeOrderedJob(Job, JobTag? tag = JobTag.Misc, bool requestQueueing = false)` returns bool (line 889). `EndCurrentJob(JobCondition, bool startNewJob = true, bool canReturnToPool = true)` is at line 419 (Task 33).
+- `Selector.SelectedObjects` is a `List<object>` (`RimWorld/Selector.cs` line 42) (Task 33).
+- `Pawn.Downed` (`Verse/Pawn.cs` line 231), `Pawn.Dead` (line 261) and `Pawn.IsColonistPlayerControlled` (line 778) (Task 33).
+- `Pawn_DraftController.Drafted` is a public bool property (`RimWorld/Pawn_DraftController.cs` line 19) (Task 33).
+- `Room.Temperature` has a public getter and setter over `tempTracker.Temperature`. `Room.UsesOutdoorTemperature` is true when the room touches the map edge, or when a quarter of its cells are open to the sky (`Verse/Room.cs` lines 87 and 99) (Task 34).
+- `GasType` is an enum: `BlindSmoke` 0, `ToxGas` 8, `RotStink` 16, `DeadlifeDust` 24. Each is one byte of a cell's packed density (`Verse/GasType.cs`) (Task 34).
+- `GasGrid.AddGas(IntVec3, GasType, int amount, bool canOverflow = true)` returns without adding for `ToxGas` unless `ModLister.CheckBiotech` passes, and for `DeadlifeDust` unless `ModLister.CheckAnomaly` passes. The validation mod list loads neither expansion, so only `BlindSmoke` is tested in a run (`Verse/GasGrid.cs`, AddGas) (Task 34).
+- `GasGrid.DensityAt` returns a byte. `SetDirect(IntVec3, byte, byte, byte, byte)` writes the four densities (line 246). `GasCanMoveTo(IntVec3)` is at line 431 (Task 34).
+- `GenDate.TicksPerDay` is 60000 (`RimWorld/GenDate.cs` line 9) (Task 34).
+- `RoofDefOf.RoofConstructed` (`RimWorld/RoofDefOf.cs` line 8), `ThingDefOf.Wall` (`RimWorld/ThingDefOf.cs` line 632) and `RoofGrid.SetRoof(IntVec3, RoofDef)` (`Verse/RoofGrid.cs` line 90) (Task 34).
+- `Verse.Window` has public bool fields `doCloseX`, `doCloseButton`, `closeOnClickedOutside`, `forcePause` and `absorbInputAroundWindow` (`Verse/Window.cs` lines 16-38). `InitialSize` is a virtual `Vector2` (line 102) (Task 35).
+- `WindowStack.Windows` is an `IList<Window>` (`Verse/WindowStack.cs` line 41) (Task 35).
+- `Widgets.ButtonText(Rect, string, bool drawBackground = true, ...)` returns bool (`Verse/Widgets.cs` line 1427) (Tasks 29, 35).
+- This mod: `ZLevelsManager.GetOtherEnd` (line 285) pairs the two stairs by cell. `GetStairsDownFor(Map)` returns the list for one map (line 2122). `ZLevelsMod.settings` is a public static `ZLevelsSettings` (`ZLevelsMod.cs` line 15) (Tasks 17, 34).
+
+## Names confirmed by the multifloors Phase E plan (Tasks 36 to 38)
+
+The line numbers are of the decompile in `.artifacts/decomp-1.7.4998`, except where a line says "this mod". Each name was read there, or built and run, in the task named.
+
+- `GenAdj.OccupiedRect(IntVec3 center, Rot4 rot, IntVec2 size)` (`Verse/GenAdj.cs` line 595), and `GenAdj.AdjustForRotation` (lines 621 and 626). A 2 by 2 footprint at North has its origin at the bottom-left cell. The rotation changes the origin, so the large ways are not rotatable (decision DM14) (Task 36).
+- `GenConstruct.CanPlaceBlueprintAt(BuildableDef, IntVec3, Rot4, Map, ...)` returns `AcceptanceReport` (`RimWorld/GenConstruct.cs` line 359). It runs the def's placement workers, so a refusal from a placement worker reaches the caller (Tasks 36, 37).
+- `PlaceWorker.AllowsPlacing(BuildableDef, IntVec3, Rot4, Map, Thing, Thing)` is virtual (`Verse/PlaceWorker.cs` line 14) (Tasks 36, 37).
+- `CellRect.Cells` (`Verse/CellRect.cs` line 176) (Task 36).
+- `GenRadial.RadialCellsAround(IntVec3, float, bool)` (`Verse/GenRadial.cs` line 204). The order of the cells is fixed, so a choice made from them is the same every time (Tasks 36 to 38).
+- `GridsUtility.GetFirstItem(this IntVec3, Map)` (`Verse/GridsUtility.cs` line 242) (Tasks 37, 38).
+- `GenTicks.TickRareInterval` is 250 (`Verse/GenTicks.cs` line 12). `Entity.TickRare()` is virtual (`Verse/Entity.cs` line 29) (Task 37).
+- `GenPlace.TryPlaceThing(Thing, IntVec3, Map, ThingPlaceMode, ...)` (`Verse/GenPlace.cs` line 27). `ThingPlaceMode` is an enum (`Verse/ThingPlaceMode.cs` line 3) (Task 37).
+- `Thing.SplitOff(int count)` is virtual (`Verse/Thing.cs` line 1604) (Task 37).
+- `ThingMaker.MakeThing(ThingDef def, ThingDef stuff = null)` (`Verse/ThingMaker.cs` line 8) (Tasks 37, 38).
+- `StoreUtility.IsInAnyStorage(this Thing)` (`RimWorld/StoreUtility.cs` line 38) (Task 37).
+- `ForbidUtility.IsForbidden(this Thing, Faction)` (`RimWorld/ForbidUtility.cs` line 191) (Task 37).
+- `ReservationManager.IsReserved(LocalTargetInfo)` (`Verse.AI/ReservationManager.cs` line 120). `PhysicalInteractionReservationManager.IsReserved` (line 75) is a different class (Task 37).
+- `Map.reservationManager` is a `ReservationManager` field (`Verse/Map.cs` line 57) (Task 37).
+- `ListerThings.ThingsOfDef(ThingDef)` (`Verse/ListerThings.cs` line 52) and `ListerThings.AllThings` (line 25) (Tasks 37, 38).
+- `ThingCategoryDefOf.ResourcesRaw` (`RimWorld/ThingCategoryDefOf.cs` line 24) (Task 37).
+- `ThingDef.stackLimit` (`Verse/ThingDef.cs` line 19) and `ThingDef.thingCategories` (line 278) (Task 37).
+- `Scribe_Defs.Look<T>(ref T, string)` (`Verse/Scribe_Defs.cs` line 5) and `Scribe_Values.Look<T>(ref T, string, T, bool)` (`Verse/Scribe_Values.cs` line 7) (Task 37).
+- `Def.GetModExtension<T>()` (`Verse/Def.cs` line 192), with `DefModExtension` as its base (Task 37).
+- `FloatMenu(List<FloatMenuOption>)` (`Verse/FloatMenu.cs` line 185), and `FloatMenuOption(string label, Action action, ...)` (`Verse/FloatMenuOption.cs` line 221) (Task 37).
+- `DestroyMode` is an enum (`Verse/DestroyMode.cs` line 3). `Destroy` with `DestroyMode.Vanish` removes a thing without a drop (Tasks 37, 38).
+- `Thing.GetGizmos()` is virtual (`Verse/Thing.cs` line 1404). `Command.defaultLabel` is a public string (`Verse/Command.cs` line 11) (Tasks 37, 38).
+- `Thing.MapHeld` (`Verse/Thing.cs` line 245). `MapPawns.FreeColonistsSpawned` is a list of the spawned free colonists (`Verse/MapPawns.cs` line 336) (Task 38).
+- `Entity.LabelShortCap` is virtual (`Verse/Entity.cs` line 15). `Pawn` inherits it (Task 38).
+- `Messages.Message(string, MessageTypeDef, bool historical)` (`Verse/Messages.cs` line 47) (Task 38).
+- `Widgets.CheckboxLabeled(Rect, string, ref bool, ...)` returns void (`Verse/Widgets.cs` line 1208) (Task 38).
+- `Window.Close(bool doCloseSound)` (`Verse/Window.cs` line 321) (Task 38).
+- `ThingFilter.SetAllow(ThingDef, bool)` (`Verse/ThingFilter.cs` line 669) and `SetDisallowAll` (line 816) (Tasks 36 to 38, in the scenarios).
+- `TimeSpeed` is an enum with `Superfast` (`Verse/TimeSpeed.cs` line 3) (Tasks 37, 38).
+- This mod: `ZLevelsManager.GetOtherEnd` (line 285), `GetUpperLevel(PlanetTile, Map)` (line 257) and `GetZIndexFor(Map)` (line 400). `GetUpperLevel` takes a `PlanetTile`, the type that `Map.Tile` returns (Tasks 36 to 38).
+- This mod: `Building_Stairs.GetGizmos` is declared in `Buildings/Building_StairsUp.cs` (line 27). `Building_Stairs` is the base class of both stairs pieces, so the view button and the transfer button reach both (Task 38).
+- This mod: `ItemFloorMarks.Mark` (line 22) and `IsMarkedFor` (line 27). `Designator_HaulToFloor.MarkItemsForFloor` (line 83). `Designator_HaulToFloor.IsLooseItem` is internal since Task 38 (line 109) (Tasks 31, 38).
+- This mod: `CallColonistsTargeter.CallTo` (`UI/CallColonistsTargeter.cs` line 38) (Tasks 33, 38).
+- `ZUtils` is internal to the mod. The validation assembly cannot name it, so a scenario reads the tracker through `Current.Game.GetComponent<ZLevelsManager>()` (Task 38, found by a build error).
+- `Thing.Map` returns null for a thing that is not spawned (`Verse/Thing.cs` lines 233 to 243). `Thing.MapHeld` (lines 245 to 259) returns the root map of the holder for a thing that is not spawned. A thing that a colonist carries is held, so its `Map` is null while its `MapHeld` is set. Task 39 found the transfer window reading `Map` on such a thing, and fixed it in commit `58668d1`.
+- `Pawn_CarryTracker.TryStartCarry` adds the item to `innerContainer` (`Verse/Pawn_CarryTracker.cs` lines 69 to 82 and 84 to 97) (Task 39).

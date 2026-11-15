@@ -1,0 +1,9 @@
+<Project>
+  <Target Name="CheckRimWorldVersion" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(RimWorldDirectory)/Version.txt')" Text="RimWorld was not found at $(RimWorldDirectory). Set RimWorldDirectory to the install folder." />
+    <ReadLinesFromFile File="$(RimWorldDirectory)/Version.txt" Condition="Exists('$(RimWorldDirectory)/Version.txt')">
+      <Output TaskParameter="Lines" PropertyName="InstalledRimWorldVersion" />
+    </ReadLinesFromFile>
+    <Error Condition="Exists('$(RimWorldDirectory)/Version.txt') And '$(InstalledRimWorldVersion.Trim())' != '$(RimWorldVersion)'" Text="Installed RimWorld is $(InstalledRimWorldVersion.Trim()); this build expects $(RimWorldVersion). Update Directory.Build.props, or point RimWorldDirectory at the matching install." />
+  </Target>
+</Project>
