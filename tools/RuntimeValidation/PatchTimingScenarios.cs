@@ -213,9 +213,10 @@ namespace ZLevelsValidation
         {
             return new List<PatchToggle>
             {
-                Toggle("CanReach", false,
+                // Since D15 the reach patch moves the colonist back in a finalizer, so a throw cannot leave it on another floor.
+                FinalizerToggle("CanReach", false,
                     GameMethod(typeof(Reachability), "CanReach", new[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) }),
-                    typeof(CanReach_Patch), true),
+                    typeof(CanReach_Patch)),
                 Toggle("CanReserve", false,
                     GameMethod(typeof(ReservationManager), "CanReserve", new[] { typeof(Pawn), typeof(LocalTargetInfo), typeof(int), typeof(int), typeof(ReservationLayerDef), typeof(bool) }),
                     typeof(ReservationManager_CanReserve_Patch), true),
