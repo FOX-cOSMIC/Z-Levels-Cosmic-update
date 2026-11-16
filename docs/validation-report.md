@@ -2717,7 +2717,7 @@ Branch `chore/rimworld-5005`. Steam updated the installed game to 1.7.5005 rev10
 ### What changed in the game
 
 - `Assembly-CSharp.dll`: a full decompile of each build differs in `Properties/AssemblyInfo.cs` and `Verse.Steam/WorkshopItem.cs` only. Both review round 1 reviewers checked this with their own diff of the 9256 files. The mod and the harness reference neither.
-- The engine and runtime files changed too: `RimWorld.dll`, `RimWorld.exe`, the `Waylith` assemblies, `UnityStubs.dll`, the Steamworks files and the .NET runtime files. The Claude reviewer decompiled the reference assemblies: `UnityStubs` gains only private and internal members in `GUI`, and the `Waylith` changes are in rendering, diagnostics, and the code that rewrites Harmony-patched methods. The regression below stands for them.
+- The engine and runtime files changed too, among them `RimWorld.dll`, `RimWorld.exe`, the `Waylith` assemblies, `UnityStubs.dll`, `PsdSharp.dll`, the Steamworks files, `RimWorld.deps.json` and the .NET runtime files. The Claude reviewer decompiled the reference assemblies: `UnityStubs` gains only private and internal members in `GUI`, and the `Waylith` changes are in rendering, diagnostics, and the code that rewrites Harmony-patched methods. The regression below stands for them.
 - The game's `Defs` folders have no file dated after 2026-11-10 (checked by file date).
 
 ### Full regression on `5fd0625`
@@ -2734,7 +2734,7 @@ Run from 21:53 to 23:40 local on 2026-11-15, one run per switch, through `run-wh
 | `-ChildAnimalMech` | `20261115-231857` | PASS |
 | `-ChoreSpread` | `20261115-225524` | PASS |
 | `-Cooling` | `20261115-222950` | PASS |
-| `-CoolingNoColumns` | `20261115-223205` | FAIL, by design (negative control, 16 FAIL rows) |
+| `-CoolingNoColumns` | `20261115-223205` | FAIL, by design (negative control, 15 FAIL rows; its positive control passes) |
 | `-CoolingTwoNets` | `20261115-223420` | PASS |
 | `-CrossFloorFight` | `20261115-232017` | PASS |
 | `-EventsOtherFloor` | `20261115-231532` | PASS |
@@ -2795,7 +2795,7 @@ Run from 21:53 to 23:40 local on 2026-11-15, one run per switch, through `run-wh
 
 ### Publish
 
-`ad5c522` publishes the DLLs with `tools/Publish-Mod.ps1` from `95aa610`, which is `5fd0625` with `zlevels-1.7` (PR 4) merged in. PR 4 changed only `README.md` and `ZLevels/About/PublishedFileId.txt`. `ZLevels.dll` has the hash every run above built. `ZLevelsRimatomics.dll` is `F932CDF0...`; the runs do not record the add-on's hash.
+`ad5c522` publishes the DLLs with `tools/Publish-Mod.ps1` from `95aa610`, which is `5fd0625` with `zlevels-1.7` (PR 4) merged in. PR 4 changed only `README.md` and `ZLevels/About/PublishedFileId.txt`. `ZLevels.dll` has the hash every run above built. `ZLevelsRimatomics.dll` is `F932CDF0...`. The runs do not print the add-on's hash, but each run folder keeps the staged add-on under `staged/ZLevels/1.7-Rimatomics/Assemblies/`, and all 67 run folders of 2026-11-15 in the retarget worktree hash to `F932CDF0...` (review round 2).
 
 ### Review
 

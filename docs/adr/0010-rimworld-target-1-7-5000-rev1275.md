@@ -7,3 +7,5 @@ The Steam unstable branch on this PC has 1.7.5000 rev1275 installed. No 1.7.4998
 The checks in `docs/game-api-findings.md` were made against the 4998 decompile. On 2026-11-08 the names were checked again against 1.7.5000 rev1275, and the note at the top of that file says what was checked and what was not.
 
 Decided 2026-11-08. This answers D10. Lucas chose the installed build, the recommended option.
+
+The value was replaced on 2026-11-15 by ADR-0011, after Steam updated the installed build to 1.7.5005 rev1082.
