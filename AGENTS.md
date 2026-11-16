@@ -33,6 +33,7 @@ Port of Z-Levels (RamRod, package `foxcosmic.zlevels17`) to RimWorld 1.7.5011 re
 - Test-first here means a validation scenario or in-game check that fails before the fix and passes after. There is no unit-test suite, and mock tests are not gameplay proof.
 - Record failures and untested cases as they are. Never disable a patch or hide an error to get a green run.
 - Check every Harmony attribute and reflected name against the installed 1.7 code.
+- Before a full regression or other long run, compare the game's `Version.txt` with `RimWorldVersion` in `Directory.Build.props`. If they differ, Steam updated the game: stop and retarget first (D18).
 
 ## Git
 
