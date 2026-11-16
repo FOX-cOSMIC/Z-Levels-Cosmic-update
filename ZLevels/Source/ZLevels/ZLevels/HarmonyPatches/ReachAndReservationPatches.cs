@@ -35,17 +35,23 @@ namespace ZLevels
     [HarmonyPatch(typeof(Reachability), "CanReach", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
     public class CanReach_Patch
     {
-        private static Map oldMap;
-        private static IntVec3 oldPosition;
+        // Where the colonist stood before the prefix moved it to the target's floor. It travels in Harmony's __state, so a reach check nested
+        // in another keeps its own copy.
+        public sealed class Restore
+        {
+            public Map map;
+            public IntVec3 cell;
+        }
+
         // A map that has left the game can still sit in a look-up table. Its reachability is gone, so it must not be used.
         private static bool IsLiveMap(Map map)
         {
             return map != null && map.reachability != null && Find.Maps.Contains(map);
         }
 
-        private static bool Prefix(ref bool __result, Reachability __instance, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams, out bool __state)
+        private static bool Prefix(ref bool __result, Reachability __instance, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams, out Restore __state)
         {
-            __state = false;
+            __state = null;
             var pawn = traverseParams.pawn;
             if (pawn != null && pawn.Map != null)
             {
@@ -56,9 +62,7 @@ namespace ZLevels
                         var cellToTeleport = ZUtils.GetCellToTeleportFrom(pawn.Map, pawn.Position, dest.thingInt.Map);
                         var cell = cellToTeleport.IsValid ? cellToTeleport : pawn.Position;
     
-                        __state = true;
-                        oldMap = pawn.Map;
-                        oldPosition = pawn.Position;
+                        __state = new Restore { map = pawn.Map, cell = pawn.Position };
                         ZUtils.TeleportThing(pawn, dest.thingInt.Map, cell);
                         if (dest.thingInt.Map != __instance.map)
                         {
@@ -82,9 +86,7 @@ namespace ZLevels
                         var cellToTeleport = ZUtils.GetCellToTeleportFrom(pawn.Map, pawn.Position, mapDest);
                         var cell = cellToTeleport.IsValid ? cellToTeleport : pawn.Position;
     
-                        __state = true;
-                        oldMap = pawn.Map;
-                        oldPosition = pawn.Position;
+                        __state = new Restore { map = pawn.Map, cell = pawn.Position };
                         ZUtils.TeleportThing(pawn, mapDest, cell);
                         if (mapDest != __instance.map)
                         {
@@ -103,11 +105,14 @@ namespace ZLevels
             }
             return true;
         }
-        private static void Postfix(Reachability __instance, ref bool __result, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams, bool __state)
+        // The finalizer moves the colonist back after every call the prefix moved it for, also when the reach check on the other floor throws.
+        // A postfix would be skipped then and leave the colonist on that floor (decision D15). The exception still goes on to the caller.
+        // Harmony runs finalizers after every postfix, so another mod's postfix on this method sees the colonist still on the target's floor.
+        private static void Finalizer(TraverseParms traverseParams, Restore __state)
         {
-            if (__state && traverseParams.pawn != null)
+            if (__state != null && traverseParams.pawn != null)
             {
-                ZUtils.TeleportThing(traverseParams.pawn, oldMap, oldPosition);
+                ZUtils.TeleportThing(traverseParams.pawn, __state.map, __state.cell);
             }
         }
     }

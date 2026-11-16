@@ -2904,3 +2904,133 @@ Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. Clau
 - The published DLLs were not loaded into a game; the runs loaded staged copies with the same hash.
 - Members named by string in Harmony attributes or reflection rest on the regression, not on the reference check.
 - Multiplayer is untested.
+
+## D15: floor state left behind by the floor loops and the reach patch (2026-11-15 to 2026-11-16)
+
+Branch `fix/floor-state-left-behind`. Lucas answered D15 on 2026-11-15: yes, the recommended option. Spec: `docs/specs/2026-11-15-floor-state-left-behind.md`. Plan: `docs/plans/2026-11-15-floor-state-left-behind.md`.
+
+### What was wrong
+
+- **The floor field.** The two floor iterators in `ZUtils.cs` set `ZUtils.currentLookedIntoMap` before each floor they yield and never put it back. The food, joy, rest and attack searches, and the other floor loops, left it on the last floor searched. While the colonist's tracker was still the one being filled, the next cells built were filed under that floor. The colonist's reach to an open cell on its own floor was then answered on the other floor, and refused. This is D13 option (b). The joy search never stops early, so every joy search left the field on the last floor.
+- **The reach patch.** `CanReach_Patch` moved the colonist to the target's floor and moved it back in a postfix. Harmony skips a postfix when the call throws, so a throw left the colonist on the other floor (roadmap, "Reachability bugs", run `193352`).
+- **The haul store cell, found in review round 1.** `HaulToStorageJob` built the haul job from the store cell after the store search's floor loop had ended. Before D15 the cell was filed under the last floor that loop yielded, which was right for storage on another floor only by accident. With the iterator fix, it was filed under the colonist's own floor. Review round 2 found two more steps on the same path. The search for other storage wrote the carrier's floor into `mapDest`, and `HaulToCellStorageJob` read the slot group and the stacks from the carrier's floor.
+
+### Changes
+
+- `fb02e65`: both iterators wrap their old bodies in a `try`/`finally` that puts the field back on the own floor (`oldMap`). This covers the end of the floors, an early stop and a throw in the caller's loop. `CanReach_Patch` keeps the colonist's floor and cell in `__state`, and a finalizer replaces the postfix.
+- `93487a9`: while `HaulToCellStorageJob` builds the job, the field names `jobTracker.mapDest`, and it is put back afterwards.
+- `bbf8ff5`: `TryFindBestBetterStorageFor` keeps the store cell's floor. A container records its own floor, and `HaulToCellStorageJob` reads the storage's floor.
+- `b496532`: the `-SearchTiming` toggle for the reach patch takes the finalizer.
+
+### The scenario
+
+`-FloorStateAfterSearch` (`tools/RuntimeValidation/FloorStateScenarios.cs`) runs:
+
+- each iterator to its end, stopped early on the lower floor, with a throw in the loop body there, and nested on the lower floor;
+- the food, joy, rest and attack searches through their Harmony prefixes. A harness prefix on each per-floor step makes every floor come up empty and records the floors it ran on;
+- a haul to storage on the lower floor and one to storage on the own floor;
+- a reach check that throws while the colonist stands on the lower floor, for a thing and for a filed cell;
+- a normal reach check.
+
+After each one, the rows check the field, where the colonist is, and its reach to an open surface cell that is solid below.
+
+### Red and green runs
+
+| Run | Code | Result |
+|---|---|---|
+| `20261115-215238` | `4739965`, scenario on the unfixed mod | Red, 18 rows FAIL: every iterator state row, the floor field and the reach after each of the four searches, both reach-throw rows |
+| `20261115-234054` | `0ae7dde`, haul rows on `fb02e65` | Red, 1 row FAIL: the store cell on the lower floor filed under the own floor |
+| `20261115-235201` | `bbf8ff5` | Green, `-FloorStateAfterSearch` |
+| `20261115-235322` | `bbf8ff5` | Green, `-SearchThrowState` |
+| `20261115-235442` | `bbf8ff5` | Green, core |
+
+All on RimWorld 1.7.5005 rev1082, with a clean tree.
+
+### Full regressions
+
+The first regression, on `67f0464` (1.7.5005 rev1082), was cut short. Steam updated the game to 1.7.5011 rev24 at 00:50 on 2026-11-16, and every build after that stopped. Of the 30 runs before the update, 28 passed and `CoolingNoColumns` failed by design. `-Supply` failed its craft rows S3 and S4 (run `20261116-001317`). It then passed four times on 1.7.5011, twice without D15 (`20261116-011536`, `012442`) and twice with it (`20261116-011957`, `012907`). No run ties that failure to D15. The roadmap records an unconfirmed risk in the same area.
+
+The second regression ran on `d596c41`, which is D15 with `zlevels-1.7` and the 1.7.5011 retarget merged in. It ran from 03:10 to 04:52 local on 2026-11-16. All 65 runs report `identity dirty: False`, RimWorld 1.7.5011 rev24, and built `ZLevels.dll` `D01FECA4...`, each on its first attempt. 62 print `Runtime validation passed`.
+
+| Run | Folder | Result |
+|---|---|---|
+| core | `20261116-031129` | PASS |
+| `-InfestationGuard` | `20261116-031323` | PASS |
+| `-StaleLookup` | `20261116-031453` | PASS |
+| `-VaultPlacement` | `20261116-031613` | PASS |
+| `-VaultPocket` | `20261116-031733` | PASS |
+| `-VaultEnter` | `20261116-031848` | PASS |
+| `-VaultLoad` | `20261116-032018` | PASS |
+| `-VaultSave` | `20261116-032143` | PASS |
+| `-VaultInfestation` | `20261116-032318` | PASS |
+| `-VaultRock` | `20261116-032438` | PASS |
+| `-VaultFull` | `20261116-032833` | PASS |
+| `-Supply` | `20261116-032948` | FAIL at the gate: every game row passed (S1 to S9 and `cross-level supply`), then the runner stopped on a console error at its log-warning step, when its parent shell was ended, before the gate printed. Rerun `20261116-045545` passes |
+| `-UnreachableZone` | `20261116-033434` | PASS |
+| `-MultiBuild` | `20261116-033655` | PASS |
+| `-StairsDamage` | `20261116-033841` | PASS |
+| `-Cooling` | `20261116-034006` | PASS |
+| `-CoolingNoColumns` | `20261116-034217` | FAIL, by design (negative control; its positive control passes) |
+| `-CoolingTwoNets` | `20261116-034432` | PASS |
+| `-SocialRelaxQueue` | `20261116-034557` | PASS |
+| `-RestSearchNull` | `20261116-034717` | PASS |
+| `-TraderReturn` | `20261116-034833` | PASS |
+| `-ReservationRefused` | `20261116-034948` | PASS |
+| `-FloorHotkeys` | `20261116-035108` | PASS |
+| `-StayOnFloor` | `20261116-035228` | PASS |
+| `-WorkOnFloorOrder` | `20261116-035354` | PASS |
+| `-NeedCooldown` | `20261116-035514` | PASS |
+| `-IdleSearchPause` | `20261116-035635` | PASS |
+| `-StaleClaims` | `20261116-035755` | PASS |
+| `-FloorGuard` | `20261116-035921` | PASS |
+| `-StorageIndex` | `20261116-040041` | PASS |
+| `-StairRoutes` | `20261116-040202` | PASS |
+| `-FloorWalk` | `20261116-040322` | PASS |
+| `-AddonLoad` | `20261116-040443` | PASS |
+| `-ChoreSpread` | `20261116-040558` | PASS |
+| `-OneFloorColony` | `20261116-040719` | PASS |
+| `-StairsView` | `20261116-040839` | PASS |
+| `-StairPlacement` | `20261116-040959` | PASS |
+| `-SearchTiming` | `20261116-041119` | FAIL: "CanReach_Patch.Postfix was not found". Fixed in `b496532`; rerun `20261116-045420` passes |
+| `-WorkSearchProfile` | `20261116-041244` | PASS |
+| `-LighterFloors` | `20261116-041410` | PASS |
+| `-OwnFloorFirst` | `20261116-041530` | PASS |
+| `-JobTargets` | `20261116-041650` | PASS |
+| `-BackgroundHaul` | `20261116-041805` | PASS |
+| `-JobTakenOnArrival` | `20261116-041930` | PASS |
+| `-RaidGround` | `20261116-042051` | PASS |
+| `-LeaveFromLower` | `20261116-042211` | PASS |
+| `-SkyfallerRoof` | `20261116-042337` | PASS |
+| `-MoodOtherFloor` | `20261116-042457` | PASS |
+| `-EventsOtherFloor` | `20261116-042622` | PASS |
+| `-ThiefCarry` | `20261116-042823` | PASS |
+| `-ChildAnimalMech` | `20261116-042948` | PASS |
+| `-CrossFloorFight` | `20261116-043108` | PASS |
+| `-FloorsTab` | `20261116-043329` | PASS |
+| `-FloorWorkFilter` | `20261116-043539` | PASS |
+| `-HaulToFloor` | `20261116-043705` | PASS |
+| `-BenchLink` | `20261116-043831` | PASS |
+| `-CallColonists` | `20261116-043956` | PASS |
+| `-StairsEqualize` | `20261116-044116` | PASS |
+| `-FloorsGuide` | `20261116-044237` | PASS |
+| `-WayUps` | `20261116-044352` | PASS |
+| `-FloorPipe` | `20261116-044517` | PASS |
+| `-StairTransfer` | `20261116-044637` | PASS |
+| `-SearchThrowState` | `20261116-044758` | PASS |
+| `-FloorStateAfterSearch` | `20261116-044913` | PASS |
+| `-RimatomicsPlusPlus` | `20261116-045033` | PASS |
+
+`-SearchTiming` found a real gap: the timing scenario looked up the postfix that D15 removed. After the fix, `-SearchTiming` and `-Supply` pass on `b496532` (`20261116-045420`, `20261116-045545`).
+
+### Review
+
+- **Round 1:** a Claude subagent and `gpt-6.1-sol` (high), on `5fd0625..fb02e65`. GPT: APPROVE, no findings. Claude: CHANGES, one Major (the haul store cell) and four Minor (stale comments and spec text, a note on other mods' postfixes, the reservation patches' old restore). The fixes are in `0ae7dde` and `93487a9`; the reservation patches are a roadmap item.
+- **Round 2:** a Claude subagent on `93487a9`. CHANGES, three Minor: the search for other storage writing the carrier's floor, `HaulToCellStorageJob` reading the carrier's floor, and a spec check for the haul rows. All are fixed in `bbf8ff5`.
+- **Round 3:** a Claude subagent on `75dd013`. APPROVE, with two Minor wording findings in this section, fixed in the next commit.
+
+### Limits
+
+- No row checks the haul job's count for storage on another floor.
+- The bill, refuel and forced float-menu floor loops never set the floor field. That is recorded on the roadmap, not reproduced.
+- The reservation patches keep the postfix restore. That is a roadmap item.
+- The published DLLs were not loaded into a game. Multiplayer is untested.

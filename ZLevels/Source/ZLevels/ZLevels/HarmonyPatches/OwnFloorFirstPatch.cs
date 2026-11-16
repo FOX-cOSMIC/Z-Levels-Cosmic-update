@@ -40,9 +40,10 @@ namespace ZLevels
         // failed. ZUtils.currentLookedIntoMap would keep that floor, so the cells built afterwards would be filed there too, and the colonist's reach
         // to them would be answered on that floor. On an exception the field goes back to the own floor, and the tracker is reset to the empty start,
         // as the caller resets it after a search that finds nothing. The exception goes on to the caller, which logs it and gives no job.
-        // A search that finds nothing also puts the field back on the own floor (decision D13). The floor iterator leaves the field on the last
-        // floor it searched, and the caller keeps the colonist's tracker as the one being filled, so without this the colonist's reach to a cell
-        // on its own floor would be answered on that last floor until the next search.
+        // A search that finds nothing also puts the field back on the own floor (decision D13). The caller keeps the colonist's tracker as the
+        // one being filled, so a field left on another floor would answer the colonist's reach to a cell on its own floor on that floor until the
+        // next search. Since D15 the floor iterators in ZUtils.cs put the field back on the own floor when they end. RunVanillaSearch also sets
+        // the field, outside any iterator, so these restores stay.
         internal static ThinkResult Search(JobGiver_Work instance, bool emergency, Pawn pawn, JobIssueParams jobParams, JobTracker jobTracker, Map oldMap, IntVec3 oldPosition)
         {
             try

@@ -1693,8 +1693,8 @@ namespace ZLevels
             }
 
             // The cell is checked as a cell of map. The reservation and reachability checks below build a LocalTargetInfo from the cell, and the
-            // Z-Levels patches route each check to the map recorded when that LocalTargetInfo was built. The floor iterator leaves the last floor it
-            // yielded as the recorded map, so without this the cell is checked on the wrong floor. The map is set for the check and put back after it.
+            // Z-Levels patches route each check to the map recorded when that LocalTargetInfo was built. The floor field names the floor the search
+            // looks into, which need not be the storage's floor, so without this the cell is checked on the wrong floor. The map is set for the check and put back after it.
             public static bool IsGoodStoreCell(IntVec3 c, Map map, Thing t, Pawn carrier, Faction faction)
             {
                 Map previousLookedIntoMap = ZUtils.currentLookedIntoMap;
@@ -1850,7 +1850,21 @@ namespace ZLevels
                 }
                 if (haulDestination is ISlotGroupParent)
                 {
-                    return HaulToCellStorageJob(p, t, foundCell, fitInStoreCell: false);
+                    // The job is built from the store cell while the colonist's tracker may still be the one being filled, so the constructor
+                    // patch files the cell under the floor field. The store search names the storage's floor in mapDest. The field names that
+                    // floor while the job is built, and is put back after it, as in IsGoodStoreCell. Without this the cell is filed under the
+                    // floor the search looks into, and the haul's reach and reservation checks are answered there (D15, review round 1).
+                    Map storeMap = jobTracker?.mapDest ?? p.Map;
+                    Map previousLookedIntoMap = ZUtils.currentLookedIntoMap;
+                    ZUtils.currentLookedIntoMap = storeMap;
+                    try
+                    {
+                        return HaulToCellStorageJob(p, t, foundCell, fitInStoreCell: false, storeMap);
+                    }
+                    finally
+                    {
+                        ZUtils.currentLookedIntoMap = previousLookedIntoMap;
+                    }
                 }
                 Thing thing = haulDestination as Thing;
                 if (thing != null && thing.TryGetInnerInteractableThingOwner() != null)
@@ -1864,10 +1878,14 @@ namespace ZLevels
             {
                 IntVec3 foundCell2 = IntVec3.Invalid;
 
+                // The store cell search names the floor of the cell it found in mapDest. The search for other storage below writes mapDest too,
+                // for each container it accepts, so the cell's floor is kept here and written back when the cell wins (D15, review round 2).
+                Map storeMap = null;
                 StoragePriority storagePriority = StoragePriority.Unstored;
                 if (TryFindBestBetterStoreCellFor(t, carrier, map, currentPriority, faction, out foundCell2, jobTracker, needAccurateResult))
                 {
-                    storagePriority = foundCell2.GetSlotGroup(jobTracker.mapDest).Settings.Priority;
+                    storeMap = jobTracker.mapDest;
+                    storagePriority = foundCell2.GetSlotGroup(storeMap).Settings.Priority;
                 }
 
                 if (!TryFindBestBetterNonSlotGroupStorageFor(t, carrier, map, currentPriority, faction, out IHaulDestination haulDestination2, jobTracker))
@@ -1887,7 +1905,8 @@ namespace ZLevels
                     return true;
                 }
                 foundCell = foundCell2;
-                haulDestination = foundCell2.GetSlotGroup(jobTracker.mapDest).parent;
+                jobTracker.mapDest = storeMap;
+                haulDestination = foundCell2.GetSlotGroup(storeMap).parent;
                 return true;
             }
 
@@ -1970,18 +1989,22 @@ namespace ZLevels
                     num = num2;
                     storagePriority = priority;
                     haulDestination = container;
-                    jobTracker.mapDest = map;
+                    // The container's own floor, which need not be the carrier's (D15, review round 2).
+                    jobTracker.mapDest = container.Map;
                 }
                 return haulDestination != null;
             }
 
-            public static Job HaulToCellStorageJob(Pawn p, Thing t, IntVec3 storeCell, bool fitInStoreCell)
+            // storeMap is the floor of the store cell. The slot group, the stacks and the cell checks are read there, not on the carrier's floor:
+            // on the carrier's floor they would read another floor's cells, and IsGoodStoreCell would file the store cell under that floor
+            // (D15, review round 2).
+            public static Job HaulToCellStorageJob(Pawn p, Thing t, IntVec3 storeCell, bool fitInStoreCell, Map storeMap)
             {
                 Job job = JobMaker.MakeJob(JobDefOf.HaulToCell, t, storeCell);
-                SlotGroup slotGroup = p.Map.haulDestinationManager.SlotGroupAt(storeCell);
+                SlotGroup slotGroup = storeMap.haulDestinationManager.SlotGroupAt(storeCell);
                 if (slotGroup != null)
                 {
-                    Thing thing = p.Map.thingGrid.ThingAt(storeCell, t.def);
+                    Thing thing = storeMap.thingGrid.ThingAt(storeCell, t.def);
                     if (thing != null)
                     {
                         job.count = t.def.stackLimit;
@@ -1999,9 +2022,9 @@ namespace ZLevels
                     List<IntVec3> cellsList = slotGroup.CellsList;
                     for (int i = 0; i < cellsList.Count; i++)
                     {
-                        if (IsGoodStoreCell(cellsList[i], p.Map, t, p, p.Faction))
+                        if (IsGoodStoreCell(cellsList[i], storeMap, t, p, p.Faction))
                         {
-                            Thing thing2 = p.Map.thingGrid.ThingAt(cellsList[i], t.def);
+                            Thing thing2 = storeMap.thingGrid.ThingAt(cellsList[i], t.def);
                             num = ((thing2 == null || thing2 == t) ? (num + t.def.stackLimit) :
                                 (num + Mathf.Max(t.def.stackLimit - thing2.stackCount, 0)));
                             if (num >= job.count || (float)num >= statValue)
