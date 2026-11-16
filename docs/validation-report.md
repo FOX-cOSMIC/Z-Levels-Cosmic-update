@@ -2938,7 +2938,7 @@ After each one, the rows check the field, where the colonist is, and its reach t
 
 | Run | Code | Result |
 |---|---|---|
-| `20261115-215238` | `4739965`, scenario on the unfixed mod | Red, 18 rows FAIL: every iterator row, the reach after each search, both reach-throw rows |
+| `20261115-215238` | `4739965`, scenario on the unfixed mod | Red, 18 rows FAIL: every iterator state row, the floor field and the reach after each of the four searches, both reach-throw rows |
 | `20261115-234054` | `0ae7dde`, haul rows on `fb02e65` | Red, 1 row FAIL: the store cell on the lower floor filed under the own floor |
 | `20261115-235201` | `bbf8ff5` | Green, `-FloorStateAfterSearch` |
 | `20261115-235322` | `bbf8ff5` | Green, `-SearchThrowState` |
@@ -2965,7 +2965,7 @@ The second regression ran on `d596c41`, which is D15 with `zlevels-1.7` and the 
 | `-VaultInfestation` | `20261116-032318` | PASS |
 | `-VaultRock` | `20261116-032438` | PASS |
 | `-VaultFull` | `20261116-032833` | PASS |
-| `-Supply` | none | FAIL: the runner stopped on a console error when its parent shell was ended, no game result. Rerun `20261116-045545` passes |
+| `-Supply` | `20261116-032948` | FAIL at the gate: every game row passed (S1 to S9 and `cross-level supply`), then the runner stopped on a console error at its log-warning step, when its parent shell was ended, before the gate printed. Rerun `20261116-045545` passes |
 | `-UnreachableZone` | `20261116-033434` | PASS |
 | `-MultiBuild` | `20261116-033655` | PASS |
 | `-StairsDamage` | `20261116-033841` | PASS |
@@ -3026,7 +3026,7 @@ The second regression ran on `d596c41`, which is D15 with `zlevels-1.7` and the 
 
 - **Round 1:** a Claude subagent and `gpt-6.1-sol` (high), on `5fd0625..fb02e65`. GPT: APPROVE, no findings. Claude: CHANGES, one Major (the haul store cell) and four Minor (stale comments and spec text, a note on other mods' postfixes, the reservation patches' old restore). The fixes are in `0ae7dde` and `93487a9`; the reservation patches are a roadmap item.
 - **Round 2:** a Claude subagent on `93487a9`. CHANGES, three Minor: the search for other storage writing the carrier's floor, `HaulToCellStorageJob` reading the carrier's floor, and a spec check for the haul rows. All are fixed in `bbf8ff5`.
-- **Round 3:** see the pull request.
+- **Round 3:** a Claude subagent on `75dd013`. APPROVE, with two Minor wording findings in this section, fixed in the next commit.
 
 ### Limits
 
