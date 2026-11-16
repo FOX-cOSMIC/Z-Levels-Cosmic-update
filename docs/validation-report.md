@@ -2805,3 +2805,102 @@ Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. The 
 
 - The published DLLs were not loaded into a game; the runs loaded staged copies with the same `ZLevels.dll` hash.
 - Multiplayer is untested.
+
+## Retarget to 1.7.5011 rev24 (2026-11-16)
+
+Branch `chore/rimworld-5011`. Steam updated the installed game again, to 1.7.5011 rev24, on 2026-11-16 at 00:50 local time, during the first D15 regression. ADR 0012 records the change. NuGet has no `Krafs.Rimworld.Ref` for 1.7.5011, so the mod compiles against the 1.7.5005 reference; the run identity now names it (`identity reference:`).
+
+### What changed in the game
+
+- `Assembly-CSharp.dll`: 11 files differ from 1.7.5005 rev1082 (memory readout, UI scale, the frame profiler, per-version mod metadata). The mod and the harness name none of those types. The one public member removed is `ResolutionUtility.ResolveUIScale(float)`.
+- Both review round 1 reviewers checked the built `ZLevels.dll`, `ZLevelsRimatomics.dll` and `RuntimeValidation.dll` against the installed game: all 1916 member references into `Assembly-CSharp` and `UnityStubs` resolve, with no difference in signature, access or layout against the 1.7.5005 reference.
+- The engine files changed again. No file under `Data/*/Defs` is dated after the update.
+
+### Full regression on `1a7ec43`
+
+Run from 01:33 to 03:10 local on 2026-11-16. All 64 runs report `identity dirty: False`, RimWorld 1.7.5011 rev24, and built `ZLevels.dll` SHA-256 `38ABBCCE...`, each on its first attempt. `FloorsTab` ran with `-ModsConfigSource`. 62 print `Runtime validation passed`.
+
+| Run | Folder | Result |
+|---|---|---|
+| core | `20261116-013423` | PASS |
+| `-AddonLoad` | `20261116-022509` | PASS |
+| `-BackgroundHaul` | `20261116-023824` | PASS |
+| `-BenchLink` | `20261116-025839` | PASS |
+| `-CallColonists` | `20261116-030005` | PASS |
+| `-ChildAnimalMech` | `20261116-025004` | PASS |
+| `-ChoreSpread` | `20261116-022629` | PASS |
+| `-Cooling` | `20261116-020058` | PASS |
+| `-CoolingNoColumns` | `20261116-020308` | FAIL, by design (negative control; its positive control passes) |
+| `-CoolingTwoNets` | `20261116-020518` | PASS |
+| `-CrossFloorFight` | `20261116-025124` | PASS |
+| `-EventsOtherFloor` | `20261116-024639` | PASS |
+| `-FloorGuard` | `20261116-021948` | PASS |
+| `-FloorHotkeys` | `20261116-021144` | PASS |
+| `-FloorPipe` | `20261116-030524` | PASS |
+| `-FloorWalk` | `20261116-022348` | PASS |
+| `-FloorWorkFilter` | `20261116-025549` | PASS |
+| `-FloorsGuide` | `20261116-030245` | PASS |
+| `-FloorsTab` | `20261116-025344` | PASS |
+| `-HaulToFloor` | `20261116-025714` | PASS |
+| `-IdleSearchPause` | `20261116-021708` | PASS |
+| `-InfestationGuard` | `20261116-013629` | PASS |
+| `-JobTakenOnArrival` | `20261116-023944` | PASS |
+| `-JobTargets` | `20261116-023709` | PASS |
+| `-LeaveFromLower` | `20261116-024229` | PASS |
+| `-LighterFloors` | `20261116-023434` | PASS |
+| `-MoodOtherFloor` | `20261116-024519` | PASS |
+| `-MultiBuild` | `20261116-015743` | PASS |
+| `-NeedCooldown` | `20261116-021548` | PASS |
+| `-OneFloorColony` | `20261116-022749` | PASS |
+| `-OwnFloorFirst` | `20261116-023554` | PASS |
+| `-RaidGround` | `20261116-024109` | PASS |
+| `-ReservationRefused` | `20261116-021029` | PASS |
+| `-RestSearchNull` | `20261116-020753` | PASS |
+| `-SearchThrowState` | `20261116-030803` | PASS |
+| `-SearchTiming` | `20261116-023144` | PASS |
+| `-SkyfallerRoof` | `20261116-024354` | PASS |
+| `-SocialRelaxQueue` | `20261116-020638` | PASS |
+| `-StairPlacement` | `20261116-023024` | FAIL: three rows refused with "Cannot place in undiscovered areas." Two reruns pass (see below) |
+| `-StairRoutes` | `20261116-022228` | PASS |
+| `-StairTransfer` | `20261116-030644` | PASS |
+| `-StairsDamage` | `20261116-015933` | PASS |
+| `-StairsEqualize` | `20261116-030125` | PASS |
+| `-StairsView` | `20261116-022904` | PASS |
+| `-StaleClaims` | `20261116-021828` | PASS |
+| `-StaleLookup` | `20261116-013759` | PASS |
+| `-StayOnFloor` | `20261116-021304` | PASS |
+| `-StorageIndex` | `20261116-022108` | PASS |
+| `-Supply` | `20261116-015117` | PASS |
+| `-ThiefCarry` | `20261116-024839` | PASS |
+| `-TraderReturn` | `20261116-020914` | PASS |
+| `-UnreachableZone` | `20261116-015528` | PASS |
+| `-VaultEnter` | `20261116-014211` | PASS |
+| `-VaultFull` | `20261116-015002` | PASS |
+| `-VaultInfestation` | `20261116-014652` | PASS |
+| `-VaultLoad` | `20261116-014346` | PASS |
+| `-VaultPlacement` | `20261116-013925` | PASS |
+| `-VaultPocket` | `20261116-014051` | PASS |
+| `-VaultRock` | `20261116-014812` | PASS |
+| `-VaultSave` | `20261116-014511` | PASS |
+| `-WayUps` | `20261116-030404` | PASS |
+| `-WorkOnFloorOrder` | `20261116-021428` | PASS |
+| `-WorkSearchProfile` | `20261116-023309` | PASS |
+| `-RimatomicsPlusPlus` | `20261116-030923` | PASS |
+
+`-StairPlacement` refused the stair cell as undiscovered on run `20261116-023024`. It passed on 1.7.5005 (`20261115-225919`) and on two reruns on the head `d596892` (`20261116-045931`, `20261116-050046`), and the game changes do not touch fog. I record it as a flaky failure: the test can pick a cell under fog on some generated maps. Cause not proven.
+
+Core passes on the head `d596892` (`20261116-050207`), whose identity names `Krafs.Rimworld.Ref 1.7.5005-unstable`. The commits after `1a7ec43` change the runner's identity lines, `tools/Publish-Mod.ps1`, `tools/Check-Docs.ps1`, a comment in `Directory.Build.props`, `build-info.txt` and docs; the mod's DLLs are byte-identical.
+
+### Publish
+
+`d596892` records the publish from `009947c`. The DLLs equal the ones `ad5c522` published (`ZLevels.dll` `38ABBCCE...`, `ZLevelsRimatomics.dll` `F932CDF0...`), and `build-info.txt` names RimWorld 1.7.5011 rev24 and the compile reference.
+
+### Review
+
+Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. Claude: one Major (this report and the publish were missing) and five Minor findings (the findings header, ADR 0006's pointer, the safety wording, the provenance of the compile reference, a reminder for the pin, and where the decompiles live). GPT: two Minor (the findings header, the missing report). All are fixed in `009947c`, `d596892` and this commit.
+
+### Limits
+
+- The published DLLs were not loaded into a game; the runs loaded staged copies with the same hash.
+- Members named by string in Harmony attributes or reflection rest on the regression, not on the reference check.
+- Multiplayer is untested.
