@@ -1,6 +1,6 @@
 # RimWorld 1.7 API findings for Z-Levels
 
-Each fact below cites where it was read. The names were re-checked against RimWorld 1.7.5000 rev1275, the target then (ADR-0010, decision D10), on 2026-11-08. The mod now targets 1.7.5005 rev1082 (ADR-0011), whose game code differs from 1.7.5000 rev1275 only as the note below says. That re-check covers names, not parameter lists or line numbers. A section that gives line numbers from an earlier build says which build. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
+Each fact below cites where it was read. The names were re-checked against RimWorld 1.7.5000 rev1275, the target then (ADR-0010, decision D10), on 2026-11-08. The mod now targets 1.7.5011 rev24 (ADR-0012), whose game code differs from 1.7.5000 rev1275 only as the notes below say. That re-check covers names, not parameter lists or line numbers. A section that gives line numbers from an earlier build says which build. Decompiles are written under `.artifacts/ilspy/` (gitignored). Regenerate one type with:
 
 ```
 ilspycmd -t <Namespace.Type> "C:/SteamLibrary/steamapps/common/RimWorld/Assembly-CSharp.dll" -o .artifacts/ilspy/<name>

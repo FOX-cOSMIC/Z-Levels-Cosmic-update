@@ -208,7 +208,8 @@ function Get-GateProblems {
     }
     return $problems
 }
-# The identity header is the first five lines of validation-results.txt. It names the commit, whether the tree was dirty, the RimWorld version, and the SHA-256
+# The identity header is the first lines of validation-results.txt. It names the commit, whether the tree was dirty, the RimWorld version, the compile
+# reference package (informational; ADR 0012 lets it lag the target), and the SHA-256
 # of the ZLevels.dll that was built and the one that was staged. The gate refuses a results file whose header is missing or malformed, whose staged DLL is not
 # the built one, or whose built hash is not the hash of the bin ZLevels.dll now. Each problem names its key.
 function Get-IdentityProblems {
@@ -570,6 +571,9 @@ New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 # The version that the build expects. The ModsConfig and the identity header both name it, so a run cannot name one version and load another.
 $rimWorldVersion = [regex]::Match([IO.File]::ReadAllText((Join-Path $workspace 'Directory.Build.props')), '<RimWorldVersion>([^<]+)</RimWorldVersion>').Groups[1].Value
 if (-not $rimWorldVersion) { throw 'Directory.Build.props does not name a RimWorldVersion.' }
+# The Krafs.Rimworld.Ref version the mod compiles against, as MSBuild evaluates it. It can lag the target (ADR 0012).
+$referenceVersion = (dotnet msbuild (Join-Path $workspace 'ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj') -getProperty:RimWorldPackageVersion -nologo | Select-Object -Last 1).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $referenceVersion) { throw 'MSBuild did not evaluate RimWorldPackageVersion.' }
 Import-Module -Name (Join-Path $PSScriptRoot 'ValidationGame.psm1')
 # Each project is rebuilt with -t:Rebuild and built explicitly. RuntimeValidation references the two mod projects, and a Rebuild of one project does not
 # guarantee that its references are rebuilt, so a stale ZLevels.dll would otherwise be hashed and staged.
@@ -622,6 +626,7 @@ $identityLines = @(
     "identity commit: $commit",
     "identity dirty: $($dirtyPaths.Count -gt 0)",
     "identity rimworld: $rimWorldVersion",
+    "identity reference: Krafs.Rimworld.Ref $referenceVersion",
     "identity built ZLevels.dll sha256: $builtSha256",
     "identity staged ZLevels.dll sha256: $stagedSha256"
 )

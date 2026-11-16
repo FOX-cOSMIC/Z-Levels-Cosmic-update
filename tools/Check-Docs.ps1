@@ -9,6 +9,13 @@ $root = Split-Path -Parent $PSScriptRoot
 $propsText = [System.IO.File]::ReadAllText((Join-Path $root 'Directory.Build.props'))
 $expected = [regex]::Match($propsText, '<RimWorldVersion>([^<]+)</RimWorldVersion>').Groups[1].Value
 if (-not $expected) { throw 'RimWorldVersion is not set in Directory.Build.props.' }
+# ADR 0012: the compile reference may be pinned to an older package while NuGet has none for the target. Say so on every check, so the
+# pin is not forgotten once the matching package exists.
+$package = [regex]::Match($propsText, '<RimWorldPackageVersion>([^<]+)</RimWorldPackageVersion>').Groups[1].Value
+$derived = $expected.Split(' ')[0] + '-unstable'
+if ($package -and $package -notmatch '\$\(' -and $package -ne $derived) {
+    Write-Host "Note: the compile reference is pinned to Krafs.Rimworld.Ref $package, not $derived (ADR 0012). Remove the pin once NuGet publishes $derived."
+}
 
 $problems = @()
 foreach ($name in @('README.md', 'CLAUDE.md')) {

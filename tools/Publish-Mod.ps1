@@ -35,7 +35,10 @@ $release = Join-Path $root 'ZLevels/1.7/Assemblies'
 # The add-on has its own folder. A copy in the Z-Levels folder would load it without Dubs Rimatomics.
 $releaseFolders = @{ 'ZLevelsRimatomics.dll' = (Join-Path $root 'ZLevels/1.7-Rimatomics/Assemblies') }
 $profile = $env:USERPROFILE
-$lines = @("Built from source commit: $commit", "RimWorld: $rimWorldVersion", ".NET SDK: $sdk")
+# The Krafs.Rimworld.Ref version the mod compiles against, as MSBuild evaluates it. It can lag the target (ADR 0012).
+$referenceVersion = (dotnet msbuild (Join-Path $root 'ZLevels/Source/ZLevels/ZLevels/ZLevels.csproj') -getProperty:RimWorldPackageVersion -nologo | Select-Object -Last 1).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $referenceVersion) { throw 'MSBuild did not evaluate RimWorldPackageVersion.' }
+$lines = @("Built from source commit: $commit", "RimWorld: $rimWorldVersion", "Compile reference: Krafs.Rimworld.Ref $referenceVersion", ".NET SDK: $sdk")
 foreach ($name in $outputs.Keys) {
     $source = $outputs[$name]
     if (-not (Test-Path -LiteralPath $source)) { throw "Missing build output: $source" }
