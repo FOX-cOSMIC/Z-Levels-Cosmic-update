@@ -63,7 +63,7 @@ The script builds the mods and stages them in the run folder. It then copies the
 
 The run passes when every scenario reports PASS, `core validation | PASS` is present, and the log has no ERROR line except duplicate-package messages for other mods. The last line is `Runtime validation passed. Evidence: <run folder>`. A passing run removes its game copy. A failing run keeps the copy and prints its path.
 
-The first five lines of `validation-results.txt` form an identity header. They name the commit, whether the tree was dirty, the RimWorld version, and the SHA-256 of the built and the staged `ZLevels.dll`. A run fails if a header line is missing or malformed. It also fails if the staged hash differs from the built hash, or the built hash differs from `bin/Release/ZLevels.dll`.
+The first lines of `validation-results.txt` form an identity header. They name the commit, whether the tree was dirty, the RimWorld version, the compile reference package, and the SHA-256 of the built and the staged `ZLevels.dll`. The reference line is informational; the others are checked. A run fails if a header line is missing or malformed. It also fails if the staged hash differs from the built hash, or the built hash differs from `bin/Release/ZLevels.dll`.
 
 Earlier versions of the script added two junctions to the game's `Mods` folder, `ZLevels-Local17` and `ZLevels-Validation`. The current script adds none. To remove leftover junctions, run `cmd /c rmdir "<RimWorld>\Mods\ZLevels-Local17"` and the same for `ZLevels-Validation`. Do not use `Remove-Item -Recurse` on a junction, because it can delete the contents of the folder it links to.
 

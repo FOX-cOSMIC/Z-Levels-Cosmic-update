@@ -2813,7 +2813,7 @@ Branch `chore/rimworld-5011`. Steam updated the installed game again, to 1.7.501
 ### What changed in the game
 
 - `Assembly-CSharp.dll`: 11 files differ from 1.7.5005 rev1082 (memory readout, UI scale, the frame profiler, per-version mod metadata). The mod and the harness name none of those types. The one public member removed is `ResolutionUtility.ResolveUIScale(float)`.
-- Both review round 1 reviewers checked the built `ZLevels.dll`, `ZLevelsRimatomics.dll` and `RuntimeValidation.dll` against the installed game: all 1916 member references into `Assembly-CSharp` and `UnityStubs` resolve, with no difference in signature, access or layout against the 1.7.5005 reference.
+- Both review round 1 reviewers checked the built `ZLevels.dll`, `ZLevelsRimatomics.dll` and `RuntimeValidation.dll` against the installed game: all 1916 member references into `Assembly-CSharp` and `UnityStubs` resolve. The GPT reviewer also compared those members with the 1.7.5005 reference and found no difference in signature, access or layout.
 - The engine files changed again. No file under `Data/*/Defs` is dated after the update.
 
 ### Full regression on `1a7ec43`
@@ -2897,7 +2897,7 @@ Core passes on the head `d596892` (`20261116-050207`), whose identity names `Kra
 
 ### Review
 
-Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. Claude: one Major (this report and the publish were missing) and five Minor findings (the findings header, ADR 0006's pointer, the safety wording, the provenance of the compile reference, a reminder for the pin, and where the decompiles live). GPT: two Minor (the findings header, the missing report). All are fixed in `009947c`, `d596892` and this commit.
+Round 1: a Claude subagent and `gpt-6.1-sol` (high). Both returned CHANGES. Claude: one Major (this report and the publish were missing) and six Minor findings (the findings header, ADR 0006's pointer, the safety wording, the provenance of the compile reference, a reminder for the pin, and where the decompiles live). GPT: two Minor (the findings header, the missing report). All are fixed in `009947c`, `d596892` and this commit.
 
 ### Limits
 
