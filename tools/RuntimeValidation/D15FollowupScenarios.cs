@@ -127,7 +127,7 @@ namespace ZLevelsValidation
                 row("no tracker is being filled after a work search that finds nothing", filingAfterWork == null,
                     "the tracker being filled is " + (filingAfterWork == colonistTracker ? "the colonist's" : "another one"));
                 row("a cell built after a work search that finds nothing is not filed in the colonist's tracker", !filedBefore && !filedAfter,
-                    filedBefore ? "the cell was filed before it was built" : "the cell was filed under " + describeFloor(colonistTracker.lookedAtLocalCellMap[probeCell]));
+                    filedBefore ? "the cell was filed before it was built" : "the cell was filed under " + describeFloor(filedAfter ? colonistTracker.lookedAtLocalCellMap[probeCell] : null));
 
                 startRow();
                 tracker.ResetJobTrackerFor(colonist);
