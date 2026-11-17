@@ -70,6 +70,23 @@ namespace ZLevelsValidation
             }
         }
 
+        // The harness postfix on the wander giver, late in the think tree. While armed, it resets the colonist's tracker after the work search
+        // has ended, so only the end of the think-tree search can end the filing.
+        internal static class LateResetProbe
+        {
+            internal static Pawn ArmedPawn;
+            internal static int Resets;
+
+            public static void Postfix(Pawn pawn)
+            {
+                if (ArmedPawn != null && pawn == ArmedPawn)
+                {
+                    Resets++;
+                    Current.Game.GetComponent<ZLevelsManager>().ResetJobTrackerFor(pawn);
+                }
+            }
+        }
+
         private void RunD15FollowupsCheck()
         {
             const string label = "d15 follow-ups";
@@ -82,6 +99,7 @@ namespace ZLevelsValidation
                 MethodInfo billStep = AccessTools.Method(typeof(WorkGiver_DoBill), "TryFindBestBillIngredients") ?? throw new InvalidOperationException("WorkGiver_DoBill.TryFindBestBillIngredients is missing");
                 MethodInfo refuelStep = AccessTools.Method(typeof(WorkGiver_Refuel), nameof(WorkGiver_Refuel.HasJobOnThing)) ?? throw new InvalidOperationException("WorkGiver_Refuel.HasJobOnThing is missing");
                 MethodInfo determineNextJob = AccessTools.Method(typeof(Pawn_JobTracker), "DetermineNextJob") ?? throw new InvalidOperationException("Pawn_JobTracker.DetermineNextJob is missing");
+                MethodInfo wanderGiver = AccessTools.Method(typeof(JobGiver_Wander), "TryGiveJob") ?? throw new InvalidOperationException("JobGiver_Wander.TryGiveJob is missing");
 
                 Map surface = Find.CurrentMap;
                 ZLevelsManager tracker = Current.Game.GetComponent<ZLevelsManager>();
@@ -129,20 +147,44 @@ namespace ZLevelsValidation
                 row("a cell built after a work search that finds nothing is not filed in the colonist's tracker", !filedBefore && !filedAfter,
                     filedBefore ? "the cell was filed before it was built" : "the cell was filed under " + describeFloor(filedAfter ? colonistTracker.lookedAtLocalCellMap[probeCell] : null));
 
+                // The wander giver runs after the work giver in the colonist's think tree, and resets the tracker there (review round 1, finding 2).
+                harmony.Patch(wanderGiver, postfix: new HarmonyMethod(typeof(LateResetProbe), nameof(LateResetProbe.Postfix)));
+                patchedMethods.Add(wanderGiver);
                 startRow();
                 tracker.ResetJobTrackerFor(colonist);
+                LateResetProbe.Resets = 0;
+                LateResetProbe.ArmedPawn = colonist;
                 object[] determineArgs = new object[determineNextJob.GetParameters().Length];
                 for (int i = 0; i < determineArgs.Length; i++)
                 {
                     ParameterInfo parameter = determineNextJob.GetParameters()[i];
                     determineArgs[i] = parameter.HasDefaultValue ? parameter.DefaultValue : null;
                 }
-                object thought = determineNextJob.Invoke(colonist.jobs, determineArgs);
+                object thought;
+                try
+                {
+                    thought = determineNextJob.Invoke(colonist.jobs, determineArgs);
+                }
+                finally
+                {
+                    LateResetProbe.ArmedPawn = null;
+                }
                 JobTracker filingAfterThink = LocalTargetInfo_Constructor_Patch.curPawnJobTracker;
                 Job thoughtJob = thought is ThinkResult thinkResult ? thinkResult.Job : null;
-                Record("the think-tree search", "INFO: job " + (thoughtJob == null ? "none" : thoughtJob.def.defName));
-                row("no tracker is being filled after a think-tree search", filingAfterThink == null,
+                Record("the think-tree search", "INFO: job " + (thoughtJob == null ? "none" : thoughtJob.def.defName) + ", late resets " + LateResetProbe.Resets);
+                row("no tracker is being filled after a think-tree search that reset the tracker late", LateResetProbe.Resets > 0 && filingAfterThink == null,
+                    (LateResetProbe.Resets == 0 ? "the wander giver did not run; " : "") +
                     "the tracker being filled is " + (filingAfterThink == colonistTracker ? "the colonist's" : "another one"));
+
+                // A reset names the colonist's floor in the floor field, whatever another colonist's search left there (review round 1, finding 4).
+                startRow();
+                ZU.Field = lower;
+                tracker.ResetJobTrackerFor(colonist);
+                Map fieldAfterReset = ZU.Field;
+                LocalTargetInfo resetTarget = new LocalTargetInfo(probeCell);
+                Map resetFiled = tracker.jobTracker[colonist].lookedAtLocalCellMap.TryGetValue(probeCell, out Map filedUnder) ? filedUnder : null;
+                row("a reset names the colonist's floor in the floor field", fieldAfterReset == surface, "the floor field is " + describeFloor(fieldAfterReset));
+                row("a cell built after a reset is filed under the colonist's floor", resetFiled == surface, "the cell " + resetTarget.Cell + " is filed under " + describeFloor(resetFiled));
 
                 // Part 2. A reservation check that throws on the lower floor. The CanReserve probe runs first: the Z-Levels prefix asks CanReserve
                 // again after it moves the colonist, so the inner call throws. The CanReserveStack prefix lets the original run after the move, so
@@ -187,6 +229,8 @@ namespace ZLevelsValidation
                 {
                     startRow();
                     tracker.ResetJobTrackerFor(colonist);
+                    // A field left on the lower floor, so only the loop's own restore can put it back on the own floor (review round 1, finding 1).
+                    ZU.Field = lower;
                     FloorFieldProbe.Arm(colonist);
                     Job found;
                     try
@@ -268,6 +312,7 @@ namespace ZLevelsValidation
             finally
             {
                 FloorFieldProbe.ArmedPawn = null;
+                LateResetProbe.ArmedPawn = null;
                 ReserveThrowProbe.ArmedPawn = null;
                 ReserveThrowProbe.ArmedMap = null;
                 foreach (MethodInfo method in patchedMethods)
