@@ -1300,6 +1300,11 @@ namespace ZLevels
                                 __result = ThinkResult.NoJob;
                                 ZLogger.Error("Exception in the paused own-floor search: " + ex);
                             }
+                            finally
+                            {
+                                // The paused search has ended too (D15 follow-ups, review round 1).
+                                ZLevelsManager.CloseFiling();
+                            }
                             return false;
                         }
                         ThinkResult result;
