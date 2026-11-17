@@ -53,6 +53,9 @@ namespace ZLevels
                 sent.Add(colonist);
                 tracker.ResetJobTrackerFor(colonist);
                 Job walk = JobMaker.MakeJob(JobDefOf.Goto, cell);
+                // The walk cell lies on the called floor. Building the job filed it under the colonist's floor, which the reset names in the
+                // floor field, so it is filed again under the called floor (D15 follow-ups, review round 2).
+                tracker.jobTracker[colonist].lookedAtLocalCellMap[cell] = map;
                 if (colonist.Map == map)
                 {
                     colonist.jobs.TryTakeOrderedJob(walk);
@@ -63,6 +66,7 @@ namespace ZLevels
                     tracker.BuildJobListFor(colonist, map, walk);
                     colonist.jobs.EndCurrentJob(JobCondition.InterruptForced);
                 }
+                ZLevelsManager.CloseFiling();
                 tracker.floorPolicy.MoveLock(colonist, floorIndex);
             }
             return sent;

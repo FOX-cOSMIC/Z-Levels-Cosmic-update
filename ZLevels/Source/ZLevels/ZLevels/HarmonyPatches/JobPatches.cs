@@ -1156,7 +1156,8 @@ namespace ZLevels
 
             // Every think-tree search ends here: the work, food, joy, rest and combat searches reset a colonist's tracker, which starts filing
             // cells into it, and a search that finds nothing or throws leaves the filing on. The finalizer ends it after every search, also
-            // after a throw, and passes the exception on (D15 follow-ups).
+            // after a throw, and passes the exception on (D15 follow-ups). It also runs when the game returns early because the pawn is already
+            // choosing a job; no search calls DetermineNextJob from inside itself, so no outer filing is cut short.
             private static void Finalizer()
             {
                 ZLevelsManager.CloseFiling();
