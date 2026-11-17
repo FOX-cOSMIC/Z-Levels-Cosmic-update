@@ -219,7 +219,10 @@ namespace ZLevelsValidation
                 row("the stove is back on its own floor after the bill loop", stoveBack, "the stove is on " + describeFloor(stove.Map));
                 stove.Destroy();
 
-                CompRefuelable campfire = SpawnEmptyCampfire(surface);
+                // An empty campfire beside the stairs. SpawnEmptyCampfire reads the supply scenario's stairs, so it is not used here.
+                ThingDef campfireDef = Def("Campfire");
+                CompRefuelable campfire = SpawnPlayerBuilding(surface, campfireDef, FindSupplyCell(surface, stairs.Position, campfireDef.Size)).GetComp<CompRefuelable>();
+                EmptyFuel(campfire);
                 WorkGiver_Refuel refuelScanner = DefDatabase<WorkGiverDef>.GetNamed("Refuel").Worker as WorkGiver_Refuel ?? throw new InvalidOperationException("the Refuel work giver is not a WorkGiver_Refuel");
                 loopRows("refuel", () => JobPatches.TryIssueJobPackagePatch.RefuelJobOnThing(refuelScanner, colonist, campfire.parent, true));
                 campfire.parent.Destroy();
