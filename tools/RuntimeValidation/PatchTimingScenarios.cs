@@ -217,12 +217,14 @@ namespace ZLevelsValidation
                 FinalizerToggle("CanReach", false,
                     GameMethod(typeof(Reachability), "CanReach", new[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) }),
                     typeof(CanReach_Patch)),
-                Toggle("CanReserve", false,
+                // Since the D15 follow-ups the reservation patches move the colonist back in a finalizer. CanReserve keeps its postfix for the
+                // reservation-conflict check.
+                WithFinalizer(Toggle("CanReserve", false,
                     GameMethod(typeof(ReservationManager), "CanReserve", new[] { typeof(Pawn), typeof(LocalTargetInfo), typeof(int), typeof(int), typeof(ReservationLayerDef), typeof(bool) }),
-                    typeof(ReservationManager_CanReserve_Patch), true),
-                Toggle("CanReserveStack", false,
+                    typeof(ReservationManager_CanReserve_Patch), true), typeof(ReservationManager_CanReserve_Patch)),
+                FinalizerToggle("CanReserveStack", false,
                     GameMethod(typeof(ReservationManager), "CanReserveStack", new[] { typeof(Pawn), typeof(LocalTargetInfo), typeof(int), typeof(ReservationLayerDef), typeof(bool) }),
-                    typeof(ReservationManager_CanReserveStack_Patch), true),
+                    typeof(ReservationManager_CanReserveStack_Patch)),
                 // These two search patches restore their flag in a finalizer, which runs even when the vanilla search throws, so their toggles take
                 // the finalizer and not a postfix.
                 FinalizerToggle("BestShootTargetFromCurrentPosition", true,
@@ -249,6 +251,13 @@ namespace ZLevelsValidation
             PatchToggle toggle = new PatchToggle { Name = name, Attack = attack };
             toggle.Pieces.Add(Piece(original, patchClass, "Prefix", PatchKind.Prefix));
             if (hasPostfix) toggle.Pieces.Add(Piece(original, patchClass, "Postfix", PatchKind.Postfix));
+            return toggle;
+        }
+
+        // Adds the patch class's finalizer to a toggle that already has its prefix and postfix.
+        private static PatchToggle WithFinalizer(PatchToggle toggle, Type patchClass)
+        {
+            toggle.Pieces.Add(Piece((MethodInfo)toggle.Pieces[0].Original, patchClass, "Finalizer", PatchKind.Finalizer));
             return toggle;
         }
 
