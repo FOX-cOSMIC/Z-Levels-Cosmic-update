@@ -460,6 +460,13 @@ namespace ZLevels
         [HarmonyPatch(typeof(FloatMenuMakerMap), "GetOptions")]
         public class AddHumanlikeOrders_Patch
         {
+            // The right-click searches reset the colonist's tracker, which starts filing cells into it. The finalizer ends the filing when the
+            // menu is built, also after a throw, and passes the exception on (D15 follow-ups).
+            public static void Finalizer()
+            {
+                ZLevelsManager.CloseFiling();
+            }
+
             public static void Postfix(Vector3 clickPos, FloatMenuContext context, ref List<FloatMenuOption> __result)
             {
                 if (context == null || context.IsMultiselect || context.FirstSelectedPawn == null || !context.FirstSelectedPawn.RaceProps.Humanlike) return;
@@ -746,7 +753,7 @@ namespace ZLevels
                                                 Map oldPawnMap = pawn.Map;
                                                 IntVec3 oldPawnPosition = pawn.Position;
 
-                                                foreach (var otherMap in ZTracker.GetAllMapsInClosestOrder(oldPawnMap))
+                                                foreach (var otherMap in ZUtils.LookingInto(ZTracker.GetAllMapsInClosestOrder(oldPawnMap), oldPawnMap))
                                                 {
                                                     if (oldPawnMap != otherMap)
                                                     {

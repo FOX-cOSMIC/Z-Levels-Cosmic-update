@@ -1153,6 +1153,14 @@ namespace ZLevels
                     }
                 }
             }
+
+            // Every think-tree search ends here: the work, food, joy, rest and combat searches reset a colonist's tracker, which starts filing
+            // cells into it, and a search that finds nothing or throws leaves the filing on. The finalizer ends it after every search, also
+            // after a throw, and passes the exception on (D15 follow-ups).
+            private static void Finalizer()
+            {
+                ZLevelsManager.CloseFiling();
+            }
         }
 
         [HarmonyPatch(typeof(Pawn_JobTracker), "StartJob")]
@@ -1340,6 +1348,12 @@ namespace ZLevels
                             jobTracker.searchingJobsNow = false;
                             ZLogger.Error("Exception in TryIssueJobPackagePatch: " + ex);
                         }
+                        finally
+                        {
+                            // The search has ended. A search that found nothing reset the tracker above, which starts filing again; a job
+                            // found was filed by BuildJobListFor, which ended it (D15 follow-ups).
+                            ZLevelsManager.CloseFiling();
+                        }
                         if (select) Find.Selector.Select(pawn);
                         return false;
                     }
@@ -1423,7 +1437,7 @@ namespace ZLevels
                     ZLogger.Message(giver + " - billGiver.Map: " + ZTracker.GetMapInfo(giver.Map));
                     ZLogger.Message(giver + " - billGiver.Position: " + workBench.Position);
                     using (new FloorRestore(workBench, origBillGiverMap, origBillGiverPosition, pawn, origPawnMap, origPawnPosition))
-                    foreach (var map in LinkedFloorFirst(ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)), workBench))
+                    foreach (var map in ZUtils.LookingInto(LinkedFloorFirst(ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(origBillGiverMap)), workBench), origPawnMap))
                     {
                         try
                         {
@@ -2070,7 +2084,7 @@ namespace ZLevels
                 IntVec3 oldThingPosition = t.Position;
 
                 using (new FloorRestore(pawn, oldPawnMap, oldPawnPosition, t, oldThingMap, oldThingPosition))
-                foreach (var otherMap in ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(oldThingMap)))
+                foreach (var otherMap in ZUtils.LookingInto(ZTracker.floorPolicy.Allowed(pawn, ZTracker.GetAllMapsInClosestOrder(oldThingMap)), oldPawnMap))
                 {
                     if (oldThingMap != otherMap)
                     {

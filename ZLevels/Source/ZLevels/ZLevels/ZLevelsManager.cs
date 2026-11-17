@@ -1065,6 +1065,13 @@ namespace ZLevels
             ZLogger.Message(this.ShowJobData(jobToDo, pawn, dest) + log);
         }
 
+        // Ends the filing that ResetJobTrackerFor starts: no tracker collects the cells built from here on. The cells a search filed stay in
+        // its tracker, where CanReach_Patch and the reservation patch read them. Called when a search ends, whatever it found (D15 follow-ups).
+        public static void CloseFiling()
+        {
+            LocalTargetInfo_Constructor_Patch.curPawnJobTracker = null;
+        }
+
         public void ResetJobTrackerFor(Pawn pawn)
         {
             ZLogger.Message("ResetJobTrackerFor: " + pawn);
