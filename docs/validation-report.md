@@ -3089,6 +3089,8 @@ The regression ran on `3c8025b` from 21:37 to 23:17 local on 2026-11-17. That co
 - `-RaidGround`: the raid did not fire in run `20261117-224811`. It passed on a rerun (`20261117-231808`). This is the first recorded failure of this row.
 - `-FloorsTab` reads Lucas's mod list. On 2026-11-17 at 14:53, Steam updated his Workshop mods. Since then, loading that list throws, with missing `DMS` types and a `LunarFramework` parameter-count error. The game then resets the mod list, and the runner stops (runs `20261117-230030` and `231927`). With a scratch mod list of Harmony, Core and Royalty, the scenario passes (`20261117-232115`). This branch did not cause it.
 
+The regression script read switch names with `[A-Za-z]+`, so it skipped `-D15Followups`. That run was made on the PR head `db621ff`, with the same `ZLevels.dll` and a clean tree, and passed (`20261117-232436`).
+
 An earlier attempt on `baf6a97` is void. Two regressions that I had stopped kept running from their wrapper loops, so three ran at the same time and fought over the shared game log. Those logs are kept in the scratch folder as `reg-baf6a97-collided`. The one real failure among them, `-SearchTiming`, is fixed in `3c8025b`.
 
 | Run | Folder | Result |
