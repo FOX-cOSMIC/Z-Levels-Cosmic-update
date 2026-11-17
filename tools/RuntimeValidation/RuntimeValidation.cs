@@ -512,6 +512,12 @@ namespace ZLevelsValidation
                     RunFloorStateAfterSearchCheck();
                     return;
                 }
+                if (GenCommandLine.CommandLineArgPassed("zlevelsd15followups"))
+                {
+                    finished = true;
+                    RunD15FollowupsCheck();
+                    return;
+                }
                 if (GenCommandLine.CommandLineArgPassed("zlevelslighterfloors"))
                 {
                     finished = true;
