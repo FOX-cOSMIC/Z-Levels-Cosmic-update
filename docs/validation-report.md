@@ -3172,6 +3172,9 @@ An earlier attempt on `baf6a97` is void. Two regressions that I had stopped kept
   All four are fixed in `d3d51fa` and `651eed6`. The GPT reviewer (`gpt-6.1-sol`, medium) did not run: the ChatGPT usage limit was reached, and a retry on `651eed6` hit the same limit.
 - **Round 2:** a Claude subagent on `651eed6`. APPROVE with three Minor findings: the call-colonists walk cell, the float-menu comments and spec, and the float-menu loop's missing `FloorRestore`. It also left a note on `DetermineNextJob`'s early return. All are fixed in `baf6a97`.
 
+- **Round 3:** a Claude subagent on `20272dd`, the whole PR. APPROVE with three Minor findings: the identity wording above, a missing limit, and the call-colonists `CloseFiling` outside a `finally`. All are fixed in `aea4db0`. The DLLs were published again from `aea4db0` (`ZLevels.dll` `3AB000F8...`, `217ce3c`). On that DLL, `-CallColonists` (`20261118-012428`), `-D15Followups` (`20261118-012555`) and core (`20261118-012724`) pass.
+- **GPT:** no GPT review ran. Lucas answered on 2026-11-18 to merge on the Claude rounds alone (roadmap, decisions).
+
 ### Limits
 
 - No row covers the float-menu loop or the float-menu finalizer. Building the right-click menu in a run needs a click context.
