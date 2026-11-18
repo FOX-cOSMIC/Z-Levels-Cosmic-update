@@ -3083,7 +3083,7 @@ Branch `fix/d15-followups`, from `zlevels-1.7` at `91ef5fd`. These are the four 
 
 ### Full regression
 
-The regression ran on `3c8025b` from 21:37 to 23:17 local on 2026-11-17. That commit has the same mod code as `baf6a97`. All 65 runs started on their first attempt. Each built `ZLevels.dll` `AB7A76B9...` and ran on RimWorld 1.7.5011 rev24. 64 report `identity dirty: False`; `-FloorsTab` stopped before it printed one. 62 runs print `Runtime validation passed`.
+The regression ran on `3c8025b` from 21:37 to 23:17 local on 2026-11-17. That commit has the same mod code as `baf6a97`. All 65 runs started on their first attempt. Each built `ZLevels.dll` `AB7A76B9...` and ran on RimWorld 1.7.5011 rev24. All 65 run folders record `identity dirty: False`; only the `-FloorsTab` wrapper log stopped before it printed the identity. 62 runs print `Runtime validation passed`.
 
 - `-CoolingNoColumns` fails by design.
 - `-RaidGround`: the raid did not fire in run `20261117-224811`. It passed on a rerun (`20261117-231808`). This is the first recorded failure of this row.
@@ -3175,5 +3175,6 @@ An earlier attempt on `baf6a97` is void. Two regressions that I had stopped kept
 ### Limits
 
 - No row covers the float-menu loop or the float-menu finalizer. Building the right-click menu in a run needs a click context.
+- No row reproduces the call-colonists filing fix (round 2) or its `finally` (round 3). `-CallColonists` passes end to end.
 - The stair arrival check still resets the tracker without ending the filing. Filing ends at the next think-tree search of any pawn.
 - The published DLLs were not loaded into a game. Multiplayer is untested.
