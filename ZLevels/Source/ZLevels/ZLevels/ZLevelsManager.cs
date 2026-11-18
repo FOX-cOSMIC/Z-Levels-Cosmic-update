@@ -1065,6 +1065,13 @@ namespace ZLevels
             ZLogger.Message(this.ShowJobData(jobToDo, pawn, dest) + log);
         }
 
+        // Ends the filing that ResetJobTrackerFor starts: no tracker collects the cells built from here on. The cells a search filed stay in
+        // its tracker, where CanReach_Patch and the reservation patch read them. Called when a search ends, whatever it found (D15 follow-ups).
+        public static void CloseFiling()
+        {
+            LocalTargetInfo_Constructor_Patch.curPawnJobTracker = null;
+        }
+
         public void ResetJobTrackerFor(Pawn pawn)
         {
             ZLogger.Message("ResetJobTrackerFor: " + pawn);
@@ -1102,6 +1109,10 @@ namespace ZLevels
             }
 
             LocalTargetInfo_Constructor_Patch.curPawnJobTracker = jobTracker;
+            // The floor field is shared by every colonist. A reset starts filing for this colonist, so the field names this colonist's floor
+            // until a floor loop moves it. Otherwise a cell built before the first loop is filed under the floor of whichever colonist searched
+            // last (D15 follow-ups, review round 1).
+            ZUtils.currentLookedIntoMap = pawn.Map;
         }
 
         public bool TryTakeFirstJob(Pawn pawn, bool forced = false)
@@ -1368,6 +1379,8 @@ namespace ZLevels
                         // reset below, so the colonist searches again. The debug log records it, and the game keeps running.
                         ZLogger.Message($"Fail in TryMakePreToilReservations, pawn: {pawn}, job: {job}, driver: {job.GetCachedDriver(pawn)}, map: {this.GetMapInfo(pawn.Map)}");
                         this.ResetJobTrackerFor(pawn);
+                        // No search follows here, so the filing the reset started ends (D15 follow-ups, review round 1).
+                        CloseFiling();
                     }
                 }
             }
@@ -1375,6 +1388,7 @@ namespace ZLevels
             {
                 ZLogger.Message("Resetting jobs for " + pawn);
                 this.ResetJobTrackerFor(pawn);
+                CloseFiling();
             }
             return true;
         }

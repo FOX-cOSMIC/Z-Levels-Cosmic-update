@@ -3034,3 +3034,150 @@ The second regression ran on `d596c41`, which is D15 with `zlevels-1.7` and the 
 - The bill, refuel and forced float-menu floor loops never set the floor field. That is recorded on the roadmap, not reproduced.
 - The reservation patches keep the postfix restore. That is a roadmap item.
 - The published DLLs were not loaded into a game. Multiplayer is untested.
+
+## D15 follow-ups: filing, reservation restore, floor loops, haul count (2026-11-17)
+
+Branch `fix/d15-followups`, from `zlevels-1.7` at `91ef5fd`. These are the four roadmap items that D15 left open. Lucas asked on 2026-11-17 to finish the project and merge without asking. Spec: `docs/specs/2026-11-17-d15-followups.md`. Plan: `docs/plans/2026-11-17-d15-followups.md`.
+
+### What was wrong
+
+- **Filing stayed open.** `ResetJobTrackerFor` makes a colonist's tracker the one being filled. From then on, every cell target built by any code is filed into that tracker under the floor field. Only a search that found a job ended the filing. A search that found nothing, a search that threw, and a reset with no search after it all left it open. Cells built later were then filed into that colonist's tracker, and could overwrite an entry its search had made under another floor.
+- **The reservation patches could strand a colonist.** `ReservationManager_CanReserve_Patch` and `ReservationManager_CanReserveStack_Patch` moved the colonist to the target's floor and moved it back in a postfix. Harmony skips a postfix when the call throws, so a throw left the colonist on the other floor.
+- **Three floor loops never set the floor field.** The bill ingredient loop, the refuel loop and the forced float-menu loop moved the colonist to each floor but left the field on the own floor.
+- **The field could name another colonist's floor.** The field is shared by every colonist. A reset did not set it, so a cell built after a reset, before the first floor loop, was filed under the floor of whichever colonist had searched last (review round 1).
+
+### Changes
+
+- `aa5b0b8`:
+  - `ZLevelsManager.CloseFiling()` ends the filing. The work-search prefix calls it when its search ends. Finalizers on `Pawn_JobTracker.DetermineNextJob` and on the float-menu patch also call it.
+  - Both reservation patches keep the colonist's floor and cell in `__state`, and a finalizer moves the colonist back.
+  - `ZUtils.LookingInto` sets the field to each floor of a loop, and puts it back on the own floor when the loop ends, stops early or throws. The bill, refuel and float-menu loops use it.
+- `651eed6` (review round 1):
+  - `TryTakeFirstJob`'s two resets and the paused own-floor search end the filing.
+  - `ResetJobTrackerFor` sets the field to the colonist's floor.
+- `baf6a97` (review round 2):
+  - The call-colonists order files its walk cell under the called floor and ends the filing.
+  - The forced float-menu loop moves the colonist back through `FloorRestore`, also when a work giver throws.
+- `3c8025b`: the `-SearchTiming` toggles for the reservation patches take their new finalizers. Before this, the timing scenario looked up the removed `CanReserveStack` postfix and failed.
+
+### The scenario
+
+`-D15Followups` (`tools/RuntimeValidation/D15FollowupScenarios.cs`) runs these rows:
+
+- **Filing:** a work search that finds nothing, with all work off, followed by a cell built afterwards. A think-tree search (`DetermineNextJob`) with a harness postfix on the wander giver that resets the tracker after the work search, so only the finalizer can end the filing. A reset with the field left on the lower floor.
+- **Reservation:** a harness prefix throws inside `CanReserve` and `CanReserveStack` while the colonist stands on the lower floor. This covers a thing below and a cell filed below. A normal `CanReserve` check is also run.
+- **Floor loops:** harness prefixes on `WorkGiver_DoBill.TryFindBestBillIngredients` and `WorkGiver_Refuel.HasJobOnThing` record the colonist's floor and the field at each step, and make each step find nothing. The field starts on the lower floor.
+- **Haul count:** a one-cell stockpile on the lower floor holds 50 steel. `HaulToCellStorageJob` for 60 surface steel to that cell must give a count of 25.
+
+### Red and green runs
+
+| Run | Code | Result |
+|---|---|---|
+| `20261117-194514` | scenario `8eed683` on the product of `91ef5fd` | Red, 8 rows FAIL: filing after the empty search (2), filing after the think-tree search, the three throw rows, the field in the bill loop and in the refuel loop. The haul count row passes, because D15 already fixed it. |
+| `20261117-195318` | `37507de` | Green, `-D15Followups` |
+| `20261117-194848`, `195006`, `195119` | `aa5b0b8` | Green, `-FloorStateAfterSearch`, `-SearchThrowState`, core |
+| `20261117-200304` | scenario `d3d51fa` on the product of `37507de` | Red, 2 rows FAIL: the two reset rows from review round 1 |
+| `20261117-200608` | `651eed6` | Green, `-D15Followups` |
+
+`20261117-194330` was the first red run. It stopped at the refuel setup, because the shared campfire helper reads another scenario's stairs. The scenario now builds its own campfire.
+
+### Full regression
+
+The regression ran on `3c8025b` from 21:37 to 23:17 local on 2026-11-17. That commit has the same mod code as `baf6a97`. All 65 runs started on their first attempt. Each built `ZLevels.dll` `AB7A76B9...` and ran on RimWorld 1.7.5011 rev24. All 65 run folders record `identity dirty: False`; only the `-FloorsTab` wrapper log stopped before it printed the identity. 62 runs print `Runtime validation passed`.
+
+- `-CoolingNoColumns` fails by design.
+- `-RaidGround`: the raid did not fire in run `20261117-224811`. It passed on a rerun (`20261117-231808`). This is the first recorded failure of this row.
+- `-FloorsTab` reads Lucas's mod list. On 2026-11-17 at 14:53, Steam updated his Workshop mods. Since then, loading that list throws, with missing `DMS` types and a `LunarFramework` parameter-count error. The game then resets the mod list, and the runner stops (runs `20261117-230030` and `231927`). With a scratch mod list of Harmony, Core and Royalty, the scenario passes (`20261117-232115`). This branch did not cause it.
+
+The regression script read switch names with `[A-Za-z]+`, so it skipped `-D15Followups`. That run was made on the PR head `db621ff`, with the same `ZLevels.dll` and a clean tree, and passed (`20261117-232436`).
+
+An earlier attempt on `baf6a97` is void. Two regressions that I had stopped kept running from their wrapper loops, so three ran at the same time and fought over the shared game log. Those logs are kept in the scratch folder as `reg-baf6a97-collided`. The one real failure among them, `-SearchTiming`, is fixed in `3c8025b`.
+
+| Run | Folder | Result |
+|---|---|---|
+| core | `20261117-213827` | PASS |
+| `-InfestationGuard` | `20261117-214030` | PASS |
+| `-StaleLookup` | `20261117-214153` | PASS |
+| `-VaultPlacement` | `20261117-214305` | PASS |
+| `-VaultPocket` | `20261117-214418` | PASS |
+| `-VaultEnter` | `20261117-214530` | PASS |
+| `-VaultLoad` | `20261117-214658` | PASS |
+| `-VaultSave` | `20261117-214815` | PASS |
+| `-VaultInfestation` | `20261117-214937` | PASS |
+| `-VaultRock` | `20261117-215051` | PASS |
+| `-VaultFull` | `20261117-215319` | PASS |
+| `-Supply` | `20261117-215431` | PASS |
+| `-UnreachableZone` | `20261117-220344` | PASS |
+| `-MultiBuild` | `20261117-220557` | PASS |
+| `-StairsDamage` | `20261117-220739` | PASS |
+| `-Cooling` | `20261117-220857` | PASS |
+| `-CoolingNoColumns` | `20261117-221105` | FAIL |
+| `-CoolingTwoNets` | `20261117-221312` | PASS |
+| `-SocialRelaxQueue` | `20261117-221425` | PASS |
+| `-RestSearchNull` | `20261117-221538` | PASS |
+| `-TraderReturn` | `20261117-221651` | PASS |
+| `-ReservationRefused` | `20261117-221805` | PASS |
+| `-FloorHotkeys` | `20261117-221918` | PASS |
+| `-StayOnFloor` | `20261117-222037` | PASS |
+| `-WorkOnFloorOrder` | `20261117-222206` | PASS |
+| `-NeedCooldown` | `20261117-222324` | PASS |
+| `-IdleSearchPause` | `20261117-222443` | PASS |
+| `-StaleClaims` | `20261117-222601` | PASS |
+| `-FloorGuard` | `20261117-222714` | PASS |
+| `-StorageIndex` | `20261117-222832` | PASS |
+| `-StairRoutes` | `20261117-222950` | PASS |
+| `-FloorWalk` | `20261117-223103` | PASS |
+| `-AddonLoad` | `20261117-223221` | PASS |
+| `-ChoreSpread` | `20261117-223334` | PASS |
+| `-OneFloorColony` | `20261117-223447` | PASS |
+| `-StairsView` | `20261117-223605` | PASS |
+| `-StairPlacement` | `20261117-223724` | PASS |
+| `-SearchTiming` | `20261117-223842` | PASS |
+| `-WorkSearchProfile` | `20261117-224010` | PASS |
+| `-LighterFloors` | `20261117-224134` | PASS |
+| `-OwnFloorFirst` | `20261117-224252` | PASS |
+| `-JobTargets` | `20261117-224416` | PASS |
+| `-BackgroundHaul` | `20261117-224534` | PASS |
+| `-JobTakenOnArrival` | `20261117-224653` | PASS |
+| `-RaidGround` | `20261117-224811` | FAIL |
+| `-LeaveFromLower` | `20261117-224934` | PASS |
+| `-SkyfallerRoof` | `20261117-225052` | PASS |
+| `-MoodOtherFloor` | `20261117-225215` | PASS |
+| `-EventsOtherFloor` | `20261117-225339` | PASS |
+| `-ThiefCarry` | `20261117-225542` | PASS |
+| `-ChildAnimalMech` | `20261117-225700` | PASS |
+| `-CrossFloorFight` | `20261117-225812` | PASS |
+| `-FloorsTab` | `20261117-230030` | FAIL |
+| `-FloorWorkFilter` | `20261117-230152` | PASS |
+| `-HaulToFloor` | `20261117-230315` | PASS |
+| `-BenchLink` | `20261117-230432` | PASS |
+| `-CallColonists` | `20261117-230550` | PASS |
+| `-StairsEqualize` | `20261117-230707` | PASS |
+| `-FloorsGuide` | `20261117-230820` | PASS |
+| `-WayUps` | `20261117-230933` | PASS |
+| `-FloorPipe` | `20261117-231045` | PASS |
+| `-StairTransfer` | `20261117-231158` | PASS |
+| `-SearchThrowState` | `20261117-231311` | PASS |
+| `-FloorStateAfterSearch` | `20261117-231423` | PASS |
+| `-RimatomicsPlusPlus` | `20261117-231536` | PASS |
+
+### Review
+
+- **Round 1:** a Claude subagent on `37507de`. APPROVE with four Minor findings:
+  1. The loop rows passed without the restore.
+  2. The think-tree row could pass through the work search's own close.
+  3. Missing close sites.
+  4. The field after a reset.
+
+  All four are fixed in `d3d51fa` and `651eed6`. The GPT reviewer (`gpt-6.1-sol`, medium) did not run: the ChatGPT usage limit was reached, and a retry on `651eed6` hit the same limit.
+- **Round 2:** a Claude subagent on `651eed6`. APPROVE with three Minor findings: the call-colonists walk cell, the float-menu comments and spec, and the float-menu loop's missing `FloorRestore`. It also left a note on `DetermineNextJob`'s early return. All are fixed in `baf6a97`.
+
+- **Round 3:** a Claude subagent on `20272dd`, the whole PR. APPROVE with three Minor findings: the identity wording above, a missing limit, and the call-colonists `CloseFiling` outside a `finally`. All are fixed in `aea4db0`. The DLLs were published again from `aea4db0` (`ZLevels.dll` `3AB000F8...`, `217ce3c`). On that DLL, `-CallColonists` (`20261118-012428`), `-D15Followups` (`20261118-012555`) and core (`20261118-012724`) pass.
+- **GPT:** no GPT review ran. Lucas answered on 2026-11-18 to merge on the Claude rounds alone (roadmap, decisions).
+
+### Limits
+
+- No row covers the float-menu loop or the float-menu finalizer. Building the right-click menu in a run needs a click context.
+- No row reproduces the call-colonists filing fix (round 2) or its `finally` (round 3). `-CallColonists` passes end to end.
+- The stair arrival check still resets the tracker without ending the filing. Filing ends at the next think-tree search of any pawn.
+- The published DLLs were not loaded into a game. Multiplayer is untested.

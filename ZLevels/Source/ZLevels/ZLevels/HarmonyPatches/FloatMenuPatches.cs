@@ -460,6 +460,14 @@ namespace ZLevels
         [HarmonyPatch(typeof(FloatMenuMakerMap), "GetOptions")]
         public class AddHumanlikeOrders_Patch
         {
+            // A safety net: building the menu opens no filing itself (the option actions that reset the tracker run later, on a click, and end
+            // the filing with BuildJobListFor). The finalizer ends any filing left open when the menu is built, also after a throw, and passes
+            // the exception on (D15 follow-ups).
+            public static void Finalizer()
+            {
+                ZLevelsManager.CloseFiling();
+            }
+
             public static void Postfix(Vector3 clickPos, FloatMenuContext context, ref List<FloatMenuOption> __result)
             {
                 if (context == null || context.IsMultiselect || context.FirstSelectedPawn == null || !context.FirstSelectedPawn.RaceProps.Humanlike) return;
@@ -746,7 +754,10 @@ namespace ZLevels
                                                 Map oldPawnMap = pawn.Map;
                                                 IntVec3 oldPawnPosition = pawn.Position;
 
-                                                foreach (var otherMap in ZTracker.GetAllMapsInClosestOrder(oldPawnMap))
+                                                // The guard moves the colonist back when the loop ends, also when a work giver throws on another
+                                                // floor (D15 follow-ups, review round 2).
+                                                using (new FloorRestore(pawn, oldPawnMap, oldPawnPosition))
+                                                foreach (var otherMap in ZUtils.LookingInto(ZTracker.GetAllMapsInClosestOrder(oldPawnMap), oldPawnMap))
                                                 {
                                                     if (oldPawnMap != otherMap)
                                                     {

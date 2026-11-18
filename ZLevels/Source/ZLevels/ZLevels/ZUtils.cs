@@ -92,6 +92,26 @@ namespace ZLevels
             }
         }
 
+        // For the loops that walk the manager's floor list and move the colonist themselves (the bill, refuel and forced float-menu loops).
+        // Sets currentLookedIntoMap to each floor before yielding it, so a cell built while the colonist looks into a floor is filed under that
+        // floor, and puts it back on the colonist's own floor when the enumeration ends, stops early or throws, as the iterators above do
+        // (D15 follow-ups, spec docs/specs/2026-11-17-d15-followups.md).
+        public static IEnumerable<Map> LookingInto(IEnumerable<Map> maps, Map ownFloor)
+        {
+            try
+            {
+                foreach (Map map in maps)
+                {
+                    currentLookedIntoMap = map;
+                    yield return map;
+                }
+            }
+            finally
+            {
+                currentLookedIntoMap = ownFloor;
+            }
+        }
+
         public static IEnumerable<Map> GetAllMapsInClosestOrderForTwoThings(Thing thing, Map oldMap, IntVec3 oldPosition, Thing thing2, Map oldMap2, IntVec3 oldPosition2)
         {
             try

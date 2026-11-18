@@ -121,22 +121,23 @@ namespace ZLevels
     [HarmonyPatch("CanReserveStack")]
     public class ReservationManager_CanReserveStack_Patch
     {
-        private static Map oldMap;
-        private static void Prefix(ref int __result, ReservationManager __instance, Pawn claimant, LocalTargetInfo target, ref bool __state, int maxPawns = 1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
+        // Where the claimant stood travels in __state, so a nested check keeps its own copy, and the finalizer moves the claimant back also when
+        // the check throws. A postfix would be skipped then and leave the claimant on the target's floor (D15 follow-ups, as CanReach_Patch).
+        private static void Prefix(ref int __result, ReservationManager __instance, Pawn claimant, LocalTargetInfo target, out CanReach_Patch.Restore __state, int maxPawns = 1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
         {
-            if (target.HasThing && target.Thing.Map != claimant.Map)
+            __state = null;
+            if (target.HasThing && target.Thing.Map != null && claimant.Map != null && target.Thing.Map != claimant.Map)
             {
-                oldMap = claimant.Map;
+                __state = new CanReach_Patch.Restore { map = claimant.Map, cell = claimant.Position };
                 ZUtils.TeleportThing(claimant, target.Thing.Map, claimant.Position);
-                __state = true;
             }
         }
-    
-        private static void Postfix(ReservationManager __instance, Pawn claimant, LocalTargetInfo target, ref bool __state, int maxPawns = 1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
+
+        private static void Finalizer(Pawn claimant, CanReach_Patch.Restore __state)
         {
-            if (__state)
+            if (__state != null)
             {
-                ZUtils.TeleportThing(claimant, oldMap, claimant.Position);
+                ZUtils.TeleportThing(claimant, __state.map, __state.cell);
             }
         }
     }
@@ -144,11 +145,11 @@ namespace ZLevels
     [HarmonyPatch("CanReserve")]
     public class ReservationManager_CanReserve_Patch
     {
-        private static Map oldMap;
-        private static IntVec3 oldPosition;
-        private static bool Prefix(ref bool __result, ReservationManager __instance, Pawn claimant, LocalTargetInfo target, out bool __state, int maxPawns = 1, int stackCount = -1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
+        // Where the claimant stood travels in __state; the finalizer moves it back, also when the check on the other floor throws (D15
+        // follow-ups, as CanReach_Patch).
+        private static bool Prefix(ref bool __result, ReservationManager __instance, Pawn claimant, LocalTargetInfo target, out CanReach_Patch.Restore __state, int maxPawns = 1, int stackCount = -1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
         {
-            __state = false;
+            __state = null;
             if (claimant.RaceProps.Humanlike && claimant.Map != null)
             {
                 if (target.HasThing)
@@ -158,9 +159,7 @@ namespace ZLevels
                         var cellToTeleport = ZUtils.GetCellToTeleportFrom(claimant.Map, claimant.Position, target.thingInt.Map);
                         var cell = cellToTeleport.IsValid ? cellToTeleport : claimant.Position;
     
-                        __state = true;
-                        oldMap = claimant.Map;
-                        oldPosition = claimant.Position;
+                        __state = new CanReach_Patch.Restore { map = claimant.Map, cell = claimant.Position };
                         ZUtils.TeleportThing(claimant, target.thingInt.Map, cell);
                         __result = claimant.CanReserve(target, maxPawns, stackCount, layer, ignoreOtherReservations);
                         return false;
@@ -176,9 +175,7 @@ namespace ZLevels
                             var cellToTeleport = ZUtils.GetCellToTeleportFrom(claimant.Map, claimant.Position, mapDest);
                             var cell = cellToTeleport.IsValid ? cellToTeleport : claimant.Position;
     
-                            __state = true;
-                            oldMap = claimant.Map;
-                            oldPosition = claimant.Position;
+                            __state = new CanReach_Patch.Restore { map = claimant.Map, cell = claimant.Position };
                             ZUtils.TeleportThing(claimant, mapDest, cell);
                             __result = claimant.CanReserve(target, maxPawns, stackCount, layer, ignoreOtherReservations);
                             return false;
@@ -189,12 +186,18 @@ namespace ZLevels
             return true;
         }
     
-        private static void Postfix(ref bool __result, Pawn claimant, LocalTargetInfo target, bool __state, int maxPawns = 1, int stackCount = -1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
+        // Harmony runs finalizers after every postfix, so the postfix below still sees the claimant on the target's floor. It reads no floor of
+        // the claimant.
+        private static void Finalizer(Pawn claimant, CanReach_Patch.Restore __state)
         {
-            if (__state)
+            if (__state != null)
             {
-                ZUtils.TeleportThing(claimant, oldMap, oldPosition);
+                ZUtils.TeleportThing(claimant, __state.map, __state.cell);
             }
+        }
+
+        private static void Postfix(ref bool __result, Pawn claimant, LocalTargetInfo target, int maxPawns = 1, int stackCount = -1, ReservationLayerDef layer = null, bool ignoreOtherReservations = false)
+        {
             if (__result)
             {
                 var ZTracker = ZUtils.ZTracker;
